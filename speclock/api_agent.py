@@ -87,6 +87,8 @@ def get_index(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent
                 summary=(block.summary or block.draft_content_md.strip())[:50],
             )
         )
+    audit(db, key.key, "pull", "index", {"entries": len(entries)})
+    db.commit()
     return entries
 
 
@@ -171,6 +173,8 @@ def get_documents(db: Session = Depends(get_db), key: ApiKey = Depends(require_a
                 version=doc.current_version,
             )
         )
+    audit(db, key.key, "pull", "documents", {"entries": len(out)})
+    db.commit()
     return out
 
 

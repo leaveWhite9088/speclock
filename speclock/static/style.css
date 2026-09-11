@@ -43,3 +43,4 @@ button { cursor: pointer; }
 .line-del { color: #b91c1c; background: #fef2f2; }
 details.textdiff { margin: 14px 0; }
 details.textdiff summary { cursor: pointer; font-weight: 600; }
+.config-json { background: #111827; color: #d1fae5; padding: 14px; border-radius: 8px; overflow-x: auto; }

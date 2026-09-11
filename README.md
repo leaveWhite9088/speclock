@@ -79,8 +79,8 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
       "command": "D:/Project2/code-260911-docsystem/speclock/.venv/Scripts/python.exe",
       "args": ["-m", "speclock.mcp_server"],
       "env": {
-        "SPECLOCK_BASE_URL": "http://127.0.0.1:8000",
-        "SPECLOCK_AGENT_KEY": "agent-dev-0000000000000000000000000001"
+        "SPECLOCK_URL": "http://127.0.0.1:8000",
+        "SPECLOCK_KEY": "agent-dev-0000000000000000000000000001"
       }
     }
   }
@@ -110,6 +110,10 @@ MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `
   按 API 分组的 delta 表格（点号路径、类型、必填、说明；删除行红色删除线、新增绿色、修改橙色）→
   业务描述/非功能性需求文本 diff（+绿/-红，可折叠区块）。不再展示整段 YAML 文本 diff
 - 提案收件箱（一键批准并发布 / 拒绝）、「已完成」回执看板
+- **AI 接入（MCP）页**（导航栏「AI 接入」）：MCP 说明、可直接复制的 Claude Code 配置
+  （command 用当前环境真实解释器路径，env 里 `SPECLOCK_URL` 取当前服务地址、
+  `SPECLOCK_KEY` 取固定 agent dev key，附复制按钮）、8 个 MCP 工具清单、
+  「AI 最近活动」表格（最近 50 条 agent 拉取/提案/ack 审计记录：时间/动作/目标/key 前缀）
 
 > 破坏性判定细化：**删除可选字段（required=false）视为非破坏性**，可 fastTrack；删除必填
 > 字段、删除整个 API、任何类型/必填标志变更仍为破坏性，必须 confirm=true。

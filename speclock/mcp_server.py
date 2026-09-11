@@ -6,8 +6,8 @@ of the SpecLock read-only REST API; there is intentionally no write tool
 in the published store).
 
 Configure with:
-  SPECLOCK_BASE_URL   default http://127.0.0.1:8000
-  SPECLOCK_AGENT_KEY  an agent-* key printed by `python -m speclock.seed`
+  SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
+  SPECLOCK_KEY        an agent-* key (legacy name SPECLOCK_AGENT_KEY also accepted)
 
 Run:  python -m speclock.mcp_server
 """
@@ -20,15 +20,17 @@ import os
 import httpx
 from mcp.server.mcpserver import MCPServer
 
-BASE_URL = os.environ.get("SPECLOCK_BASE_URL", "http://127.0.0.1:8000")
-AGENT_KEY = os.environ.get("SPECLOCK_AGENT_KEY", "")
+BASE_URL = os.environ.get("SPECLOCK_URL") or os.environ.get(
+    "SPECLOCK_BASE_URL", "http://127.0.0.1:8000"
+)
+AGENT_KEY = os.environ.get("SPECLOCK_KEY") or os.environ.get("SPECLOCK_AGENT_KEY", "")
 
 mcp = MCPServer("speclock")
 
 
 def _call(method: str, path: str, **kwargs) -> str:
     if not AGENT_KEY:
-        return json.dumps({"error": "SPECLOCK_AGENT_KEY is not set"}, ensure_ascii=False)
+        return json.dumps({"error": "SPECLOCK_KEY is not set"}, ensure_ascii=False)
     try:
         r = httpx.request(
             method,

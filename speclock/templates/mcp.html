@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}SpecLock · AI 接入（MCP）{% endblock %}
+{% block content %}
+<h1>AI 接入（MCP）</h1>
+
+<h2>这是什么</h2>
+<div class="card">
+  <p>MCP server 是开发 AI 读取本系统的<b>只读通道</b>：它以 stdio 方式跑在开发机上，
+  作为 Claude Code 等 AI 客户端的本地插件进程启动。AI 只能读取<b>已发布版本</b>的文档
+  （支持版本 pin 锁定快照），没有任何修改文档的工具；发现文档有误时只能通过
+  <b>提案通道</b>提交建议，经人审批发布后才生效。</p>
+</div>
+
+<h2>接入配置</h2>
+<div class="card">
+  <p>将下面 JSON 放入项目的 <span class="mono">.mcp.json</span>（或 <span class="mono">claude mcp add</span> 等价配置），
+  然后重启 AI 客户端即可。MCP server 以 stdio 启动：
+  <span class="mono">{{ config.mcpServers.speclock.command }} -m speclock.mcp_server</span></p>
+  <pre class="mono config-json" id="mcp-config">{{ config | tojson(indent=2) }}</pre>
+  <button type="button" onclick="copyConfig()">复制配置</button>
+  <span id="copy-result" class="muted"></span>
+</div>
+
+<h2>AI 可用工具清单（{{ tools | length }} 个）</h2>
+<div class="card">
+<table>
+  <tr><th>工具</th><th>说明</th></tr>
+  {% for name, desc in tools %}
+  <tr><td class="mono">{{ name }}</td><td>{{ desc }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>AI 最近活动（最近 {{ activities | length }} 条）</h2>
+<div class="card">
+{% if activities %}
+<table>
+  <tr><th>时间</th><th>动作</th><th>目标</th><th>Key 前缀</th></tr>
+  {% for a in activities %}
+  <tr>
+    <td class="muted">{{ a.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    <td><span class="badge">{{ a.action }}</span></td>
+    <td class="mono">{{ a.target }}</td>
+    <td class="mono muted">{{ a.actor[:16] }}…</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">暂无 AI 活动记录。AI 通过 MCP 或 REST 读取/提案后，这里会显示它读了什么。</p>
+{% endif %}
+</div>
+
+<script>
+async function copyConfig() {
+  const text = document.getElementById('mcp-config').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    document.getElementById('copy-result').textContent = '已复制到剪贴板 ✓';
+  } catch (e) {
+    // 剪贴板 API 不可用时退化为选中
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('mcp-config'));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.getElementById('copy-result').textContent = '已全选，请 Ctrl+C';
+  }
+}
+</script>
+{% endblock %}

@@ -20,6 +20,7 @@ from speclock.db import get_db
 from speclock.models import (
     Ack,
     ApiKey,
+    AuditLog,
     Block,
     Document,
     DocumentVersion,
@@ -209,6 +210,62 @@ def diff_view(
             "nfr_lines": nfr_lines,
         },
     )
+
+
+@router.get("/ui/mcp", response_class=HTMLResponse)
+def mcp_page(request: Request, db: Session = Depends(get_db)):
+    """AI 接入（MCP）页：说明、可复制配置、工具清单、AI 最近活动。"""
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    import sys
+
+    agent_rec = (
+        db.query(ApiKey).filter(ApiKey.prefix == "agent").order_by(ApiKey.id).first()
+    )
+    agent_key = agent_rec.key if agent_rec else "agent-<请先运行 seed 生成>"
+    config = {
+        "mcpServers": {
+            "speclock": {
+                "command": sys.executable,
+                "args": ["-m", "speclock.mcp_server"],
+                "env": {
+                    "SPECLOCK_URL": str(request.base_url).rstrip("/"),
+                    "SPECLOCK_KEY": agent_key,
+                },
+            }
+        }
+    }
+    activities = (
+        db.query(AuditLog)
+        .filter(AuditLog.actor.like("agent-%"))
+        .order_by(AuditLog.id.desc())
+        .limit(50)
+        .all()
+    )
+    return templates.TemplateResponse(
+        request,
+        "mcp.html",
+        {
+            "key": key,
+            "config": config,
+            "agent_key": agent_key,
+            "tools": MCP_TOOLS,
+            "activities": activities,
+        },
+    )
+
+
+MCP_TOOLS = [
+    ("get_documents", "列出全部文档及其当前文档级版本"),
+    ("get_document", "读取文档 manifest（模块→版本清单），可 pin 文档版本"),
+    ("get_index", "全部已发布模块的一行摘要索引（AI 先取索引再按需拉块）"),
+    ("get_block", "读取一个模块的已发布版本，可 pin 版本号锁定快照"),
+    ("get_diff", "两个已发布版本之间的结构化 + 文本 diff"),
+    ("ack_block", "回执：声明「已按 模块@版本 实现」"),
+    ("submit_proposal", "提交变更提案——AI 唯一的写出口，需人审批发布后才生效"),
+    ("get_proposal", "轮询提案状态（submitted / published / rejected）"),
+]
 
 
 @router.get("/ui/proposals", response_class=HTMLResponse)
