@@ -123,3 +123,64 @@ def test_delta_stored_on_version(env):
     delta = r.json()["delta"]
     assert any("extra_note" in a for a in delta["added"])
     assert delta["removed"] == []
+
+
+# ---------- 发布两通道（方案 B）：dryRun 预览 + 确认 ----------
+
+
+def test_dryrun_does_not_persist(env):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    c, h, bid = env["client"], env["human"], env["block_id"]
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
+    before = c.get(f"/api/v1/blocks/{bid}/versions", headers=h).json()
+    r = c.post(f"/api/v1/blocks/{bid}/publish", json={"dryRun": True}, headers=h)
+    assert r.status_code == 200, r.text
+    after = c.get(f"/api/v1/blocks/{bid}/versions", headers=h).json()
+    assert len(after) == len(before)  # 不落库
+    # 当前版本不变，agent 读到的还是旧版
+    assert c.get(f"/api/v1/blocks/{bid}", headers=env["agent"]).json()["version"] == "1.0.0"
+
+
+def test_dryrun_preview_content(env):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    c, h, bid = env["client"], env["human"], env["block_id"]
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
+    r = c.post(f"/api/v1/blocks/{bid}/publish", json={"dryRun": True}, headers=h)
+    body = r.json()
+    assert body["version"] == "1.1.0"  # 预测将发布的版本号
+    assert body["breaking"] is False
+    assert any("extra_note" in a for a in body["delta"]["added"])
+    assert body["document_version"] == "1.1.0"  # 预测派生文档版本
+    # 按 API 分组的结构化明细（确认视图用）
+    assert body["groups"][0]["api_key"] == "GET /api/daily-report"
+    assert body["groups"][0]["changes"][0]["kind"] == "added"
+    assert body["groups"][0]["changes"][0]["path"] == "extra_note"
+
+
+def test_breaking_dryrun_then_confirm_publish(env):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    c, h, bid = env["client"], env["human"], env["block_id"]
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_BREAKING}, headers=h)
+    r = c.post(f"/api/v1/blocks/{bid}/publish", json={"dryRun": True}, headers=h)
+    body = r.json()
+    assert body["breaking"] is True
+    assert body["version"] == "2.0.0"
+    assert body["affected"]
+    # dryRun 后仍未落库；confirm 后真正发布为 MAJOR
+    assert len(c.get(f"/api/v1/blocks/{bid}/versions", headers=h).json()) == 1
+    r = c.post(f"/api/v1/blocks/{bid}/publish",
+               json={"change_note": "改类型", "confirm": True}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["version"] == "2.0.0"
+
+
+def test_fasttrack_breaking_409_guides_to_confirm_flow(env):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    c, h, bid = env["client"], env["human"], env["block_id"]
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_BREAKING}, headers=h)
+    r = c.post(f"/api/v1/blocks/{bid}/publish",
+               json={"change_note": "改类型", "fastTrack": True}, headers=h)
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert "取消秒批" in detail["error"]
+    assert detail["affected"]

@@ -51,6 +51,7 @@ class PublishRequest(BaseModel):
     change_note: str = ""
     fastTrack: bool = False
     confirm: bool = False  # required when the diff is breaking
+    dryRun: bool = False  # 预览：返回将发布的版本/delta/破坏性，不落库
 
 
 class ResolveRequest(BaseModel):
@@ -129,10 +130,11 @@ class PublishResult(BaseModel):
     block_id: int
     version: str
     document_id: int
-    document_version: str  # 本次发布派生的文档版本
+    document_version: str  # 本次发布派生的文档版本（dryRun 时为预测值）
     delta: Delta
     breaking: bool
     affected: list[str] = []
+    groups: list[dict] = []  # 按 API 分组的结构化 delta（确认视图用）
 
 
 class DocumentIndexEntry(BaseModel):

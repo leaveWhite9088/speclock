@@ -21,14 +21,14 @@
 <div class="actions">
   <button type="button" onclick="save()">保存草稿</button>
   <input id="change_note" placeholder="变更说明" size="30">
-  <label><input type="checkbox" id="fastTrack"> 秒批（fastTrack）</label>
-  <label><input type="checkbox" id="confirm"> 确认破坏性变更</label>
+  <label><input type="checkbox" id="fastTrack"> 秒批（跳过预览，仅限非破坏性变更）</label>
   <button type="button" onclick="publish()">发布</button>
   {% if block.current_published_version %}
   <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看已发布版本</a>
   {% endif %}
   <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">查看 diff</a>
 </div>
+<div id="confirm-view"></div>
 <pre id="result"></pre>
 
 <h2>历史版本</h2>
@@ -218,14 +218,120 @@ async function save() {
 }
 
 async function publish() {
+  document.getElementById('confirm-view').innerHTML = '';
+  if (document.getElementById('fastTrack').checked) {
+    // 秒批通道：跳过预览直接发布；破坏性变更会被后端 409 拒绝
+    doPublish({fastTrack: true});
+    return;
+  }
+  // 确认通道：先 dryRun 预览，确认后才真正发布
   const r = await fetch('/api/v1/blocks/' + BID + '/publish', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-API-Key': KEY},
     body: JSON.stringify({
       change_note: document.getElementById('change_note').value,
-      fastTrack: document.getElementById('fastTrack').checked,
-      confirm: document.getElementById('confirm').checked,
+      dryRun: true,
     }),
+  });
+  const body = await r.json();
+  if (!r.ok) {
+    document.getElementById('result').textContent = r.status + '\n' + JSON.stringify(body);
+    return;
+  }
+  renderConfirm(body);
+}
+
+const KIND_LABEL = {added: '新增', modified: '修改', removed: '删除'};
+const SCOPE_LABEL = {api: 'API', request: '请求体', response: '响应体'};
+
+function renderConfirm(p) {
+  const root = document.getElementById('confirm-view');
+  root.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'card confirm-card';
+
+  const head = document.createElement('div');
+  head.className = 'summary-bar';
+  head.innerHTML =
+    '<strong>确认发布</strong> <span class="mono">→ @' + p.version + '</span> ' +
+    (p.breaking
+      ? '<span class="badge breaking">破坏性变更</span>'
+      : '<span class="badge safe">非破坏性</span>') +
+    ' <span class="cnt add">新增 ' + p.delta.added.length + '</span>' +
+    ' <span class="cnt mod">修改 ' + p.delta.modified.length + '</span>' +
+    ' <span class="cnt del">删除 ' + p.delta.removed.length + '</span>' +
+    ' <span class="muted">文档版本 → @' + p.document_version + '</span>';
+  card.appendChild(head);
+
+  if (p.groups.length === 0) {
+    const none = document.createElement('p');
+    none.className = 'muted';
+    none.textContent = 'API 无结构变更。';
+    card.appendChild(none);
+  }
+  for (const g of p.groups) {
+    const gh = document.createElement('h4');
+    gh.textContent = (g.api_name || '') + ' ' + g.api_key;
+    card.appendChild(gh);
+    const tbl = document.createElement('table');
+    tbl.className = 'delta-table';
+    tbl.innerHTML = '<tr><th>变更</th><th>位置</th><th>字段路径</th><th>类型/必填</th><th>说明</th></tr>';
+    for (const ch of g.changes) {
+      const tr = document.createElement('tr');
+      tr.className = 'chg-' + ch.kind;
+      tr.innerHTML =
+        '<td>' + KIND_LABEL[ch.kind] + '</td>' +
+        '<td>' + SCOPE_LABEL[ch.scope] + '</td>' +
+        '<td class="mono path">' + (ch.path || '（整个 API）') + '</td>' +
+        '<td class="mono">' + ch.detail + '</td>' +
+        '<td class="muted">' + (ch.description || '') + '</td>';
+      tbl.appendChild(tr);
+    }
+    card.appendChild(tbl);
+  }
+
+  if (p.breaking) {
+    const warn = document.createElement('div');
+    warn.className = 'breaking-warning';
+    warn.innerHTML =
+      '<strong>⚠ 破坏性变更警告</strong>：以上删除/修改会让正在消费旧版本的下游失效。' +
+      '发布后版本号为 MAJOR 升级（@' + p.version + '）。' +
+      '<label style="display:block;margin-top:8px">' +
+      '<input type="checkbox" id="ack-breaking"> 我已知晓破坏性影响</label>';
+    card.appendChild(warn);
+  }
+
+  const ops = document.createElement('div');
+  ops.className = 'actions';
+  const ok = document.createElement('button');
+  ok.type = 'button';
+  ok.id = 'confirm-publish-btn';
+  ok.textContent = '确认发布 @' + p.version;
+  if (p.breaking) ok.disabled = true;
+  ok.onclick = () => doPublish({confirm: p.breaking});
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = '取消';
+  cancel.onclick = () => { root.innerHTML = ''; };
+  ops.append(ok, cancel);
+  card.appendChild(ops);
+  root.appendChild(card);
+
+  if (p.breaking) {
+    document.getElementById('ack-breaking').onchange = e => {
+      document.getElementById('confirm-publish-btn').disabled = !e.target.checked;
+    };
+  }
+  card.scrollIntoView({behavior: 'smooth'});
+}
+
+async function doPublish(opts) {
+  const r = await fetch('/api/v1/blocks/' + BID + '/publish', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-API-Key': KEY},
+    body: JSON.stringify(Object.assign({
+      change_note: document.getElementById('change_note').value,
+    }, opts)),
   });
   document.getElementById('result').textContent = r.status + '\n' + await r.text();
   if (r.ok) setTimeout(() => location.reload(), 600);

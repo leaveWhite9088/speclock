@@ -160,8 +160,15 @@ speclock/
   与 agent 拆成两个服务、两套凭据分开部署；MVP 用代码结构保证这条边界可拆分。
 - **版本 pin**：`GET /api/v1/blocks/{id}@{version}`、`GET /api/v1/documents/{id}@{version}`
   读不可变快照；草稿对 agent 永远不可见。
-- **fastTrack 秒批**：发布时服务端基于 `apis_json` 做字段级 diff；无破坏性变更（删字段/改类型）
-  才允许 `fastTrack=true`；破坏性变更必须 `confirm=true`，响应返回受影响字段清单。
+- **发布两通道（方案 B：预览确认型）**：发布时服务端基于 `apis_json` 做字段级 diff。
+  - **不勾秒批（默认路径）**：点发布先 `dryRun` 预览——确认视图展示将发布的版本号、
+    delta 摘要（新增/修改/删除计数 + 按 API 分组明细）、是否破坏性；非破坏性点「确认发布」
+    落库；破坏性显示红色警告区，必须勾选「我已知晓破坏性影响」后按钮才可点
+    （真正发布带 `confirm=true`）。
+  - **勾秒批**：跳过预览直接发布，仅限非破坏性变更；含破坏性变更返回 409 并引导
+    「取消秒批以查看影响清单并确认」。
+  - `POST /blocks/{id}/publish {"dryRun": true}` 返回预览（版本号/breaking/delta/groups/
+    预测文档版本）但不落库、不写审计。
 - **delta**：每次发布自动生成 `{added, modified, removed}` 存入 `BlockVersion.delta_json`。
 - **审计**：发布（模块+文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`。
 

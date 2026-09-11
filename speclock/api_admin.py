@@ -114,12 +114,16 @@ def publish_block(
     change_note: str,
     fast_track: bool,
     confirm: bool,
+    dry_run: bool = False,
 ) -> PublishResult:
     """Snapshot the working draft into a new immutable BlockVersion, then
     derive a new DocumentVersion for the owning document.
 
-    fastTrack is only legal for non-breaking diffs; breaking diffs require
-    confirm=true and always report the affected field list.
+    两通道语义（方案 B）：
+    - dry_run=True：只返回预览（将发布的版本号 / delta / 破坏性 / 预测文档
+      版本），不落库、不写审计；
+    - fastTrack（秒批）：仅允许非破坏性 diff，破坏性直接 409 并引导取消秒批；
+    - 破坏性变更的真实发布必须 confirm=true（来自确认视图的知晓勾选）。
     """
     apis = _validate_apis_or_422(json.loads(block.draft_apis_json or "[]"))
 
@@ -131,12 +135,27 @@ def publish_block(
     d = diffing.delta(old_apis, apis)
     breaking = diffing.is_breaking(d)
     affected = d["removed"] + d["modified"]
+    groups = diffing.group_delta(d, old_apis, apis)
+    version, level = diffing.next_module_version(block.current_published_version, d)
+
+    if dry_run:
+        doc = db.get(Document, block.document_id)
+        return PublishResult(
+            block_id=block.id,
+            version=version,
+            document_id=block.document_id,
+            document_version=diffing.derive_document_version(doc.current_version, level),
+            delta=d,
+            breaking=breaking,
+            affected=affected,
+            groups=groups,
+        )
 
     if breaking and fast_track:
         raise HTTPException(
             status_code=409,
             detail={
-                "error": "fastTrack rejected: diff contains breaking changes",
+                "error": "包含破坏性变更，请取消秒批以查看影响清单并确认",
                 "breaking": True,
                 "affected": affected,
             },
@@ -151,7 +170,6 @@ def publish_block(
             },
         )
 
-    version, level = diffing.next_module_version(block.current_published_version, d)
     bv = BlockVersion(
         block_id=block.id,
         version=version,
@@ -183,6 +201,7 @@ def publish_block(
         delta=d,
         breaking=breaking,
         affected=affected,
+        groups=groups,
     )
 
 
@@ -391,6 +410,7 @@ def publish(
         change_note=body.change_note,
         fast_track=body.fastTrack,
         confirm=body.confirm,
+        dry_run=body.dryRun,
     )
 
 

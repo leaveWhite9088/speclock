@@ -123,3 +123,16 @@ def test_diff_page_defaults_to_last_two_versions(env):
     r = c.get(f"/ui/blocks/{env['block_id']}/diff?key={hk}")
     assert r.status_code == 200
     assert "@1.0.0 → @1.1.0" in r.text
+
+
+def test_editor_contains_confirm_view_markup(env):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    body = env["client"].get(
+        f"/ui/blocks/{env['block_id']}?key={env['human']['X-API-Key']}"
+    ).text
+    assert 'id="confirm-view"' in body
+    assert "dryRun" in body
+    assert "renderConfirm" in body
+    assert "我已知晓破坏性影响" in body
+    assert "确认发布" in body
+    assert "秒批（跳过预览，仅限非破坏性变更）" in body

@@ -43,4 +43,10 @@ button { cursor: pointer; }
 .line-del { color: #b91c1c; background: #fef2f2; }
 details.textdiff { margin: 14px 0; }
 details.textdiff summary { cursor: pointer; font-weight: 600; }
+.confirm-card { border: 2px solid #2563eb; margin-top: 14px; }
+.breaking-warning { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;
+  border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+#confirm-publish-btn { background: #2563eb; color: #fff; border: none; border-radius: 6px;
+  padding: 7px 16px; }
+#confirm-publish-btn[disabled] { background: #9ca3af; cursor: not-allowed; }
 .config-json { background: #111827; color: #d1fae5; padding: 14px; border-radius: 8px; overflow-x: auto; }
