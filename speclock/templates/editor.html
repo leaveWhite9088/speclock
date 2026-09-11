@@ -45,9 +45,14 @@ const BID = {{ block.id }};
 const TYPES = ["string", "number", "integer", "boolean", "array", "object"];
 const CONTAINERS = ["object", "array"];
 let APIS = JSON.parse(document.getElementById('apis-data').textContent);
+let COLLAPSED = APIS.map(() => true);  // 初始加载全部折叠
 
 function newField() {
   return {name: '', type: 'string', required: false, description: '', children: []};
+}
+
+function countFields(fields) {
+  return (fields || []).reduce((n, f) => n + 1 + countFields(f.children), 0);
 }
 
 // path = 索引数组，定位嵌套字段
@@ -136,9 +141,12 @@ function render() {
   root.innerHTML = '';
   APIS.forEach((a, ai) => {
     const card = document.createElement('div');
-    card.className = 'card';
+    card.className = 'card api-card';
     const head = document.createElement('div');
-    head.className = 'actions';
+    head.className = 'actions api-summary';
+    const idx = document.createElement('span');
+    idx.className = 'muted';
+    idx.textContent = '#' + (ai + 1);
     const nameInput = document.createElement('input');
     nameInput.value = a.name || '';
     nameInput.placeholder = '名称（中文显示名）';
@@ -148,24 +156,49 @@ function render() {
     apiInput.placeholder = 'API 名，如 GET /api/daily-report';
     apiInput.size = 34;
     apiInput.oninput = e => { APIS[ai].api = e.target.value; };
+    const method = (a.api || '').trim().split(/\s+/)[0] || '';
+    const badge = document.createElement('span');
+    badge.className = 'badge method-' + method.toLowerCase();
+    badge.textContent = method || '?';
+    const stats = document.createElement('span');
+    stats.className = 'muted';
+    stats.textContent = '请求 ' + countFields(a.request) + ' 字段 / 响应 ' + countFields(a.response) + ' 字段';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'toggle-btn';
+    toggle.textContent = COLLAPSED[ai] ? '展开' : '收起';
+    toggle.onclick = () => { COLLAPSED[ai] = !COLLAPSED[ai]; render(); };
     const del = document.createElement('button');
     del.type = 'button';
     del.textContent = '删除此 API';
-    del.onclick = () => { APIS.splice(ai, 1); render(); };
-    head.append(nameInput, apiInput, del);
+    del.onclick = () => { APIS.splice(ai, 1); COLLAPSED.splice(ai, 1); render(); };
+    if (COLLAPSED[ai]) {
+      // 折叠态：只读摘要行（名称/API 名不可编辑，防误触）
+      const nameText = document.createElement('strong');
+      nameText.textContent = a.name || '（未命名）';
+      const apiText = document.createElement('span');
+      apiText.className = 'mono';
+      apiText.textContent = a.api || '（未填 API 名）';
+      head.append(idx, nameText, apiText, badge, stats, toggle, del);
+    } else {
+      head.append(idx, nameInput, apiInput, badge, toggle, del);
+    }
     card.appendChild(head);
-    const reqH = document.createElement('h4'); reqH.textContent = '请求体';
-    card.appendChild(reqH);
-    card.appendChild(fieldTable('request', ai, a.request || []));
-    const respH = document.createElement('h4'); respH.textContent = '响应体';
-    card.appendChild(respH);
-    card.appendChild(fieldTable('response', ai, a.response || []));
+    if (!COLLAPSED[ai]) {
+      const reqH = document.createElement('h4'); reqH.textContent = '请求体';
+      card.appendChild(reqH);
+      card.appendChild(fieldTable('request', ai, a.request || []));
+      const respH = document.createElement('h4'); respH.textContent = '响应体';
+      card.appendChild(respH);
+      card.appendChild(fieldTable('response', ai, a.response || []));
+    }
     root.appendChild(card);
   });
 }
 
 function addApi() {
   APIS.push({name: '', api: '', request: [], response: []});
+  COLLAPSED.push(false);  // 新增 API 默认展开
   render();
 }
 

@@ -72,6 +72,22 @@
 <h2>非功能性需求</h2>
 <pre class="doc-md">{{ bv.nfr_md }}</pre>
 
+<h2>版本历史</h2>
+<table>
+  <tr><th>版本</th><th>操作</th></tr>
+  {% for v in versions %}
+  <tr>
+    <td class="mono">@{{ v }}{% if bv and v == bv.version %} <span class="badge published">当前查看</span>{% endif %}</td>
+    <td>
+      <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}&version={{ v }}">查看</a>
+      {% if not loop.first %}
+      · <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}&from={{ versions[loop.index0 - 1] }}&to={{ v }}">与上一版对比</a>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
 {% else %}
 {% set ai, a = detail %}
 <h2>API 详情 #{{ ai + 1 }}：{{ a.name }}</h2>

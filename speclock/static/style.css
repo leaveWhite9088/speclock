@@ -23,3 +23,17 @@ button { cursor: pointer; }
 .badge.method-put { background: #fef3c7; color: #b45309; }
 .badge.method-delete { background: #fee2e2; color: #b91c1c; }
 .api-path { font-size: 15px; background: #f6f8fa; padding: 2px 8px; border-radius: 4px; }
+.api-card { padding: 8px 16px; }
+.api-summary { margin: 4px 0; }
+.toggle-btn { min-width: 52px; }
+.summary-bar { display: flex; gap: 14px; align-items: center; font-size: 15px; }
+.badge.breaking { background: #fee2e2; color: #b91c1c; }
+.badge.safe { background: #d1fae5; color: #047857; }
+.cnt.add { color: #047857; } .cnt.mod { color: #b45309; } .cnt.del { color: #b91c1c; }
+.delta-table .chg-removed .path, .delta-table .chg-removed .mono { color: #b91c1c; text-decoration: line-through; }
+.delta-table .chg-added .path { color: #047857; }
+.delta-table .chg-modified .path { color: #b45309; }
+.line-add { color: #047857; background: #ecfdf5; }
+.line-del { color: #b91c1c; background: #fef2f2; }
+details.textdiff { margin: 14px 0; }
+details.textdiff summary { cursor: pointer; font-weight: 600; }

@@ -166,25 +166,49 @@ def diff_view(
     from speclock import diffing
 
     versions = {v.version: v for v in block.versions}
-    diff_text = ""
-    delta = {"added": [], "modified": [], "removed": []}
+    ordered = sorted(versions, key=lambda v: versions[v].id)
+    # 默认对比：上一版 → 当前版
+    if not to and ordered:
+        to = ordered[-1]
+    if not from_ and len(ordered) >= 2:
+        from_ = ordered[-2]
+    elif not from_ and ordered:
+        from_ = ordered[-1]
+
+    summary = None
+    groups = []
+    content_lines: list[str] = []
+    nfr_lines: list[str] = []
     if from_ in versions and to in versions:
         old, new = versions[from_], versions[to]
-        diff_text = diffing.text_diff(old.content_md, new.content_md, from_, to)
-        delta = diffing.delta(
-            json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]")
-        )
+        old_apis = json.loads(old.apis_json or "[]")
+        new_apis = json.loads(new.apis_json or "[]")
+        d = diffing.delta(old_apis, new_apis)
+        groups = diffing.group_delta(d, old_apis, new_apis)
+        summary = {
+            "from": from_,
+            "to": to,
+            "breaking": diffing.is_breaking(d),
+            "added": len(d["added"]),
+            "modified": len(d["modified"]),
+            "removed": len(d["removed"]),
+            "change_note": new.change_note,
+        }
+        content_lines = diffing.text_diff(old.content_md, new.content_md, from_, to).splitlines()
+        nfr_lines = diffing.text_diff(old.nfr_md, new.nfr_md, from_, to).splitlines()
     return templates.TemplateResponse(
         request,
         "diff.html",
         {
             "key": key,
             "block": block,
-            "versions": sorted(versions),
+            "versions": ordered,
             "from": from_,
             "to": to,
-            "diff_text": diff_text,
-            "delta": delta,
+            "summary": summary,
+            "groups": groups,
+            "content_lines": content_lines,
+            "nfr_lines": nfr_lines,
         },
     )
 

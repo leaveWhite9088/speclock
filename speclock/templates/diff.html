@@ -2,24 +2,61 @@
 {% block title %}SpecLock · diff {{ block.title }}{% endblock %}
 {% block content %}
 <h1>diff · {{ block.title }}</h1>
-<form method="get">
+<form method="get" class="actions">
   <input type="hidden" name="key" value="{{ key }}">
   from <select name="from">{% for v in versions %}<option {% if v == from %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-  to <select name="to">{% for v in versions %}<option {% if v == to %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+  → to <select name="to">{% for v in versions %}<option {% if v == to %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
   <button type="submit">对比</button>
 </form>
-{% if diff_text %}
-<h2>结构化 delta</h2>
-<ul>
-  <li>ADDED: {{ delta.added | length }} 项</li>
-  <li>MODIFIED: {{ delta.modified | length }} 项</li>
-  <li>REMOVED: {{ delta.removed | length }} 项</li>
-</ul>
-{% for item in delta.added %}<div class="delta add">+ {{ item }}</div>{% endfor %}
-{% for item in delta.modified %}<div class="delta mod">~ {{ item }}</div>{% endfor %}
-{% for item in delta.removed %}<div class="delta del">- {{ item }}</div>{% endfor %}
-<h2>文本 diff</h2>
-<pre class="mono diff">{{ diff_text }}</pre>
+
+{% if summary %}
+<div class="card summary-bar">
+  <span class="mono">@{{ summary.from }} → @{{ summary.to }}</span>
+  {% if summary.breaking %}
+  <span class="badge breaking">破坏性变更</span>
+  {% else %}
+  <span class="badge safe">非破坏性</span>
+  {% endif %}
+  <span class="cnt add">新增 {{ summary.added }}</span>
+  <span class="cnt mod">修改 {{ summary.modified }}</span>
+  <span class="cnt del">删除 {{ summary.removed }}</span>
+  <span class="muted">{{ summary.change_note }}</span>
+</div>
+
+<h2>API 结构变更</h2>
+{% if groups %}
+  {% for g in groups %}
+  <div class="card">
+    <h3>{{ g.api_name }} <span class="mono muted">{{ g.api_key }}</span></h3>
+    <table class="delta-table">
+      <tr><th>变更</th><th>位置</th><th>字段路径</th><th>类型/必填</th><th>说明</th></tr>
+      {% for ch in g.changes %}
+      <tr class="chg-{{ ch.kind }}">
+        <td>{{ {'added': '新增', 'modified': '修改', 'removed': '删除'}[ch.kind] }}</td>
+        <td>{{ {'api': 'API', 'request': '请求体', 'response': '响应体'}[ch.scope] }}</td>
+        <td class="mono path">{{ ch.path or '（整个 API）' }}</td>
+        <td class="mono">{{ ch.detail }}</td>
+        <td class="muted">{{ ch.description }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+{% else %}
+<p class="muted">API 无结构变更。</p>
+{% endif %}
+
+<details class="textdiff" open>
+  <summary>业务描述文本 diff</summary>
+  <pre class="mono diff">{% for line in content_lines %}<span class="{% if line.startswith('+') and not line.startswith('+++') %}line-add{% elif line.startswith('-') and not line.startswith('---') %}line-del{% endif %}">{{ line }}
+</span>{% endfor %}</pre>
+</details>
+
+<details class="textdiff" open>
+  <summary>非功能性需求文本 diff</summary>
+  <pre class="mono diff">{% for line in nfr_lines %}<span class="{% if line.startswith('+') and not line.startswith('+++') %}line-add{% elif line.startswith('-') and not line.startswith('---') %}line-del{% endif %}">{{ line }}
+</span>{% endfor %}</pre>
+</details>
 {% else %}
 <p class="muted">选择两个已发布版本进行对比。</p>
 {% endif %}

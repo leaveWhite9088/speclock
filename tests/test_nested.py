@@ -73,6 +73,37 @@ def test_children_rejected_under_scalar_type(env):
     assert "children" in r.json()["detail"]
 
 
+def test_empty_children_on_scalar_tolerated(env):
+    """回归：GET 读出的标量字段都带空 children: []，原样 PUT 回必须 200。"""
+    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
+    publish_v1(c, h, bid)
+    apis = c.get(f"/api/v1/blocks/{bid}", headers=a).json()["apis"]
+    # 确认读出的标量确实带空 children
+    assert apis[0]["response"][0]["children"] == []
+    r = c.put(f"/api/v1/blocks/{bid}", json={"apis": apis}, headers=h)
+    assert r.status_code == 200, r.text
+    # 且读回结构不变
+    apis2 = c.get(f"/api/v1/blocks/{bid}/draft", headers=h).json()["apis"]
+    assert apis2 == apis
+
+
+def test_removing_optional_field_is_not_breaking(env):
+    """规则细化：删可选字段（required=false）非破坏性，可走 fastTrack。"""
+    c, h, bid = env["client"], env["human"], env["block_id"]
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V1}, headers=h)
+    publish_v1(c, h, bid)
+    v2 = copy.deepcopy(NESTED_V1)
+    del v2[0]["request"][0]["children"][2]  # 删除可选的 rule.scope（required=false）
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": v2}, headers=h)
+    r = c.post(f"/api/v1/blocks/{bid}/publish",
+               json={"change_note": "删可选字段", "fastTrack": True}, headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["breaking"] is False
+    assert any("rule.scope" in a for a in body["delta"]["removed"])
+    assert body["version"] == "1.0.1"  # 仅删除无新增 -> PATCH
+
+
 def test_nested_field_added_is_minor_with_dotted_path(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     c, h, bid = env["client"], env["human"], env["block_id"]

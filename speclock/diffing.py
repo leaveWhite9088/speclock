@@ -66,11 +66,15 @@ def _validate_field(field: object, where: str) -> dict:
     children = field.get("children") or []
     if not isinstance(children, list):
         raise ApisValidationError(f"{where} 字段 {name!r} 的 children 必须是数组")
+    # 空 children 视为无 children（GET→PUT 往返会带上空 children，不应报错）；
+    # 仅当标量带非空 children 才拒绝。
     if children and ftype not in CONTAINER_TYPES:
         raise ApisValidationError(
             f"{where} 字段 {name!r} 是 {ftype} 类型，不允许有子字段"
             f"（children 只可用于 object/array）"
         )
+    if ftype not in CONTAINER_TYPES:
+        children = []
     fwhere = f"{where}.{name}"
     return {
         "name": name.strip(),
@@ -149,8 +153,19 @@ def delta(old_apis: list, new_apis: list) -> dict[str, list[str]]:
 
 
 def is_breaking(d: dict[str, list[str]]) -> bool:
-    """Removed APIs/fields or type/required changes are breaking for consumers."""
-    return bool(d["removed"] or d["modified"])
+    """破坏性判定：
+    - 删除整个 API、删除必填字段、任何类型/必填标志变更（modified）→ 破坏性；
+    - 删除可选字段（required=false）→ 非破坏性（客户端本就不依赖它），
+      这是演练确认的细化规则：仅删可选字段可走 fastTrack。
+    """
+    if d["modified"]:
+        return True
+    for entry in d["removed"]:
+        if entry.startswith("api:"):
+            return True
+        if entry.rstrip().endswith("required"):
+            return True
+    return False
 
 
 def _field_to_schema(f: dict) -> dict:
@@ -223,6 +238,89 @@ def apis_to_openapi(apis: list) -> dict:
 
 def apis_to_openapi_yaml(apis: list) -> str:
     return yaml.safe_dump(apis_to_openapi(apis), allow_unicode=True, sort_keys=False)
+
+
+# ---------- delta 结构化分组（diff 页用） ----------
+
+
+def field_lookup(apis: list) -> dict[tuple[str, str, str], dict]:
+    """(kind, 'METHOD /path', dotted.field.path) -> field dict，供 diff 页查说明。"""
+
+    def walk(out: dict, kind: str, api: str, prefix: str, fields: list[dict]) -> None:
+        for f in fields:
+            path = prefix + f["name"]
+            out[(kind, api, path)] = f
+            if f.get("children"):
+                walk(out, kind, api, path + ".", f["children"])
+
+    out: dict = {}
+    for entry in validate_apis(apis):
+        for kind in ("request", "response"):
+            walk(out, kind, entry["api"], "", entry[kind])
+    return out
+
+
+def _parse_delta_key(key: str) -> tuple[str, str, str]:
+    """'response:GET /x:rule.scope.store_name' -> ('response', 'GET /x', 'rule.scope.store_name')
+    'api:GET /x' -> ('api', 'GET /x', '')"""
+    kind, rest = key.split(":", 1)
+    if ":" not in rest:
+        return kind, rest, ""
+    method, remainder = rest.split(" ", 1)
+    path, fieldpath = remainder.split(":", 1)
+    return kind, f"{method} {path}", fieldpath
+
+
+def group_delta(
+    d: dict[str, list[str]], old_apis: list, new_apis: list
+) -> list[dict]:
+    """把 {added, modified, removed} 字符串 delta 按 API 分组为结构化行：
+    [{api_key, api_name, changes: [{kind, scope, path, detail, description}]}]"""
+    old_lookup = field_lookup(old_apis)
+    new_lookup = field_lookup(new_apis)
+    api_names: dict[str, str] = {}
+    for apis in (new_apis, old_apis):
+        for entry in apis:
+            api_names.setdefault(entry["api"], entry["name"])
+
+    groups: dict[str, dict] = {}
+
+    def group_for(api_key: str) -> dict:
+        if api_key not in groups:
+            groups[api_key] = {
+                "api_key": api_key,
+                "api_name": api_names.get(api_key, ""),
+                "changes": [],
+            }
+        return groups[api_key]
+
+    def add(kind: str, entry: str) -> None:
+        # entry 形如 "response:GET /x:a.b: string required" 或修改 "…: old -> new"
+        colon = entry.find(": ")
+        key, detail = entry[:colon], entry[colon + 2:]
+        scope, api_key, fieldpath = _parse_delta_key(key)
+        if kind == "added":
+            f = new_lookup.get((scope, api_key, fieldpath))
+        elif kind == "removed":
+            f = old_lookup.get((scope, api_key, fieldpath))
+        else:
+            f = new_lookup.get((scope, api_key, fieldpath)) or old_lookup.get(
+                (scope, api_key, fieldpath)
+            )
+        group_for(api_key)["changes"].append(
+            {
+                "kind": kind,
+                "scope": scope,  # api|request|response
+                "path": fieldpath,
+                "detail": detail,
+                "description": (f or {}).get("description", ""),
+            }
+        )
+
+    for kind in ("added", "modified", "removed"):
+        for entry in d[kind]:
+            add(kind, entry)
+    return list(groups.values())
 
 
 def text_diff(old: str, new: str, fromfile: str = "old", tofile: str = "new") -> str:
