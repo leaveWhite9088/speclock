@@ -49,6 +49,13 @@
   </form>
   <a href="/ui/blocks/{{ block.id }}?key={{ key }}">编辑草稿</a> ·
   <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">diff</a>
+  {% if block.completed %}
+  <span class="badge completed">✓ 已完成@{{ block.completed_version }}</span>
+  <button type="button" onclick="toggleComplete(false)">取消完成</button>
+  {% else %}
+  <span class="badge incomplete">未完成</span>
+  <button type="button" onclick="toggleComplete(true)">标记完成</button>
+  {% endif %}
 </p>
 
 <p>
@@ -111,4 +118,14 @@
 <p><a href="/ui/blocks/{{ block.id }}/view?key={{ key }}&version={{ bv.version }}">← 返回 API 列表</a></p>
 {% endif %}
 {% endif %}
+<script>
+const KEY = {{ key | tojson }};
+async function toggleComplete(done) {
+  const r = await fetch('/api/v1/blocks/{{ block.id }}/' + (done ? 'complete' : 'uncomplete'), {
+    method: 'POST', headers: {'X-API-Key': KEY},
+  });
+  if (!r.ok) { alert(r.status + ' ' + await r.text()); return; }
+  location.reload();
+}
+</script>
 {% endblock %}

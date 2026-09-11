@@ -184,6 +184,10 @@ def publish_block(
     db.add(bv)
     block.current_published_version = version
     block.status = "published"
+    # 发布新版本 → 完成标记自动重置（新版本内容的实现必然滞后）；
+    # completed_version 保留为「上次完成的版本号」供参考
+    block.completed = False
+    block.completed_at = None
     audit(
         db,
         actor,
@@ -390,6 +394,33 @@ def restore_block(block_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"id": block.id, "status": block.status,
             "current_published_version": block.current_published_version}
+
+
+# ---------- 完成标记 ----------
+
+
+@router.post("/blocks/{block_id}/complete")
+def complete_block(block_id: int, db: Session = Depends(get_db)):
+    """标记完成：当前已发布版本已被实现完成。权威状态由人驱动；ack 是 AI 的
+    单次回执，两者不自动联动。"""
+    block = _get_block(db, block_id)
+    if block.status != "published" or block.current_published_version is None:
+        raise HTTPException(status_code=409, detail="只有已发布的模块才能标记完成")
+    block.completed = True
+    block.completed_version = block.current_published_version
+    block.completed_at = utcnow()
+    audit(db, "human", "complete", f"block:{block.id}@{block.completed_version}", {})
+    db.commit()
+    return {"id": block.id, "completed": True, "completed_version": block.completed_version}
+
+
+@router.post("/blocks/{block_id}/uncomplete")
+def uncomplete_block(block_id: int, db: Session = Depends(get_db)):
+    block = _get_block(db, block_id)
+    block.completed = False
+    audit(db, "human", "uncomplete", f"block:{block.id}", {})
+    db.commit()
+    return {"id": block.id, "completed": False, "completed_version": block.completed_version}
 
 
 # ---------- publish / versions ----------

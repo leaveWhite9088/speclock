@@ -105,6 +105,8 @@ class IndexEntry(BaseModel):
     document: str
     version: str
     summary: str  # <= 50 chars
+    completed: bool  # 当前已发布版本是否已被实现完成
+    completed_version: str | None  # 上次完成对应的版本号
 
 
 class Delta(BaseModel):
@@ -124,6 +126,8 @@ class BlockOut(BaseModel):
     change_note: str
     delta: Delta
     published_at: datetime | None
+    completed: bool
+    completed_version: str | None
 
 
 class PublishResult(BaseModel):

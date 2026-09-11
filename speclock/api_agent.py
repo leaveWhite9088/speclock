@@ -57,9 +57,10 @@ def _published_snapshot(db: Session, block: Block, version: str | None) -> Block
 
 
 def _block_out(bv: BlockVersion) -> BlockOut:
+    block = bv.block
     return BlockOut(
         block_id=bv.block_id,
-        title=bv.block.title,
+        title=block.title,
         version=bv.version,
         content_md=bv.content_md,
         apis=json.loads(bv.apis_json or "[]"),
@@ -68,15 +69,28 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         change_note=bv.change_note,
         delta=json.loads(bv.delta_json),
         published_at=bv.published_at,
+        completed=block.completed,
+        completed_version=block.completed_version,
     )
 
 
 @router.get("/index", response_model=list[IndexEntry])
-def get_index(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
-    """One-line summary per published module. Contract: response body <= 8KB."""
+def get_index(
+    domain: str | None = None,
+    incomplete: bool = False,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_agent),
+):
+    """One-line summary per published module. Contract: response body <= 8KB.
+    可选过滤：domain（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
+    每行带 completed/completed_version——后端 AI 据此只做未完成的小业务。"""
     entries = []
     for block in db.query(Block).filter(Block.status == "published").all():
         doc = block.document
+        if domain is not None and doc.domain.name != domain:
+            continue
+        if incomplete and block.completed:
+            continue
         entries.append(
             IndexEntry(
                 block_id=block.id,
@@ -85,9 +99,12 @@ def get_index(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent
                 document=doc.title,
                 version=block.current_published_version,
                 summary=(block.summary or block.draft_content_md.strip())[:50],
+                completed=block.completed,
+                completed_version=block.completed_version,
             )
         )
-    audit(db, key.key, "pull", "index", {"entries": len(entries)})
+    audit(db, key.key, "pull", "index", {"entries": len(entries),
+                                         "domain": domain, "incomplete": incomplete})
     db.commit()
     return entries
 
@@ -112,14 +129,25 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
 @router.get("/blocks/{block_id}/diff")
 def get_diff(
     block_id: int,
-    from_: str = Query(alias="from"),
-    to: str = Query(),
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_agent),
 ):
+    """版本间 diff。from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布
+    版本时返回友好提示（200）而非报错。"""
     block = db.get(Block, block_id)
     if block is None or block.status != "published":
         raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+    ordered = [v.version for v in block.versions]
+    if len(ordered) < 2:
+        return {
+            "block_id": block_id,
+            "message": "该模块目前只有一个已发布版本，暂无可对比的历史版本",
+            "versions": ordered,
+        }
+    from_ = from_ or ordered[-2]
+    to = to or ordered[-1]
     old = _published_snapshot(db, block, from_)
     new = _published_snapshot(db, block, to)
     d = diffing.delta(json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]"))
@@ -143,26 +171,43 @@ def get_diff(
 # ---------- document-level reads (两级版本的文档侧) ----------
 
 
-def _document_out(dv: DocumentVersion) -> DocumentOut:
+def _document_out(db: Session, dv: DocumentVersion) -> DocumentOut:
+    """manifest 快照 + 实时完成状态（完成标记是当前状态，不随历史版本冻结）。"""
     manifest = json.loads(dv.manifest_json)
+    entries = []
+    for bid, m in manifest.items():
+        block = db.get(Block, int(bid))
+        entries.append(
+            {
+                "block_id": int(bid),
+                "title": m["title"],
+                "version": m["version"],
+                "completed": block.completed if block else False,
+                "completed_version": block.completed_version if block else None,
+            }
+        )
     return DocumentOut(
         document_id=dv.document_id,
         title=dv.document.title,
         version=dv.version,
-        manifest=[
-            {"block_id": int(bid), "title": m["title"], "version": m["version"]}
-            for bid, m in manifest.items()
-        ],
+        manifest=entries,
         published_at=dv.published_at,
     )
 
 
 @router.get("/documents", response_model=list[DocumentIndexEntry])
-def get_documents(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
-    """文档列表 + 当前文档版本。没有任何已发布模块的文档对 agent 不可见。"""
+def get_documents(
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_agent),
+):
+    """文档列表 + 当前文档版本。没有任何已发布模块的文档对 agent 不可见。
+    可选过滤：domain（大业务名称精确匹配）。"""
     out = []
     for doc in db.query(Document).all():
         if doc.current_version is None:
+            continue
+        if domain is not None and doc.domain.name != domain:
             continue
         out.append(
             DocumentIndexEntry(
@@ -173,7 +218,7 @@ def get_documents(db: Session = Depends(get_db), key: ApiKey = Depends(require_a
                 version=doc.current_version,
             )
         )
-    audit(db, key.key, "pull", "documents", {"entries": len(out)})
+    audit(db, key.key, "pull", "documents", {"entries": len(out), "domain": domain})
     db.commit()
     return out
 
@@ -199,7 +244,7 @@ def get_document(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(
         raise HTTPException(status_code=404, detail=f"document {doc.id} has no version {target}")
     audit(db, key.key, "pull", f"document:{doc.id}@{dv.version}", {})
     db.commit()
-    return _document_out(dv)
+    return _document_out(db, dv)
 
 
 # ---------- ack & proposals (agent's only writes) ----------

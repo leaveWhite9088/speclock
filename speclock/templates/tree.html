@@ -27,6 +27,13 @@
               <a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a>
               <span class="badge {{ block.status }}">{{ block.status }}</span>
               {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}
+              {% if block.status == 'published' %}
+                {% if block.completed %}
+                <span class="badge completed">✓已完成@{{ block.completed_version }}</span>
+                {% else %}
+                <span class="badge incomplete">未完成</span>
+                {% endif %}
+              {% endif %}
               <span class="muted">{{ block.summary }}</span>
               {% if block.current_published_version %}
               <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看</a>

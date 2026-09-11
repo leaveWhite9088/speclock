@@ -77,6 +77,12 @@ class Block(Base):
     status: Mapped[str] = mapped_column(default="draft")  # draft|published|archived
     current_published_version: Mapped[str | None] = mapped_column(nullable=True)
 
+    # 完成标记：「当前已发布版本已被实现完成」。发布新版本时 completed 自动重置
+    # 为 False；completed_version 保留为「上次完成对应的版本号」（历史信息）。
+    completed: Mapped[bool] = mapped_column(default=False)
+    completed_version: Mapped[str | None] = mapped_column(nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
     # working draft — writable by humans only, never exposed to agents
     draft_content_md: Mapped[str] = mapped_column(Text, default="")
     draft_apis_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化 API 列表

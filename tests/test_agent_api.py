@@ -12,7 +12,8 @@ def test_index_is_one_line_per_block_and_small(env):
     # NF-1: index body must stay <= 8KB
     assert len(r.content) <= 8192
     entry = r.json()[0]
-    assert set(entry) == {"block_id", "title", "domain", "document", "version", "summary"}
+    assert set(entry) == {"block_id", "title", "domain", "document", "version", "summary",
+                          "completed", "completed_version"}
     assert len(entry["summary"]) <= 50
     assert entry["version"] == "1.0.0"
 

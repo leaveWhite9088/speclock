@@ -50,11 +50,19 @@ def _call(method: str, path: str, **kwargs) -> str:
 
 
 @mcp.tool(description=(
-    "List one-line summaries of all published blocks. Call this FIRST to "
-    "decide which blocks are relevant, then fetch only those with get_block."
+    "List one-line summaries of all published modules, each with completion "
+    "status (completed / completed_version) — only work on incomplete modules. "
+    "Call this FIRST to decide which modules are relevant, then fetch only "
+    "those with get_block. Optionally filter by domain (exact 大业务 name) "
+    "and/or incomplete_only."
 ))
-def get_index() -> str:
-    return _call("GET", "/api/v1/index")
+def get_index(domain: str = "", incomplete_only: bool = False) -> str:
+    params: dict = {}
+    if domain:
+        params["domain"] = domain
+    if incomplete_only:
+        params["incomplete"] = "true"
+    return _call("GET", "/api/v1/index", params=params)
 
 
 @mcp.tool(description=(
@@ -66,10 +74,18 @@ def get_block(block_id: int, version: str = "") -> str:
     return _call("GET", f"/api/v1/blocks/{ref}")
 
 
-@mcp.tool(description="Structured + text diff between two published versions of a block.")
-def get_diff(block_id: int, from_version: str, to_version: str) -> str:
-    return _call("GET", f"/api/v1/blocks/{block_id}/diff",
-                 params={"from": from_version, "to": to_version})
+@mcp.tool(description=(
+    "Structured + text diff between two published versions of a module. "
+    "from_version/to_version are optional: defaults to the two most recent "
+    "published versions."
+))
+def get_diff(block_id: int, from_version: str = "", to_version: str = "") -> str:
+    params: dict = {}
+    if from_version:
+        params["from"] = from_version
+    if to_version:
+        params["to"] = to_version
+    return _call("GET", f"/api/v1/blocks/{block_id}/diff", params=params)
 
 
 @mcp.tool(description="Receipt: declare 'I implemented against block {id} @ {version}'.")
@@ -112,10 +128,12 @@ def get_proposal(proposal_id: int) -> str:
 @mcp.tool(description=(
     "List documents with their current document-level version. Documents are "
     "groups of modules (blocks); every module publish derives a new document "
-    "version (manifest of module -> version)."
+    "version (manifest of module -> version). Optionally filter by domain "
+    "(exact 大业务 name)."
 ))
-def get_documents() -> str:
-    return _call("GET", "/api/v1/documents")
+def get_documents(domain: str = "") -> str:
+    params = {"domain": domain} if domain else {}
+    return _call("GET", "/api/v1/documents", params=params)
 
 
 @mcp.tool(description=(

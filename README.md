@@ -89,7 +89,21 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
 
 MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
 `submit_proposal` / `get_proposal` / `get_documents` / `get_document`。
-没有任何写文档的工具。
+没有任何写文档的工具。可选参数：`get_index(domain, incomplete_only)`、
+`get_documents(domain)`、`get_diff(block_id, from_version?, to_version?)`（缺省取最近两版）。
+为控制 AI 上下文占用，工具数保持 8 个，不加新工具。
+
+## 模块完成状态（completed）
+
+- 语义：「当前已发布版本已被实现完成」。`POST /blocks/{id}/complete` / `uncomplete`
+  由人手动管理（查看页有按钮，文档树模块行显示 ✓已完成@版本 / 未完成徽章）。
+- **发布新版本时 completed 自动重置为 False**（新版本的实现必然滞后）；
+  `completed_version` 保留为「上次完成对应的版本号」。
+- AI 可见：`/index` 每行、`get_block` 响应、文档 manifest 每个模块都带
+  `completed` / `completed_version`；`/index?incomplete=true` 只返回未完成模块
+  （可与 `domain` 组合）——后端 AI 据此只做/只改未完成的小业务。
+- **与 ack 的区别**：ack 是 AI 的单次回执（"我按某版本实现过"），completed 是权威
+  完成状态，由人或后续规则驱动；MVP 阶段两者不自动联动（ack 不自动置 completed）。
 
 ## Web UI
 
