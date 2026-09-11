@@ -51,6 +51,15 @@
   <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">diff</a>
 </p>
 
+<p>
+  {% if versions | length >= 2 %}
+  <a class="btn-latest-diff" href="/ui/blocks/{{ block.id }}/diff?key={{ key }}&from={{ versions[-2] }}&to={{ versions[-1] }}">⚡ 最近一次变更（@{{ versions[-2] }} → @{{ versions[-1] }}）</a>
+  {% else %}
+  <button type="button" class="btn-latest-diff" disabled>⚡ 最近一次变更</button>
+  <span class="muted">暂无历史版本</span>
+  {% endif %}
+</p>
+
 {% if not detail %}
 <h2>业务描述</h2>
 <pre class="doc-md">{{ bv.content_md }}</pre>

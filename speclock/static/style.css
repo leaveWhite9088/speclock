@@ -1,5 +1,11 @@
 body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; color: #1a1a1a; }
-header { background: #1f2937; color: #fff; padding: 10px 20px; }
+header { background: #1f2937; color: #fff; padding: 10px 20px; display: flex; align-items: center; gap: 14px; }
+.back-btn { background: #374151; color: #e5e7eb; border: 1px solid #4b5563; border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+.back-btn:hover { background: #4b5563; }
+.btn-latest-diff { display: inline-block; background: #2563eb; color: #fff; border: none;
+  border-radius: 6px; padding: 7px 14px; font-size: 14px; text-decoration: none; cursor: pointer; }
+.btn-latest-diff:hover { background: #1d4ed8; }
+.btn-latest-diff[disabled] { background: #9ca3af; cursor: not-allowed; }
 header a { color: #93c5fd; margin-left: 14px; }
 main { padding: 20px 28px; max-width: 960px; }
 textarea { width: 100%; box-sizing: border-box; }

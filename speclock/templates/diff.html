@@ -58,6 +58,10 @@
 </span>{% endfor %}</pre>
 </details>
 {% else %}
-<p class="muted">选择两个已发布版本进行对比。</p>
+  {% if versions | length < 2 %}
+<p class="muted">该模块目前只有一个已发布版本，暂无可对比的历史版本。再发布一版后即可查看差异。</p>
+  {% else %}
+<p class="muted">请选择两个不同的已发布版本进行对比。</p>
+  {% endif %}
 {% endif %}
 {% endblock %}

@@ -167,19 +167,17 @@ def diff_view(
 
     versions = {v.version: v for v in block.versions}
     ordered = sorted(versions, key=lambda v: versions[v].id)
-    # 默认对比：上一版 → 当前版
+    # 默认对比：上一版 → 当前版；只有一个版本时不默认（from 留空，页面友好提示）
     if not to and ordered:
         to = ordered[-1]
     if not from_ and len(ordered) >= 2:
         from_ = ordered[-2]
-    elif not from_ and ordered:
-        from_ = ordered[-1]
 
     summary = None
     groups = []
     content_lines: list[str] = []
     nfr_lines: list[str] = []
-    if from_ in versions and to in versions:
+    if from_ and to and from_ != to and from_ in versions and to in versions:
         old, new = versions[from_], versions[to]
         old_apis = json.loads(old.apis_json or "[]")
         new_apis = json.loads(new.apis_json or "[]")

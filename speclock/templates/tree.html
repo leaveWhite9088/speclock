@@ -30,6 +30,9 @@
               <span class="muted">{{ block.summary }}</span>
               {% if block.current_published_version %}
               <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看</a>
+              {% if block.versions | length >= 2 %}
+              <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}" class="muted">最近 diff</a>
+              {% endif %}
               {% endif %}
               <button type="button" onclick="delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})">
                 {% if block.status == 'draft' %}删除{% else %}归档{% endif %}</button>
