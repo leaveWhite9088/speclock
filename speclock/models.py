@@ -76,6 +76,7 @@ class Block(Base):
     summary: Mapped[str] = mapped_column(default="")
     status: Mapped[str] = mapped_column(default="draft")  # draft|published|archived
     current_published_version: Mapped[str | None] = mapped_column(nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(nullable=True)  # 最近归档时间
 
     # 完成标记：「当前已发布版本已被实现完成」。发布新版本时 completed 自动重置
     # 为 False；completed_version 保留为「上次完成对应的版本号」（历史信息）。

@@ -268,6 +268,21 @@ MCP_TOOLS = [
 ]
 
 
+@router.get("/ui/archive", response_class=HTMLResponse)
+def archive_page(request: Request, db: Session = Depends(get_db)):
+    """归档管理页：全部归档模块一览，支持恢复 / 彻底删除。"""
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    rows = [
+        (b, b.document, b.document.domain)
+        for b in db.query(Block).filter(Block.status == "archived").order_by(Block.id).all()
+    ]
+    return templates.TemplateResponse(
+        request, "archive.html", {"key": key, "rows": rows}
+    )
+
+
 @router.get("/ui/proposals", response_class=HTMLResponse)
 def proposals(request: Request, db: Session = Depends(get_db)):
     key = _check_key(request, db)

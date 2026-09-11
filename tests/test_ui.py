@@ -15,6 +15,7 @@ UI_PAGES = [
     "/ui/proposals",
     "/ui/acks",
     "/ui/mcp",
+    "/ui/archive",
 ]
 
 

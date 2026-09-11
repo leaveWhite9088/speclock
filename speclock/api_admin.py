@@ -370,7 +370,8 @@ def update_block(block_id: int, body: BlockUpdate, db: Session = Depends(get_db)
 @router.delete("/blocks/{block_id}")
 def delete_block(block_id: int, db: Session = Depends(get_db)):
     """删除语义：草稿态直接删除；已发布模块删除 = 归档（agent 读不到、index
-    不出现，历史版本保留可查，并从下一次文档版本 manifest 中移除）。"""
+    不出现，历史版本保留可查）。归档是模块集合结构变更，立即派生文档新
+    版本（MINOR）：新 manifest 不再包含该模块；pin 旧文档版本仍见历史快照。"""
     block = _get_block(db, block_id)
     if block.status == "draft":
         _hard_delete_block(db, block)
@@ -378,22 +379,47 @@ def delete_block(block_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"id": block_id, "deleted": True}
     block.status = "archived"
+    block.archived_at = utcnow()
     audit(db, "human", "archive", f"block:{block.id}", {})
+    doc_version = _derive_document_version(
+        db, block, "minor", "human", f"归档模块「{block.title}」"
+    )
     db.commit()
-    return {"id": block.id, "status": block.status}
+    return {"id": block.id, "status": block.status, "document_version": doc_version}
+
+
+@router.delete("/blocks/{block_id}/purge")
+def purge_block(block_id: int, db: Session = Depends(get_db)):
+    """彻底删除：仅允许对已归档模块执行。硬删模块及其全部版本历史，
+    不可恢复。"""
+    block = _get_block(db, block_id)
+    if block.status != "archived":
+        raise HTTPException(
+            status_code=409, detail="只有已归档的模块才能彻底删除（请先归档）"
+        )
+    _hard_delete_block(db, block)
+    audit(db, "human", "purge", f"block:{block_id}", {"title": block.title})
+    db.commit()
+    return {"id": block_id, "purged": True}
 
 
 @router.post("/blocks/{block_id}/restore")
 def restore_block(block_id: int, db: Session = Depends(get_db)):
-    """恢复已归档模块：重新进入已发布状态（历史版本从未丢失）。"""
+    """恢复已归档模块：重新进入已发布状态（历史版本从未丢失）。恢复同样是
+    模块集合结构变更，立即派生文档新版本（MINOR），模块回到 manifest。"""
     block = _get_block(db, block_id)
     if block.status != "archived":
         raise HTTPException(status_code=409, detail=f"block is {block.status}, not archived")
     block.status = "published"
+    block.archived_at = None
     audit(db, "human", "restore", f"block:{block.id}", {})
+    doc_version = _derive_document_version(
+        db, block, "minor", "human", f"恢复模块「{block.title}」"
+    )
     db.commit()
     return {"id": block.id, "status": block.status,
-            "current_published_version": block.current_published_version}
+            "current_published_version": block.current_published_version,
+            "document_version": doc_version}
 
 
 # ---------- 完成标记 ----------

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}SpecLock · 归档管理{% endblock %}
+{% block content %}
+<h1>归档管理</h1>
+<p class="muted">归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。
+归档/恢复都会立即派生所属文档的新版本（MINOR）。</p>
+
+{% if rows %}
+<table>
+  <tr><th>大业务</th><th>文档</th><th>模块</th><th>归档时版本</th><th>归档时间</th><th>操作</th></tr>
+  {% for block, doc, domain in rows %}
+  <tr>
+    <td>{{ domain.name }}</td>
+    <td><a href="/ui/documents/{{ doc.id }}?key={{ key }}">{{ doc.title }}</a></td>
+    <td><a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a></td>
+    <td class="mono">@{{ block.current_published_version or '-' }}</td>
+    <td class="muted">{{ block.archived_at.strftime('%Y-%m-%d %H:%M:%S') if block.archived_at else '-' }}</td>
+    <td class="actions">
+      <button type="button" onclick="restoreBlock({{ block.id }}, {{ block.title | tojson }})">恢复</button>
+      <button type="button" class="btn-danger" onclick="purgeBlock({{ block.id }}, {{ block.title | tojson }})">彻底删除</button>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">没有已归档的模块。</p>
+{% endif %}
+
+<script>
+const KEY = {{ key | tojson }};
+async function restoreBlock(id, title) {
+  if (!confirm('恢复模块「' + title + '」为已发布状态？\n所属文档将派生新版本（MINOR），模块回到 manifest。')) return;
+  const r = await fetch('/api/v1/blocks/' + id + '/restore', {
+    method: 'POST', headers: {'X-API-Key': KEY},
+  });
+  if (!r.ok) { alert(r.status + ' ' + await r.text()); return; }
+  location.reload();
+}
+async function purgeBlock(id, title) {
+  if (!confirm('⚠ 彻底删除归档模块「' + title + '」？\n其全部版本历史将被一并删除，不可恢复！')) return;
+  const r = await fetch('/api/v1/blocks/' + id + '/purge', {
+    method: 'DELETE', headers: {'X-API-Key': KEY},
+  });
+  if (!r.ok) { alert(r.status + ' ' + await r.text()); return; }
+  location.reload();
+}
+</script>
+{% endblock %}

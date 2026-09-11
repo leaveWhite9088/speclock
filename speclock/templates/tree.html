@@ -26,6 +26,9 @@
             <li>
               <a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a>
               <span class="badge {{ block.status }}">{{ block.status }}</span>
+              {% if block.status == 'archived' %}
+              <a href="/ui/archive?key={{ key }}" class="muted">归档管理 →</a>
+              {% endif %}
               {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}
               {% if block.status == 'published' %}
                 {% if block.completed %}
