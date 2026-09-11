@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% macro method_badge(api_name) -%}
+  {%- set m = api_name.split(' ')[0] -%}
+  <span class="badge method-{{ m | lower }}">{{ m }}</span>
+{%- endmacro %}
+
+{% macro field_rows(fields, depth) -%}
+  {% for f in fields %}
+  <tr>
+    <td><span style="padding-left: {{ depth * 22 }}px">{{ f.name }}{% if f.type in ['object','array'] and f.children %}<span class="muted"> ▾</span>{% endif %}</span></td>
+    <td><span class="badge">{{ f.type }}</span></td>
+    <td>{{ '必填' if f.required else '可选' }}</td>
+    <td class="muted">{{ f.description }}</td>
+  </tr>
+  {% if f.children %}{{ field_rows(f.children, depth + 1) }}{% endif %}
+  {% endfor %}
+{%- endmacro %}
+
+{% macro field_table(fields) %}
+<table>
+  <tr><th>字段名</th><th>类型</th><th>必填</th><th>说明</th></tr>
+  {{ field_rows(fields, 0) }}
+</table>
+{% endmacro %}
+
+{% block title %}SpecLock · 查看 {{ block.title }}{% endblock %}
+{% block content %}
+<p class="muted">
+  <a href="/ui?key={{ key }}">文档树</a> ›
+  <a href="/ui/documents/{{ block.document_id }}?key={{ key }}">{{ block.document.title }}</a> ›
+  <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">{{ block.title }}</a>
+  {% if detail %} › API 详情 #{{ detail[0] + 1 }}{% endif %}
+</p>
+
+<h1>{{ block.title }}
+  {% if bv %}<span class="badge published">@{{ bv.version }}</span>{% endif %}</h1>
+
+{% if not bv %}
+<p class="muted">该模块尚未发布，没有可查看的内容。</p>
+{% else %}
+
+<p>
+  版本：<form method="get" style="display:inline">
+    <input type="hidden" name="key" value="{{ key }}">
+    <select name="version" onchange="this.form.submit()">
+      {% for v in versions %}<option {% if v == bv.version %}selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select>
+  </form>
+  <a href="/ui/blocks/{{ block.id }}?key={{ key }}">编辑草稿</a> ·
+  <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">diff</a>
+</p>
+
+{% if not detail %}
+<h2>业务描述</h2>
+<pre class="doc-md">{{ bv.content_md }}</pre>
+
+<h2>API 列表（{{ apis | length }} 个）</h2>
+<table>
+  <tr><th>#</th><th>名称</th><th>API 名</th><th>方法</th><th></th></tr>
+  {% for a in apis %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td>{{ a.name }}</td>
+    <td class="mono">{{ a.api.split(' ')[1] }}</td>
+    <td>{{ method_badge(a.api) }}</td>
+    <td><a href="/ui/blocks/{{ block.id }}/view?key={{ key }}&version={{ bv.version }}&api={{ loop.index0 }}">查看详情 →</a></td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>非功能性需求</h2>
+<pre class="doc-md">{{ bv.nfr_md }}</pre>
+
+{% else %}
+{% set ai, a = detail %}
+<h2>API 详情 #{{ ai + 1 }}：{{ a.name }}</h2>
+<p>{{ method_badge(a.api) }} <span class="mono api-path">{{ a.api }}</span></p>
+
+<h3>请求体</h3>
+{% if a.request %}{{ field_table(a.request) }}{% else %}<p class="muted">无请求体字段。</p>{% endif %}
+
+<h3>响应体</h3>
+{% if a.response %}{{ field_table(a.response) }}{% else %}<p class="muted">无响应体字段。</p>{% endif %}
+
+<p><a href="/ui/blocks/{{ block.id }}/view?key={{ key }}&version={{ bv.version }}">← 返回 API 列表</a></p>
+{% endif %}
+{% endif %}
+{% endblock %}

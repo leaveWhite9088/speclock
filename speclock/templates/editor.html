@@ -24,6 +24,9 @@
   <label><input type="checkbox" id="fastTrack"> 秒批（fastTrack）</label>
   <label><input type="checkbox" id="confirm"> 确认破坏性变更</label>
   <button type="button" onclick="publish()">发布</button>
+  {% if block.current_published_version %}
+  <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看已发布版本</a>
+  {% endif %}
   <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">查看 diff</a>
 </div>
 <pre id="result"></pre>

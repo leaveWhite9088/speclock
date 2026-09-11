@@ -16,3 +16,9 @@ pre.diff { background: #f6f8fa; padding: 12px; overflow-x: auto; }
 table { border-collapse: collapse; } td, th { border: 1px solid #e5e7eb; padding: 6px 10px; }
 .login { margin-top: 80px; text-align: center; }
 button { cursor: pointer; }
+.doc-md { background: #f6f8fa; padding: 12px; white-space: pre-wrap; border-radius: 6px; }
+.badge.method-get { background: #d1fae5; color: #047857; }
+.badge.method-post { background: #dbeafe; color: #1d4ed8; }
+.badge.method-put { background: #fef3c7; color: #b45309; }
+.badge.method-delete { background: #fee2e2; color: #b91c1c; }
+.api-path { font-size: 15px; background: #f6f8fa; padding: 2px 8px; border-radius: 4px; }

@@ -44,13 +44,16 @@ DAILY_COLLECT_MD = """\
 - 订单量口径：支付成功订单数
 - 采集失败时任务重试 3 次，仍失败则告警到运营群，日报对应门店行标记「数据缺失」
 
-前端通过 `GET /api/daily-report/collect-status` 查询某日的采集完成状态，
-状态为「未完成」的门店在日报页灰显。
+本模块提供 3 个 API：
+
+1. `GET /api/daily-report/collect-status` 查询每项采集状态——逐项返回采集进度与失败原因
+2. `GET /api/daily-report/collect-items` 查询采集项——返回当日应采集的项目清单
+3. `POST /api/daily-report/recollect` 重新采集特定项——对失败/缺失的采集项触发重采
 """
 
 DAILY_COLLECT_APIS = [
     {
-        "name": "查询采集状态",
+        "name": "查询每项采集状态",
         "api": "GET /api/daily-report/collect-status",
         "request": [
             F("date", "string", True, "查询日期，YYYY-MM-DD"),
@@ -58,11 +61,45 @@ DAILY_COLLECT_APIS = [
         ],
         "response": [
             F("date", "string", True, "日期"),
-            F("total_stores", "integer", True, "应采门店数"),
-            F("finished_stores", "integer", True, "已采集门店数"),
-            F("status", "string", True, "未完成/进行中/已完成"),
+            F("overall_status", "string", True, "整体状态：未完成/进行中/已完成"),
+            F("items", "array", True, "逐项采集状态列表", children=[
+                F("item_name", "string", True, "采集项名称，如 销售额/订单量/客单价"),
+                F("status", "string", True, "该项状态：待采集/采集中/成功/失败"),
+                F("last_collected_at", "string", False, "最近采集时间，ISO 8601"),
+                F("failed_reason", "string", False, "失败原因，成功时为空"),
+            ]),
         ],
-    }
+    },
+    {
+        "name": "查询采集项",
+        "api": "GET /api/daily-report/collect-items",
+        "request": [
+            F("date", "string", True, "查询日期，YYYY-MM-DD"),
+        ],
+        "response": [
+            F("items", "array", True, "当日应采集的项目清单", children=[
+                F("item_id", "string", True, "采集项 ID"),
+                F("item_name", "string", True, "采集项名称"),
+                F("source", "string", True, "数据来源，如 订单库/入库单"),
+                F("enabled", "boolean", True, "该项是否启用"),
+            ]),
+        ],
+    },
+    {
+        "name": "重新采集特定项",
+        "api": "POST /api/daily-report/recollect",
+        "request": [
+            F("date", "string", True, "采集日期，YYYY-MM-DD"),
+            F("item_ids", "array", True, "要重新采集的采集项 ID 列表", children=[
+                F("item_id", "string", True, "采集项 ID"),
+            ]),
+        ],
+        "response": [
+            F("accepted", "boolean", True, "任务是否受理"),
+            F("task_id", "string", True, "重采任务 ID，用于追踪"),
+            F("estimated_seconds", "integer", False, "预计完成秒数"),
+        ],
+    },
 ]
 
 DAILY_COLLECT_NFR = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 06:30 前完成\n"

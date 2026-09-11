@@ -93,6 +93,9 @@ MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `
 
 - 文档树：大业务 → 文档（含文档版本徽章）→ 模块；三层都有「新建 / 重命名 / 删除」入口
   （prompt/confirm 级交互）
+- **模块查看页**（只读，看已发布版本，可切换版本）：业务描述 + API **列表**（序号/名称/
+  API 名/方法徽章）→ 点进单条 API **详情视图**（请求体/响应体字段树，缩进树形展示嵌套
+  结构，面包屑返回）；全程无 YAML
 - 模块编辑页：业务描述 textarea + **API 填表区**（增删 API 条目；字段行递归树形展示，
   object/array 字段可「+子字段」无限层级下钻，删父级联删子；全程表单控件，无 YAML）
   + 非功能性需求 textarea + 保存草稿 / 秒批发布按钮
@@ -114,7 +117,7 @@ MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `
 Demo 电商系统
  └── 运营
       ├── 经营日报（文档 @1.3.0）
-      │    ├── 数据采集模块 @1.0.0        GET  /api/daily-report/collect-status
+      │    ├── 数据采集模块 @1.0.0        3 个 API：GET collect-status（items[] 嵌套）/ GET collect-items / POST recollect（item_ids[]）
       │    ├── 异常数据展示模块 @1.0.0    GET  /api/daily-report/anomalies
       │    ├── 历史记录模块 @1.0.0        GET  /api/daily-report/history
       │    └── 异常规则配置模块 @1.0.0    POST /api/daily-report/anomaly-rules（rule/scope 两层 object 嵌套）

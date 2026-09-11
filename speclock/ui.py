@@ -102,6 +102,45 @@ def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/ui/blocks/{block_id}/view", response_class=HTMLResponse)
+def block_view(
+    block_id: int,
+    request: Request,
+    version: str = "",
+    api: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """模块查看页（只读，看已发布版本）：API 列表 + 单条 API 详情视图。"""
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    block = db.get(Block, block_id)
+    from speclock.models import BlockVersion
+
+    target = version or block.current_published_version
+    bv = (
+        db.query(BlockVersion)
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == target)
+        .first()
+    )
+    apis = json.loads(bv.apis_json or "[]") if bv else []
+    detail = None
+    if api is not None and 0 <= api < len(apis):
+        detail = (api, apis[api])
+    return templates.TemplateResponse(
+        request,
+        "view.html",
+        {
+            "key": key,
+            "block": block,
+            "bv": bv,
+            "apis": apis,
+            "detail": detail,
+            "versions": [v.version for v in block.versions],
+        },
+    )
+
+
 @router.get("/ui/blocks/{block_id}/diff", response_class=HTMLResponse)
 def diff_view(
     block_id: int,
