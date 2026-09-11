@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}SpecLock · {{ block.title }}{% endblock %}
+{% block content %}
+<h1>{{ block.title }} <span class="badge {{ block.status }}">{{ block.status }}</span>
+  {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}</h1>
+
+<label>标题 <input id="title" value="{{ block.title }}"></label>
+<label>摘要 <input id="summary" value="{{ block.summary }}" size="60"></label>
+
+<h2>业务描述（Markdown）</h2>
+<textarea id="content_md" rows="12">{{ block.draft_content_md }}</textarea>
+
+<h2>API 区（OpenAPI 3.x YAML 片段）</h2>
+<textarea id="openapi_yaml" rows="14" class="mono">{{ block.draft_openapi_yaml }}</textarea>
+
+<h2>非功能性需求</h2>
+<textarea id="nfr_md" rows="5">{{ block.draft_nfr_md }}</textarea>
+
+<div class="actions">
+  <button onclick="save()">保存草稿</button>
+  <input id="change_note" placeholder="变更说明" size="30">
+  <label><input type="checkbox" id="fastTrack"> 秒批（fastTrack）</label>
+  <label><input type="checkbox" id="confirm"> 确认破坏性变更</label>
+  <button onclick="publish()">发布</button>
+  <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">查看 diff</a>
+</div>
+<pre id="result"></pre>
+
+<h2>历史版本</h2>
+<ul>
+{% for v in versions %}
+  <li>@{{ v.version }} — {{ v.change_note }} <span class="muted">{{ v.published_at }}</span></li>
+{% endfor %}
+</ul>
+
+<script>
+const KEY = {{ key | tojson }};
+const BID = {{ block.id }};
+async function save() {
+  const r = await fetch('/api/v1/blocks/' + BID, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json', 'X-API-Key': KEY},
+    body: JSON.stringify({
+      title: document.getElementById('title').value,
+      summary: document.getElementById('summary').value,
+      content_md: document.getElementById('content_md').value,
+      openapi_yaml: document.getElementById('openapi_yaml').value,
+      nfr_md: document.getElementById('nfr_md').value,
+    }),
+  });
+  document.getElementById('result').textContent = r.status + '\n' + await r.text();
+}
+async function publish() {
+  const r = await fetch('/api/v1/blocks/' + BID + '/publish', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-API-Key': KEY},
+    body: JSON.stringify({
+      change_note: document.getElementById('change_note').value,
+      fastTrack: document.getElementById('fastTrack').checked,
+      confirm: document.getElementById('confirm').checked,
+    }),
+  });
+  document.getElementById('result').textContent = r.status + '\n' + await r.text();
+  if (r.ok) setTimeout(() => location.reload(), 600);
+}
+</script>
+{% endblock %}

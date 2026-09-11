@@ -1,0 +1,18 @@
+body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; color: #1a1a1a; }
+header { background: #1f2937; color: #fff; padding: 10px 20px; }
+header a { color: #93c5fd; margin-left: 14px; }
+main { padding: 20px 28px; max-width: 960px; }
+textarea { width: 100%; box-sizing: border-box; }
+.mono, pre { font-family: ui-monospace, Consolas, monospace; }
+pre.diff { background: #f6f8fa; padding: 12px; overflow-x: auto; }
+.badge { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: #e5e7eb; }
+.badge.published { background: #d1fae5; }
+.badge.draft, .badge.submitted { background: #fef3c7; }
+.badge.rejected, .badge.archived { background: #fee2e2; }
+.muted { color: #6b7280; font-size: 13px; }
+.actions { margin: 14px 0; display: flex; gap: 10px; align-items: center; }
+.card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+.delta.add { color: #047857; } .delta.mod { color: #b45309; } .delta.del { color: #b91c1c; }
+table { border-collapse: collapse; } td, th { border: 1px solid #e5e7eb; padding: 6px 10px; }
+.login { margin-top: 80px; text-align: center; }
+button { cursor: pointer; }

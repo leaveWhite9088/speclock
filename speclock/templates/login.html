@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>SpecLock 登录</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="login">
+  <h1>SpecLock</h1>
+  <p>请使用 human-* key 访问管理界面（agent key 仅可调用只读 API）。</p>
+  <form onsubmit="event.preventDefault(); location.href='/ui?key=' + encodeURIComponent(this.k.value);">
+    <input name="k" placeholder="human-..." size="40" autofocus>
+    <button type="submit">进入</button>
+  </form>
+</main>
+</body>
+</html>

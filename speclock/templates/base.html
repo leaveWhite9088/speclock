@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}SpecLock{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <strong>SpecLock</strong> · 业务文档唯一信源
+  <nav>
+    <a href="/ui?key={{ key }}">文档树</a>
+    <a href="/ui/proposals?key={{ key }}">提案收件箱</a>
+    <a href="/ui/acks?key={{ key }}">回执看板</a>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

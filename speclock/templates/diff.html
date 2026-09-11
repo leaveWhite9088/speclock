@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}SpecLock · diff {{ block.title }}{% endblock %}
+{% block content %}
+<h1>diff · {{ block.title }}</h1>
+<form method="get">
+  <input type="hidden" name="key" value="{{ key }}">
+  from <select name="from">{% for v in versions %}<option {% if v == from %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+  to <select name="to">{% for v in versions %}<option {% if v == to %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+  <button type="submit">对比</button>
+</form>
+{% if diff_text %}
+<h2>结构化 delta</h2>
+<ul>
+  <li>ADDED: {{ delta.added | length }} 项</li>
+  <li>MODIFIED: {{ delta.modified | length }} 项</li>
+  <li>REMOVED: {{ delta.removed | length }} 项</li>
+</ul>
+{% for item in delta.added %}<div class="delta add">+ {{ item }}</div>{% endfor %}
+{% for item in delta.modified %}<div class="delta mod">~ {{ item }}</div>{% endfor %}
+{% for item in delta.removed %}<div class="delta del">- {{ item }}</div>{% endfor %}
+<h2>文本 diff</h2>
+<pre class="mono diff">{{ diff_text }}</pre>
+{% else %}
+<p class="muted">选择两个已发布版本进行对比。</p>
+{% endif %}
+{% endblock %}

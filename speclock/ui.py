@@ -1,0 +1,117 @@
+"""Minimal human-facing UI (Jinja2 + vanilla JS).
+
+Pages: document tree, block editor (Markdown + YAML), diff view, publish,
+proposal inbox, ack board. Auth via ?key=human-... query parameter — MVP
+grade, single-operator tool.
+"""
+
+from __future__ import annotations
+
+import json
+
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
+from sqlalchemy.orm import Session
+
+from speclock.db import get_db
+from speclock.models import Ack, Block, BlockVersion, Domain, Project, Proposal
+
+router = APIRouter(tags=["ui"])
+templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+def _check_key(request: Request, db: Session) -> str | RedirectResponse:
+    key = request.query_params.get("key", "")
+    if not key.startswith("human-"):
+        return RedirectResponse(url="/ui/login")
+    return key
+
+
+@router.get("/ui/login", response_class=HTMLResponse)
+def login(request: Request):
+    return templates.TemplateResponse(request, "login.html")
+
+
+@router.get("/", response_class=HTMLResponse)
+@router.get("/ui", response_class=HTMLResponse)
+def tree(request: Request, db: Session = Depends(get_db)):
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    projects = db.query(Project).all()
+    domains = db.query(Domain).all()
+    return templates.TemplateResponse(
+        request, "tree.html", {"key": key, "projects": projects, "domains": domains}
+    )
+
+
+@router.get("/ui/blocks/{block_id}", response_class=HTMLResponse)
+def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    block = db.get(Block, block_id)
+    versions = [
+        {"version": v.version, "change_note": v.change_note, "published_at": v.published_at}
+        for v in block.versions
+    ]
+    return templates.TemplateResponse(
+        request, "editor.html", {"key": key, "block": block, "versions": versions}
+    )
+
+
+@router.get("/ui/blocks/{block_id}/diff", response_class=HTMLResponse)
+def diff_view(
+    block_id: int, request: Request, from_: str = Query(default="", alias="from"), to: str = "", db: Session = Depends(get_db)
+):
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    block = db.get(Block, block_id)
+    from speclock import diffing
+
+    versions = {v.version: v for v in block.versions}
+    diff_text = ""
+    delta = {"added": [], "modified": [], "removed": []}
+    if from_ in versions and to in versions:
+        old, new = versions[from_], versions[to]
+        diff_text = diffing.text_diff(old.content_md, new.content_md, from_, to)
+        diff_text += "\n--- API section ---\n"
+        diff_text += diffing.text_diff(old.openapi_yaml, new.openapi_yaml, from_, to)
+        delta = diffing.delta(old.openapi_yaml, new.openapi_yaml)
+    return templates.TemplateResponse(
+        request,
+        "diff.html",
+        {
+            "key": key,
+            "block": block,
+            "versions": sorted(versions),
+            "from": from_,
+            "to": to,
+            "diff_text": diff_text,
+            "delta": delta,
+        },
+    )
+
+
+@router.get("/ui/proposals", response_class=HTMLResponse)
+def proposals(request: Request, db: Session = Depends(get_db)):
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    props = db.query(Proposal).order_by(Proposal.id.desc()).all()
+    rows = [(p, db.get(Block, p.block_id)) for p in props]
+    return templates.TemplateResponse(
+        request, "proposals.html", {"key": key, "rows": rows}
+    )
+
+
+@router.get("/ui/acks", response_class=HTMLResponse)
+def acks(request: Request, db: Session = Depends(get_db)):
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    rows = [(a, db.get(Block, a.block_id)) for a in db.query(Ack).order_by(Ack.id.desc()).all()]
+    return templates.TemplateResponse(request, "acks.html", {"key": key, "rows": rows})
