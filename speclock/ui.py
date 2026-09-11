@@ -1,7 +1,8 @@
 """Minimal human-facing UI (Jinja2 + vanilla JS).
 
-Pages: document tree, block editor (Markdown + YAML), diff view, publish,
-proposal inbox, ack board. Auth via ?key=human-... query parameter — MVP
+Pages: document tree, module editor (业务描述 / API 填表区 / 非功能性需求
+三区，全程无 YAML), diff view, publish, proposal inbox, ack board,
+document version history. Auth via ?key=human-... query parameter — MVP
 grade, single-operator tool.
 """
 
@@ -16,7 +17,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from speclock.db import get_db
-from speclock.models import Ack, Block, BlockVersion, Domain, Project, Proposal
+from speclock.models import (
+    Ack,
+    Block,
+    Document,
+    DocumentVersion,
+    Domain,
+    Project,
+    Proposal,
+)
 
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -47,6 +56,30 @@ def tree(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/ui/documents/{document_id}", response_class=HTMLResponse)
+def document_page(document_id: int, request: Request, db: Session = Depends(get_db)):
+    """文档页：文档版本历史 + 每个版本的模块版本清单（manifest）。"""
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    doc = db.get(Document, document_id)
+    versions = [
+        {
+            "version": v.version,
+            "manifest": json.loads(v.manifest_json),
+            "triggered_by_block_id": v.triggered_by_block_id,
+            "change_note": v.change_note,
+            "published_at": v.published_at,
+        }
+        for v in reversed(doc.versions)
+    ]
+    return templates.TemplateResponse(
+        request,
+        "document.html",
+        {"key": key, "doc": doc, "versions": versions},
+    )
+
+
 @router.get("/ui/blocks/{block_id}", response_class=HTMLResponse)
 def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
     key = _check_key(request, db)
@@ -58,13 +91,24 @@ def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
         for v in block.versions
     ]
     return templates.TemplateResponse(
-        request, "editor.html", {"key": key, "block": block, "versions": versions}
+        request,
+        "editor.html",
+        {
+            "key": key,
+            "block": block,
+            "versions": versions,
+            "apis": json.loads(block.draft_apis_json or "[]"),
+        },
     )
 
 
 @router.get("/ui/blocks/{block_id}/diff", response_class=HTMLResponse)
 def diff_view(
-    block_id: int, request: Request, from_: str = Query(default="", alias="from"), to: str = "", db: Session = Depends(get_db)
+    block_id: int,
+    request: Request,
+    from_: str = Query(default="", alias="from"),
+    to: str = "",
+    db: Session = Depends(get_db),
 ):
     key = _check_key(request, db)
     if not isinstance(key, str):
@@ -78,9 +122,9 @@ def diff_view(
     if from_ in versions and to in versions:
         old, new = versions[from_], versions[to]
         diff_text = diffing.text_diff(old.content_md, new.content_md, from_, to)
-        diff_text += "\n--- API section ---\n"
-        diff_text += diffing.text_diff(old.openapi_yaml, new.openapi_yaml, from_, to)
-        delta = diffing.delta(old.openapi_yaml, new.openapi_yaml)
+        delta = diffing.delta(
+            json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]")
+        )
     return templates.TemplateResponse(
         request,
         "diff.html",
@@ -102,7 +146,11 @@ def proposals(request: Request, db: Session = Depends(get_db)):
     if not isinstance(key, str):
         return key
     props = db.query(Proposal).order_by(Proposal.id.desc()).all()
-    rows = [(p, db.get(Block, p.block_id)) for p in props]
+    rows = [
+        (p, db.get(Block, p.block_id), json.loads(p.proposed_apis_json)
+         if p.proposed_apis_json else None)
+        for p in props
+    ]
     return templates.TemplateResponse(
         request, "proposals.html", {"key": key, "rows": rows}
     )

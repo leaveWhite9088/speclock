@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.conftest import VALID_YAML_V2_MINOR, publish_v1
+from tests.conftest import APIS_V2_MINOR, publish_v1
 
 
 def test_index_is_one_line_per_block_and_small(env):
@@ -22,8 +22,7 @@ def test_version_pin_reads_exact_snapshot(env):
     publish_v1(c, h, bid)
     # publish a second version with different content
     c.put(f"/api/v1/blocks/{bid}",
-          json={"content_md": "# 日报主表 v2\n\n新版描述。",
-                "openapi_yaml": VALID_YAML_V2_MINOR}, headers=h)
+          json={"content_md": "# 数据采集模块 v2\n\n新版描述。", "apis": APIS_V2_MINOR}, headers=h)
     c.post(f"/api/v1/blocks/{bid}/publish",
            json={"change_note": "v2", "fastTrack": True}, headers=h)
 
@@ -45,7 +44,7 @@ def test_version_pin_reads_exact_snapshot(env):
 def test_diff_between_published_versions(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    c.put(f"/api/v1/blocks/{bid}", json={"openapi_yaml": VALID_YAML_V2_MINOR}, headers=h)
+    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
     c.post(f"/api/v1/blocks/{bid}/publish",
            json={"change_note": "v2", "fastTrack": True}, headers=h)
     r = c.get(f"/api/v1/blocks/{bid}/diff", params={"from": "1.0.0", "to": "1.1.0"}, headers=a)
@@ -53,7 +52,7 @@ def test_diff_between_published_versions(env):
     body = r.json()
     assert any("extra_note" in x for x in body["delta"]["added"])
     assert body["breaking"] is False
-    assert "extra_note" in body["openapi_diff"]
+    assert "extra_note" in body["openapi_diff"]  # generated YAML reflects the new field
 
 
 def test_ack_receipt_roundtrip(env):
@@ -78,6 +77,7 @@ def test_pulls_are_audited(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
     c.get(f"/api/v1/blocks/{bid}", headers=a)
+    c.get(f"/api/v1/documents/{env['document_id']}", headers=a)
     from speclock.db import SessionLocal
     from speclock.models import AuditLog
 

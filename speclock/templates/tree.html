@@ -9,7 +9,9 @@
       <h3>{{ domain.name }}</h3>
       <ul>
       {% for doc in domain.documents %}
-        <li>{{ doc.title }} <span class="muted">({{ doc.doc_type }})</span>
+        <li><a href="/ui/documents/{{ doc.id }}?key={{ key }}">{{ doc.title }}</a>
+          <span class="muted">({{ doc.doc_type }})</span>
+          {% if doc.current_version %}<span class="badge published">@{{ doc.current_version }}</span>{% endif %}
           <ul>
           {% for block in doc.blocks %}
             <li>

@@ -3,6 +3,9 @@
 Agent keys are rejected with 403 by the ``require_human`` dependency; this
 router is the physical write boundary of the system. In production this
 router would be deployed as a separate service with separate credentials.
+
+发布语义：发布动作只针对单个模块（分模块发布）；每次模块发布成功时，
+所属文档自动派生一个新的 DocumentVersion（manifest 快照）。
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from speclock.models import (
     Block,
     BlockVersion,
     Document,
+    DocumentVersion,
     Domain,
     Project,
     Proposal,
@@ -62,6 +66,46 @@ def _published_version(db: Session, block: Block, version: str) -> BlockVersion:
     return bv
 
 
+def _validate_apis_or_422(apis: list[dict]) -> list[dict]:
+    try:
+        return diffing.validate_apis(apis)
+    except diffing.ApisValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
+
+
+def _derive_document_version(
+    db: Session, block: Block, module_level: str, actor: str, change_note: str
+) -> str:
+    """模块发布成功后派生文档版本：manifest = 该文档全部已发布模块的版本清单。"""
+    doc = db.get(Document, block.document_id)
+    doc_version = diffing.derive_document_version(doc.current_version, module_level)
+    blocks = db.query(Block).filter(Block.document_id == doc.id).all()
+    manifest = {
+        str(b.id): {"title": b.title, "version": b.current_published_version}
+        for b in blocks
+        if b.status == "published" and b.current_published_version is not None
+    }
+    db.add(
+        DocumentVersion(
+            document_id=doc.id,
+            version=doc_version,
+            manifest_json=json.dumps(manifest, ensure_ascii=False),
+            triggered_by_block_id=block.id,
+            change_note=change_note,
+            published_by=actor,
+        )
+    )
+    doc.current_version = doc_version
+    audit(
+        db,
+        actor,
+        "publish",
+        f"document:{doc.id}@{doc_version}",
+        {"triggered_by_block": block.id, "manifest": manifest},
+    )
+    return doc_version
+
+
 def publish_block(
     db: Session,
     block: Block,
@@ -70,20 +114,20 @@ def publish_block(
     fast_track: bool,
     confirm: bool,
 ) -> PublishResult:
-    """Snapshot the working draft into a new immutable BlockVersion.
+    """Snapshot the working draft into a new immutable BlockVersion, then
+    derive a new DocumentVersion for the owning document.
 
     fastTrack is only legal for non-breaking diffs; breaking diffs require
     confirm=true and always report the affected field list.
     """
-    try:
-        diffing.validate_openapi_fragment(block.draft_openapi_yaml)
-    except diffing.OpenAPIValidationError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid OpenAPI fragment: {exc}") from exc
+    apis = _validate_apis_or_422(json.loads(block.draft_apis_json or "[]"))
 
-    old_yaml = ""
+    old_apis: list = []
     if block.current_published_version is not None:
-        old_yaml = _published_version(db, block, block.current_published_version).openapi_yaml
-    d = diffing.delta(old_yaml, block.draft_openapi_yaml)
+        old_apis = json.loads(
+            _published_version(db, block, block.current_published_version).apis_json or "[]"
+        )
+    d = diffing.delta(old_apis, apis)
     breaking = diffing.is_breaking(d)
     affected = d["removed"] + d["modified"]
 
@@ -106,12 +150,13 @@ def publish_block(
             },
         )
 
-    version = diffing.next_version(block.current_published_version, d)
+    version, level = diffing.next_module_version(block.current_published_version, d)
     bv = BlockVersion(
         block_id=block.id,
         version=version,
         content_md=block.draft_content_md,
-        openapi_yaml=block.draft_openapi_yaml,
+        apis_json=json.dumps(apis, ensure_ascii=False),
+        openapi_yaml=diffing.apis_to_openapi_yaml(apis),
         nfr_md=block.draft_nfr_md,
         change_note=change_note,
         delta_json=json.dumps(d, ensure_ascii=False),
@@ -127,9 +172,16 @@ def publish_block(
         f"block:{block.id}@{version}",
         {"change_note": change_note, "fastTrack": fast_track, "breaking": breaking, "delta": d},
     )
+    doc_version = _derive_document_version(db, block, level, actor, change_note)
     db.commit()
     return PublishResult(
-        block_id=block.id, version=version, delta=d, breaking=breaking, affected=affected
+        block_id=block.id,
+        version=version,
+        document_id=block.document_id,
+        document_version=doc_version,
+        delta=d,
+        breaking=breaking,
+        affected=affected,
     )
 
 
@@ -164,23 +216,20 @@ def create_document(body: DocumentCreate, db: Session = Depends(get_db)):
     return {"id": doc.id, "title": doc.title}
 
 
-# ---------- block CRUD (draft) ----------
+# ---------- block (module) CRUD — draft ----------
 
 
 @router.post("/blocks", status_code=201)
 def create_block(body: BlockCreate, db: Session = Depends(get_db)):
     if db.get(Document, body.document_id) is None:
         raise HTTPException(status_code=404, detail="document not found")
-    try:
-        diffing.validate_openapi_fragment(body.openapi_yaml)
-    except diffing.OpenAPIValidationError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid OpenAPI fragment: {exc}") from exc
+    apis = _validate_apis_or_422([e.model_dump() for e in body.apis])
     block = Block(
         document_id=body.document_id,
         title=body.title,
         summary=body.summary,
         draft_content_md=body.content_md,
-        draft_openapi_yaml=body.openapi_yaml,
+        draft_apis_json=json.dumps(apis, ensure_ascii=False),
         draft_nfr_md=body.nfr_md,
     )
     db.add(block)
@@ -194,12 +243,13 @@ def get_draft(block_id: int, db: Session = Depends(get_db)):
     block = _get_block(db, block_id)
     return {
         "id": block.id,
+        "document_id": block.document_id,
         "title": block.title,
         "summary": block.summary,
         "status": block.status,
         "current_published_version": block.current_published_version,
         "content_md": block.draft_content_md,
-        "openapi_yaml": block.draft_openapi_yaml,
+        "apis": json.loads(block.draft_apis_json or "[]"),
         "nfr_md": block.draft_nfr_md,
     }
 
@@ -207,21 +257,15 @@ def get_draft(block_id: int, db: Session = Depends(get_db)):
 @router.put("/blocks/{block_id}")
 def update_block(block_id: int, body: BlockUpdate, db: Session = Depends(get_db)):
     block = _get_block(db, block_id)
-    if body.openapi_yaml is not None:
-        try:
-            diffing.validate_openapi_fragment(body.openapi_yaml)
-        except diffing.OpenAPIValidationError as exc:
-            raise HTTPException(
-                status_code=422, detail=f"invalid OpenAPI fragment: {exc}"
-            ) from exc
     if body.title is not None:
         block.title = body.title
     if body.summary is not None:
         block.summary = body.summary
     if body.content_md is not None:
         block.draft_content_md = body.content_md
-    if body.openapi_yaml is not None:
-        block.draft_openapi_yaml = body.openapi_yaml
+    if body.apis is not None:
+        apis = _validate_apis_or_422([e.model_dump() for e in body.apis])
+        block.draft_apis_json = json.dumps(apis, ensure_ascii=False)
     if body.nfr_md is not None:
         block.draft_nfr_md = body.nfr_md
     db.commit()
@@ -271,6 +315,24 @@ def list_versions(block_id: int, db: Session = Depends(get_db)):
             "published_at": v.published_at,
         }
         for v in block.versions
+    ]
+
+
+@router.get("/documents/{document_id}/versions")
+def list_document_versions(document_id: int, db: Session = Depends(get_db)):
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return [
+        {
+            "version": v.version,
+            "manifest": json.loads(v.manifest_json),
+            "triggered_by_block_id": v.triggered_by_block_id,
+            "change_note": v.change_note,
+            "published_by": v.published_by,
+            "published_at": v.published_at,
+        }
+        for v in doc.versions
     ]
 
 
@@ -326,8 +388,8 @@ def resolve_proposal(
     block = _get_block(db, p.block_id)
     if p.proposed_content_md is not None:
         block.draft_content_md = p.proposed_content_md
-    if p.proposed_openapi_yaml is not None:
-        block.draft_openapi_yaml = p.proposed_openapi_yaml
+    if p.proposed_apis_json is not None:
+        block.draft_apis_json = p.proposed_apis_json
     result = publish_block(
         db,
         block,
@@ -348,7 +410,12 @@ def resolve_proposal(
         {"action": "approve", "published_version": result.version},
     )
     db.commit()
-    return {"id": p.id, "status": p.status, "published_version": result.version}
+    return {
+        "id": p.id,
+        "status": p.status,
+        "published_version": result.version,
+        "document_version": result.document_version,
+    }
 
 
 # ---------- ack board ----------

@@ -17,8 +17,24 @@ from sqlalchemy.orm import Session
 from speclock import diffing
 from speclock.auth import audit, require_agent
 from speclock.db import get_db
-from speclock.models import Ack, ApiKey, Block, BlockVersion, Proposal
-from speclock.schemas import AckRequest, BlockOut, IndexEntry, ProposalCreate, ProposalOut
+from speclock.models import (
+    Ack,
+    ApiKey,
+    Block,
+    BlockVersion,
+    Document,
+    DocumentVersion,
+    Proposal,
+)
+from speclock.schemas import (
+    AckRequest,
+    BlockOut,
+    DocumentIndexEntry,
+    DocumentOut,
+    IndexEntry,
+    ProposalCreate,
+    ProposalOut,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
 
@@ -46,6 +62,7 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         title=bv.block.title,
         version=bv.version,
         content_md=bv.content_md,
+        apis=json.loads(bv.apis_json or "[]"),
         openapi_yaml=bv.openapi_yaml,
         nfr_md=bv.nfr_md,
         change_note=bv.change_note,
@@ -56,7 +73,7 @@ def _block_out(bv: BlockVersion) -> BlockOut:
 
 @router.get("/index", response_model=list[IndexEntry])
 def get_index(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
-    """One-line summary per published block. Contract: response body <= 8KB."""
+    """One-line summary per published module. Contract: response body <= 8KB."""
     entries = []
     for block in db.query(Block).filter(Block.status == "published").all():
         doc = block.document
@@ -75,7 +92,7 @@ def get_index(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent
 
 @router.get("/blocks/{ref}", response_model=BlockOut)
 def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
-    """Read a published snapshot. ``ref`` is ``{id}`` or ``{id}@{x.y.z}`` (pin)."""
+    """Read a published module snapshot. ``ref`` is ``{id}`` or ``{id}@{x.y.z}`` (pin)."""
     m = REF_RE.match(ref)
     if not m:
         raise HTTPException(
@@ -103,6 +120,7 @@ def get_diff(
         raise HTTPException(status_code=404, detail=f"block {block_id} not found")
     old = _published_snapshot(db, block, from_)
     new = _published_snapshot(db, block, to)
+    d = diffing.delta(json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]"))
     audit(db, key.key, "pull", f"block:{block_id}/diff", {"from": from_, "to": to})
     db.commit()
     return {
@@ -115,9 +133,72 @@ def get_diff(
         "openapi_diff": diffing.text_diff(
             old.openapi_yaml, new.openapi_yaml, fromfile=from_, tofile=to
         ),
-        "delta": diffing.delta(old.openapi_yaml, new.openapi_yaml),
-        "breaking": diffing.is_breaking(diffing.delta(old.openapi_yaml, new.openapi_yaml)),
+        "delta": d,
+        "breaking": diffing.is_breaking(d),
     }
+
+
+# ---------- document-level reads (两级版本的文档侧) ----------
+
+
+def _document_out(dv: DocumentVersion) -> DocumentOut:
+    manifest = json.loads(dv.manifest_json)
+    return DocumentOut(
+        document_id=dv.document_id,
+        title=dv.document.title,
+        version=dv.version,
+        manifest=[
+            {"block_id": int(bid), "title": m["title"], "version": m["version"]}
+            for bid, m in manifest.items()
+        ],
+        published_at=dv.published_at,
+    )
+
+
+@router.get("/documents", response_model=list[DocumentIndexEntry])
+def get_documents(db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
+    """文档列表 + 当前文档版本。没有任何已发布模块的文档对 agent 不可见。"""
+    out = []
+    for doc in db.query(Document).all():
+        if doc.current_version is None:
+            continue
+        out.append(
+            DocumentIndexEntry(
+                document_id=doc.id,
+                title=doc.title,
+                domain=doc.domain.name,
+                doc_type=doc.doc_type,
+                version=doc.current_version,
+            )
+        )
+    return out
+
+
+@router.get("/documents/{ref}", response_model=DocumentOut)
+def get_document(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
+    """文档 manifest：该文档全部模块当前已发布版本清单。支持 ``{id}@{x.y.z}`` pin。"""
+    m = REF_RE.match(ref)
+    if not m:
+        raise HTTPException(
+            status_code=400, detail="ref must be '{id}' or '{id}@{MAJOR.MINOR.PATCH}'"
+        )
+    doc = db.get(Document, int(m.group("id")))
+    if doc is None or doc.current_version is None:
+        raise HTTPException(status_code=404, detail=f"document {ref} not found")
+    target = m.group("version") or doc.current_version
+    dv = (
+        db.query(DocumentVersion)
+        .filter(DocumentVersion.document_id == doc.id, DocumentVersion.version == target)
+        .first()
+    )
+    if dv is None:
+        raise HTTPException(status_code=404, detail=f"document {doc.id} has no version {target}")
+    audit(db, key.key, "pull", f"document:{doc.id}@{dv.version}", {})
+    db.commit()
+    return _document_out(dv)
+
+
+# ---------- ack & proposals (agent's only writes) ----------
 
 
 @router.post("/blocks/{block_id}/ack", status_code=201)
@@ -150,13 +231,13 @@ def submit_proposal(
     block = db.get(Block, body.block_id)
     if block is None or block.status != "published":
         raise HTTPException(status_code=404, detail=f"block {body.block_id} not found")
-    if body.proposed_openapi_yaml is not None:
+    proposed_apis_json = None
+    if body.proposed_apis is not None:
         try:
-            diffing.validate_openapi_fragment(body.proposed_openapi_yaml)
-        except diffing.OpenAPIValidationError as exc:
-            raise HTTPException(
-                status_code=422, detail=f"invalid OpenAPI fragment: {exc}"
-            ) from exc
+            normalized = diffing.validate_apis([e.model_dump() for e in body.proposed_apis])
+        except diffing.ApisValidationError as exc:
+            raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
+        proposed_apis_json = json.dumps(normalized, ensure_ascii=False)
     p = Proposal(
         block_id=body.block_id,
         author_type="agent",
@@ -164,9 +245,10 @@ def submit_proposal(
         suggestion=body.suggestion,
         scenario=body.scenario,
         proposed_content_md=body.proposed_content_md,
-        proposed_openapi_yaml=body.proposed_openapi_yaml,
+        proposed_apis_json=proposed_apis_json,
     )
     db.add(p)
+    db.flush()
     audit(
         db,
         key.key,

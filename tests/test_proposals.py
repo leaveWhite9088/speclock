@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from tests.conftest import VALID_YAML_V2_MINOR, publish_v1
+from tests.conftest import APIS_INVALID_TYPE, APIS_V2_MINOR, publish_v1
 
 
 def _submit(env, **overrides):
     body = {
         "block_id": env["block_id"],
-        "description": "日报主表缺少备注字段，前端无法展示运营说明",
-        "suggestion": "在 DailyReportRow 增加 extra_note 字段",
+        "description": "采集状态接口缺少备注字段，前端无法展示运营说明",
+        "suggestion": "响应体增加 extra_note 字段",
         "scenario": "前端开发日报页时发现，src/pages/daily.tsx:42",
-        "proposed_openapi_yaml": VALID_YAML_V2_MINOR,
+        "proposed_apis": APIS_V2_MINOR,
     }
     body.update(overrides)
     return env["client"].post("/api/v1/proposals", json=body, headers=env["agent"])
@@ -40,11 +40,12 @@ def test_full_proposal_lifecycle(env):
                json={"action": "approve", "resolution_note": "合理，加字段"}, headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["published_version"] == "1.1.0"
+    assert r.json()["document_version"] == "1.1.0"  # 文档版本同步派生
 
     # agent now reads the merged new version
     r = c.get(f"/api/v1/blocks/{bid}", headers=a)
     assert r.json()["version"] == "1.1.0"
-    assert "extra_note" in r.json()["openapi_yaml"]
+    assert any(f["name"] == "extra_note" for f in r.json()["apis"][0]["response"])
 
     # and the poll reflects the outcome
     p = c.get(f"/api/v1/proposals/{pid}", headers=a).json()
@@ -75,9 +76,9 @@ def test_cannot_resolve_twice(env):
     assert r.status_code == 409
 
 
-def test_proposal_with_invalid_yaml_rejected(env):
+def test_proposal_with_invalid_apis_rejected(env):
     publish_v1(env["client"], env["human"], env["block_id"])
-    r = _submit(env, proposed_openapi_yaml="openapi: 2.0\npaths: 42\n")
+    r = _submit(env, proposed_apis=APIS_INVALID_TYPE)
     assert r.status_code == 422
 
 

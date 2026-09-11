@@ -2,14 +2,14 @@
 {% block title %}SpecLock · 提案收件箱{% endblock %}
 {% block content %}
 <h1>提案收件箱</h1>
-{% for p, block in rows %}
+{% for p, block, apis in rows %}
 <div class="card">
   <h3>#{{ p.id }} → {{ block.title }} <span class="badge {{ p.status }}">{{ p.status }}</span>
     {% if p.published_version %}→ @{{ p.published_version }}{% endif %}</h3>
   <p><b>问题：</b>{{ p.description }}</p>
   <p><b>建议：</b>{{ p.suggestion }}</p>
   {% if p.scenario %}<p class="muted"><b>场景：</b>{{ p.scenario }}</p>{% endif %}
-  {% if p.proposed_openapi_yaml %}<details><summary>建议的 API YAML</summary><pre class="mono">{{ p.proposed_openapi_yaml }}</pre></details>{% endif %}
+  {% if apis %}<details><summary>建议的 API 列表（结构化）</summary><pre class="mono">{{ apis | tojson(indent=2) }}</pre></details>{% endif %}
   {% if p.status == 'submitted' %}
   <div class="actions">
     <input id="note-{{ p.id }}" placeholder="审批意见" size="30">

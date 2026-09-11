@@ -2,9 +2,29 @@
 
 > **Other spec tools put docs in your repo where agents can edit them. SpecLock puts docs behind a read-only API.**
 
-SpecLock 是业务文档的**唯一信源**平台：文档按块（Block）管理、按块发布、带版本与 diff；
+SpecLock 是业务文档的**唯一信源**平台：文档按模块（Block）管理、分模块发布、带两级版本与 diff；
 开发 AI 只能通过只读 API（REST + MCP）读取**已发布版本**；AI 唯一的写出口是**提案（Proposal）**
 通道，提案经人审批发布后才生效。约束是物理的（权限隔离），不是提示词约定。
+
+## 核心概念
+
+```
+项目 Project
+ └── 大业务 Domain        （如：运营）
+      └── 文档 Document   （如：经营日报；有自己的文档级版本）
+           └── 模块 Block （= 小业务，如：数据采集模块 / 异常数据展示模块 / 历史记录模块）
+                ├── 业务描述（Markdown）
+                ├── API 列表（结构化表单：名称 / API 名(方法+路径) / 请求体字段表 / 响应体字段表）
+                └── 非功能性需求（Markdown）
+```
+
+- 模块的 API 区是**结构化列表**，每个字段 = 字段名 + 类型（string/number/integer/boolean/array/object）
+  + 是否必填 + 说明。它是编辑与 diff 的真相源（`apis_json`）；发布时自动生成 OpenAPI 3.x YAML
+  （`openapi_yaml`）供机器/下游消费。用户全程不需要面对 YAML。
+- **两级版本**：模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增字段 → MINOR，其余 PATCH）；
+  任一模块发布成功时，所属文档自动派生一个**文档版本**（manifest = 该文档全部模块当前已发布版本
+  清单）。文档版本规则：任一模块 MAJOR → 文档 MAJOR；否则任一模块 MINOR（含模块首发）→ 文档 MINOR；
+  否则 PATCH。发布动作只有模块级，文档版本是派生物。
 
 ## 快速开始（Windows）
 
@@ -12,8 +32,8 @@ SpecLock 是业务文档的**唯一信源**平台：文档按块（Block）管�
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"   # 或: pip install fastapi uvicorn "sqlalchemy>=2" pydantic jinja2 pyyaml httpx pytest "mcp>=2"
 
-# 生成 demo 数据（项目「Demo 电商系统」→ 大业务「运营」→ 文档「经营日报」→
-# 块「日报主表」「异常值规则」，各发布 1.0.0），并打印两个 key：
+# 生成 demo 数据（运营 / 经营日报 / 数据采集·异常数据展示·历史记录 三个模块，
+# 各发布 1.0.0，文档版本派生至 1.2.0），并打印两个 key：
 .venv/Scripts/python.exe -m speclock.seed
 #   human key (读写/UI): human-xxxxxxxx...
 #   agent key (只读+提案): agent-xxxxxxxx...
@@ -31,8 +51,10 @@ python -m venv .venv
 ## Agent 侧用法（REST）
 
 ```bash
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/index            # 索引先行（≤8KB）
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0   # 版本 pin
+curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/index             # 模块索引先行（≤8KB）
+curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents         # 文档列表 + 文档版本
+curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents/1@1.2.0 # 文档 manifest（pin）
+curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0    # 模块版本 pin
 curl -H "X-API-Key: agent-xxx" "http://127.0.0.1:8000/api/v1/blocks/1/diff?from=1.0.0&to=1.1.0"
 curl -X POST -H "X-API-Key: agent-xxx" -d '{"version":"1.1.0","task_desc":"..."}' http://127.0.0.1:8000/api/v1/blocks/1/ack
 curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","suggestion":"..."}' http://127.0.0.1:8000/api/v1/proposals
@@ -57,45 +79,56 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
 }
 ```
 
-MCP server 恰好暴露 6 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
-`submit_proposal` / `get_proposal`。没有任何写文档的工具。
+MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
+`submit_proposal` / `get_proposal` / `get_documents` / `get_document`。
+没有任何写文档的工具。
+
+## Web UI
+
+- 文档树：大业务 → 文档（含文档版本徽章）→ 模块
+- 模块编辑页：业务描述 textarea + **API 填表区**（增删 API 条目、增删请求体/响应体字段行，
+  全部表单控件，无 YAML）+ 非功能性需求 textarea + 保存草稿 / 秒批发布按钮
+- 文档页：文档版本历史 + 每个版本的模块版本清单（manifest）
+- diff 视图：结构化 delta（ADDED/MODIFIED/REMOVED 字段清单）+ 业务描述文本 diff
+- 提案收件箱（一键批准并发布 / 拒绝）、「已完成」回执看板
 
 ## 架构与红线
 
 ```
 speclock/
 ├── main.py        # FastAPI 装配：admin + agent + ui 三个 router
-├── api_admin.py   # 写路由：仅 human-* key（agent key 一律 403）
+├── api_admin.py   # 写路由：仅 human-* key（agent key 一律 403）；发布 + 文档版本派生
 ├── api_agent.py   # 只读路由：仅 agent-* key；不存在任何文档写端点
 ├── auth.py        # X-API-Key 双凭据 + 审计
-├── diffing.py     # OpenAPI 字段级 diff、delta 生成、破坏性判定、semver 递增
-├── mcp_server.py  # stdio MCP，6 工具，经 HTTP 调本系统 REST
-└── seed.py        # demo 数据 + 打印两个 key
+├── diffing.py     # 结构化 API 校验、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
+├── mcp_server.py  # stdio MCP，8 工具，经 HTTP 调本系统 REST
+└── seed.py        # demo 数据（3 模块）+ 打印两个 key
 ```
 
 - **物理只读隔离**：写端点与读端点分属两个 router、两个 auth 依赖。生产形态应把 admin
   与 agent 拆成两个服务、两套凭据分开部署；MVP 用代码结构保证这条边界可拆分。
-- **版本 pin**：`GET /api/v1/blocks/{id}@{version}` 读不可变快照；草稿对 agent 永远不可见。
-- **fastTrack 秒批**：发布时服务端做 OpenAPI 字段级 diff；无破坏性变更（删字段/改类型）才允许
-  `fastTrack=true`；破坏性变更必须 `confirm=true`，响应返回受影响字段清单。
+- **版本 pin**：`GET /api/v1/blocks/{id}@{version}`、`GET /api/v1/documents/{id}@{version}`
+  读不可变快照；草稿对 agent 永远不可见。
+- **fastTrack 秒批**：发布时服务端基于 `apis_json` 做字段级 diff；无破坏性变更（删字段/改类型）
+  才允许 `fastTrack=true`；破坏性变更必须 `confirm=true`，响应返回受影响字段清单。
 - **delta**：每次发布自动生成 `{added, modified, removed}` 存入 `BlockVersion.delta_json`。
-- **审计**：发布 / 提案 / 拉取 / ack 全部写 `AuditLog`。
+- **审计**：发布（模块+文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`。
 
 ## 验收标准对照（MVP 需求文档 §2.2）
 
 | # | 标准 | 本仓库证据 |
 |---|---|---|
-| S1 | agent 凭据对所有写接口 100% 被拒 | `tests/test_auth.py` 枚举全部写端点断言 403；冒烟实测 5 个写端点全 403 |
-| S2 | 单任务拉取 ≤3 块，索引 ≤8KB | `GET /index` 一行摘要/块；`test_index_is_one_line_per_block_and_small` 断言 ≤8KB（demo 实测 386B） |
+| S1 | agent 凭据对所有写接口 100% 被拒 | `tests/test_auth.py` 枚举全部写端点断言 403；冒烟实测写端点 403 |
+| S2 | 单任务拉取 ≤3 块，索引 ≤8KB | `GET /index` 一行摘要/模块；`test_index_is_one_line_per_block_and_small` 断言 ≤8KB |
 | S3 | 小变更提出到发布 ≤2 分钟 | 提案 → 收件箱一键「批准并发布」；无破坏性变更支持 `fastTrack` 秒批 |
-| S4 | 版本可钉住、历史可重放 | `GET /blocks/{id}@{version}` pin 快照；`test_version_pin_reads_exact_snapshot`；ack 回执记录 `块@版本` |
-| S5 | 端到端：建块→发布→AI 读→提案→审批→再发布→AI 读新版 | `test_full_proposal_lifecycle` + 冒烟实测（见下） |
+| S4 | 版本可钉住、历史可重放 | 模块与文档两级 pin；`test_version_pin_reads_exact_snapshot`、文档 manifest pin 测试；ack 回执记录 `模块@版本` |
+| S5 | 端到端：建块→发布→AI 读→提案→审批→再发布→AI 读新版 | `test_full_proposal_lifecycle` + 冒烟实测 |
 
-冒烟实测记录（uvicorn + curl，demo 数据）：agent 取索引（386B, 2 块）→ pin 拉 `blocks/1@1.0.0` →
-提交提案（加 `sales_dod` 字段）→ human 审批发布 → 提案状态 `published @1.1.0` → agent 读到
-`1.1.0`（delta: `added: prop:DailyReportRow.sales_dod`）→ pin 回 `1.0.0` 仍读到旧快照 →
-diff `1.0.0→1.1.0` 非破坏 → ack `1.1.0` 成功；fastTrack 发布破坏性变更被 409 拒绝并返回受影响
-清单，`confirm=true` 后发布为 `2.0.0`；agent key 调 5 个写端点全部 403；纯草稿块对 agent 404。
+冒烟实测记录（uvicorn + curl，demo 数据）：seed 后 3 模块各 @1.0.0、文档派生至 1.2.0 →
+human 给数据采集模块响应体加 `failed_reason` 字段 → fastTrack 发布 → 模块 1.1.0、文档 1.3.0、
+manifest `{数据采集: 1.1.0, 异常展示: 1.0.0, 历史记录: 1.0.0}`，另两个模块版本不变 →
+agent 读到新模块版本与文档 manifest，且能 pin 回文档 1.0.0 的历史 manifest →
+agent key 调写端点 403。
 
 ## License
 

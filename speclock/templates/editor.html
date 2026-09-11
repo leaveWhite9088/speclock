@@ -3,25 +3,27 @@
 {% block content %}
 <h1>{{ block.title }} <span class="badge {{ block.status }}">{{ block.status }}</span>
   {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}</h1>
+<p class="muted">所属文档：<a href="/ui/documents/{{ block.document_id }}?key={{ key }}">{{ block.document.title }}</a></p>
 
-<label>标题 <input id="title" value="{{ block.title }}"></label>
+<label>模块名 <input id="title" value="{{ block.title }}"></label>
 <label>摘要 <input id="summary" value="{{ block.summary }}" size="60"></label>
 
 <h2>业务描述（Markdown）</h2>
-<textarea id="content_md" rows="12">{{ block.draft_content_md }}</textarea>
+<textarea id="content_md" rows="10">{{ block.draft_content_md }}</textarea>
 
-<h2>API 区（OpenAPI 3.x YAML 片段）</h2>
-<textarea id="openapi_yaml" rows="14" class="mono">{{ block.draft_openapi_yaml }}</textarea>
+<h2>API 列表</h2>
+<div id="api-list"></div>
+<button type="button" onclick="addApi()">+ 新增 API</button>
 
 <h2>非功能性需求</h2>
 <textarea id="nfr_md" rows="5">{{ block.draft_nfr_md }}</textarea>
 
 <div class="actions">
-  <button onclick="save()">保存草稿</button>
+  <button type="button" onclick="save()">保存草稿</button>
   <input id="change_note" placeholder="变更说明" size="30">
   <label><input type="checkbox" id="fastTrack"> 秒批（fastTrack）</label>
   <label><input type="checkbox" id="confirm"> 确认破坏性变更</label>
-  <button onclick="publish()">发布</button>
+  <button type="button" onclick="publish()">发布</button>
   <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">查看 diff</a>
 </div>
 <pre id="result"></pre>
@@ -33,9 +35,89 @@
 {% endfor %}
 </ul>
 
+<script id="apis-data" type="application/json">{{ apis | tojson }}</script>
 <script>
 const KEY = {{ key | tojson }};
 const BID = {{ block.id }};
+const TYPES = ["string", "number", "integer", "boolean", "array", "object"];
+let APIS = JSON.parse(document.getElementById('apis-data').textContent);
+
+function fieldRow(kind, ai, fi, f) {
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input value=""></td>' +
+    '<td><select>' + TYPES.map(t => '<option>' + t + '</option>').join('') + '</select></td>' +
+    '<td style="text-align:center"><input type="checkbox"></td>' +
+    '<td><input value="" size="30"></td>' +
+    '<td><button type="button">删</button></td>';
+  const [nameTd, typeTd, reqTd, descTd] = tr.children;
+  nameTd.firstChild.value = f.name || '';
+  nameTd.firstChild.oninput = e => { APIS[ai][kind][fi].name = e.target.value; };
+  typeTd.firstChild.value = TYPES.includes(f.type) ? f.type : 'string';
+  typeTd.firstChild.onchange = e => { APIS[ai][kind][fi].type = e.target.value; };
+  reqTd.firstChild.checked = !!f.required;
+  reqTd.firstChild.onchange = e => { APIS[ai][kind][fi].required = e.target.checked; };
+  descTd.firstChild.value = f.desc || '';
+  descTd.firstChild.oninput = e => { APIS[ai][kind][fi].desc = e.target.value; };
+  tr.lastChild.firstChild.onclick = () => { APIS[ai][kind].splice(fi, 1); render(); };
+  return tr;
+}
+
+function fieldTable(kind, ai, fields) {
+  const wrap = document.createElement('div');
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<tr><th>字段名</th><th>类型</th><th>必填</th><th>说明</th><th></th></tr>';
+  fields.forEach((f, fi) => tbl.appendChild(fieldRow(kind, ai, fi, f)));
+  wrap.appendChild(tbl);
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.textContent = '+ 加字段行';
+  add.onclick = () => {
+    APIS[ai][kind].push({name: '', type: 'string', required: false, desc: ''});
+    render();
+  };
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function render() {
+  const root = document.getElementById('api-list');
+  root.innerHTML = '';
+  APIS.forEach((a, ai) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const head = document.createElement('div');
+    head.className = 'actions';
+    const nameInput = document.createElement('input');
+    nameInput.value = a.name || '';
+    nameInput.placeholder = '名称（中文显示名）';
+    nameInput.oninput = e => { APIS[ai].name = e.target.value; };
+    const apiInput = document.createElement('input');
+    apiInput.value = a.api || '';
+    apiInput.placeholder = 'API 名，如 GET /api/daily-report';
+    apiInput.size = 34;
+    apiInput.oninput = e => { APIS[ai].api = e.target.value; };
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '删除此 API';
+    del.onclick = () => { APIS.splice(ai, 1); render(); };
+    head.append(nameInput, apiInput, del);
+    card.appendChild(head);
+    const reqH = document.createElement('h4'); reqH.textContent = '请求体';
+    card.appendChild(reqH);
+    card.appendChild(fieldTable('request', ai, a.request || []));
+    const respH = document.createElement('h4'); respH.textContent = '响应体';
+    card.appendChild(respH);
+    card.appendChild(fieldTable('response', ai, a.response || []));
+    root.appendChild(card);
+  });
+}
+
+function addApi() {
+  APIS.push({name: '', api: '', request: [], response: []});
+  render();
+}
+
 async function save() {
   const r = await fetch('/api/v1/blocks/' + BID, {
     method: 'PUT',
@@ -44,12 +126,13 @@ async function save() {
       title: document.getElementById('title').value,
       summary: document.getElementById('summary').value,
       content_md: document.getElementById('content_md').value,
-      openapi_yaml: document.getElementById('openapi_yaml').value,
+      apis: APIS,
       nfr_md: document.getElementById('nfr_md').value,
     }),
   });
   document.getElementById('result').textContent = r.status + '\n' + await r.text();
 }
+
 async function publish() {
   const r = await fetch('/api/v1/blocks/' + BID + '/publish', {
     method: 'POST',
@@ -63,5 +146,7 @@ async function publish() {
   document.getElementById('result').textContent = r.status + '\n' + await r.text();
   if (r.ok) setTimeout(() => location.reload(), 600);
 }
+
+render();
 </script>
 {% endblock %}

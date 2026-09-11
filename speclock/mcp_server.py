@@ -1,6 +1,6 @@
 """SpecLock MCP server (stdio).
 
-Exactly 6 tools — the full agent surface. Every tool is a thin HTTP client
+Exactly 8 tools — the full agent surface. Every tool is a thin HTTP client
 of the SpecLock read-only REST API; there is intentionally no write tool
 (proposals are the only mutation, and they land in the review queue, never
 in the published store).
@@ -105,6 +105,25 @@ def submit_proposal(
 @mcp.tool(description="Poll the status of a proposal (submitted / published / rejected).")
 def get_proposal(proposal_id: int) -> str:
     return _call("GET", f"/api/v1/proposals/{proposal_id}")
+
+
+@mcp.tool(description=(
+    "List documents with their current document-level version. Documents are "
+    "groups of modules (blocks); every module publish derives a new document "
+    "version (manifest of module -> version)."
+))
+def get_documents() -> str:
+    return _call("GET", "/api/v1/documents")
+
+
+@mcp.tool(description=(
+    "Fetch a document manifest: which published version of each module the "
+    "document currently points at. Pin a document version (e.g. '1.2.0') to "
+    "replay a historical manifest."
+))
+def get_document(document_id: int, version: str = "") -> str:
+    ref = f"{document_id}@{version}" if version else str(document_id)
+    return _call("GET", f"/api/v1/documents/{ref}")
 
 
 def main() -> None:
