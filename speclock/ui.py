@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from speclock.db import get_db
 from speclock.models import (
     Ack,
+    ApiKey,
     Block,
     Document,
     DocumentVersion,
@@ -32,9 +33,18 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
 def _check_key(request: Request, db: Session) -> str | RedirectResponse:
+    """UI 页面级校验：?key= 必须是库中存在的 human-* key，否则重定向登录页。
+    （此前只查前缀，key 失效后页面照开、写接口才 401，用户无法自查。）"""
     key = request.query_params.get("key", "")
-    if not key.startswith("human-"):
-        return RedirectResponse(url="/ui/login")
+    rec = None
+    if key:
+        rec = (
+            db.query(ApiKey)
+            .filter(ApiKey.key == key, ApiKey.prefix == "human")
+            .first()
+        )
+    if rec is None:
+        return RedirectResponse(url="/ui/login?error=1")
     return key
 
 

@@ -14,11 +14,24 @@ Creates: 项目「Demo 电商系统」→ 大业务「运营」→
 from __future__ import annotations
 
 import json
+import os
 
 from speclock.api_admin import publish_block
-from speclock.auth import new_key
 from speclock.db import SessionLocal, get_engine, init_db
 from speclock.models import ApiKey, Block, Document, Domain, Project
+
+# 开发态固定 key：重 seed 不换 key，浏览器/配置里的 key 不会失效。
+# 生产部署必须通过 SPECLOCK_HUMAN_KEY / SPECLOCK_AGENT_KEY 环境变量覆盖为随机 key！
+DEFAULT_HUMAN_KEY = "human-dev-0000000000000000000000000001"
+DEFAULT_AGENT_KEY = "agent-dev-0000000000000000000000000001"
+
+
+def _get_or_create_key(db, key: str, prefix: str, project_id: int, label: str) -> str:
+    rec = db.query(ApiKey).filter(ApiKey.key == key).first()
+    if rec is None:
+        db.add(ApiKey(key=key, prefix=prefix, project_id=project_id, label=label))
+        db.flush()
+    return key
 
 
 def F(name, type_, required=False, description="", children=None):
@@ -359,14 +372,12 @@ def main() -> None:
     db.add(domain)
     db.flush()
 
-    human_key = new_key("human")
-    agent_key = new_key("agent")
-    db.add_all(
-        [
-            ApiKey(key=human_key, prefix="human", project_id=project.id, label="demo human"),
-            ApiKey(key=agent_key, prefix="agent", project_id=project.id, label="demo agent"),
-        ]
-    )
+    human_key = _get_or_create_key(
+        db, os.environ.get("SPECLOCK_HUMAN_KEY", DEFAULT_HUMAN_KEY),
+        "human", project.id, "demo human")
+    agent_key = _get_or_create_key(
+        db, os.environ.get("SPECLOCK_AGENT_KEY", DEFAULT_AGENT_KEY),
+        "agent", project.id, "demo agent")
 
     docs = [
         ("经营日报", [

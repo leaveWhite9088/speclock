@@ -39,16 +39,18 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"   # 或: pip install fastapi uvicorn "sqlalchemy>=2" pydantic jinja2 pyyaml httpx pytest "mcp>=2"
 
 # 生成 demo 数据（运营大业务下「经营日报」4 模块 +「售罄率报表」4 模块，
-# 全部发布 1.0.0，两个文档版本各派生至 1.3.0），并打印两个 key：
+# 全部发布 1.0.0，两个文档版本各派生至 1.3.0）。本地开发使用固定 key：
+#   human key (读写/UI): human-dev-0000000000000000000000000001
+#   agent key (只读+提案): agent-dev-0000000000000000000000000001
+# （重 seed 不换 key；生产部署必须用 SPECLOCK_HUMAN_KEY / SPECLOCK_AGENT_KEY
+#  环境变量覆盖为随机 key——固定 key 仅供本地开发！）
 .venv/Scripts/python.exe -m speclock.seed
-#   human key (读写/UI): human-xxxxxxxx...
-#   agent key (只读+提案): agent-xxxxxxxx...
 
 # 启动服务
 .venv/Scripts/python.exe -m uvicorn speclock.main:app
 
-# 管理 UI（用 human key）
-#   http://127.0.0.1:8000/ui?key=human-xxxxxxxx...
+# 管理 UI（开发态固定 key）
+#   http://127.0.0.1:8000/ui?key=human-dev-0000000000000000000000000001
 
 # 跑测试
 .venv/Scripts/python.exe -m pytest -v
@@ -78,7 +80,7 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
       "args": ["-m", "speclock.mcp_server"],
       "env": {
         "SPECLOCK_BASE_URL": "http://127.0.0.1:8000",
-        "SPECLOCK_AGENT_KEY": "agent-xxxxxxxx..."
+        "SPECLOCK_AGENT_KEY": "agent-dev-0000000000000000000000000001"
       }
     }
   }

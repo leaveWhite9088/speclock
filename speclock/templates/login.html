@@ -9,6 +9,9 @@
 <main class="login">
   <h1>SpecLock</h1>
   <p>请使用 human-* key 访问管理界面（agent key 仅可调用只读 API）。</p>
+  {% if request.query_params.get('error') %}
+  <p class="error">key 无效或未提供，请输入库中存在的有效 human key。</p>
+  {% endif %}
   <form onsubmit="event.preventDefault(); location.href='/ui?key=' + encodeURIComponent(this.k.value);">
     <input name="k" placeholder="human-..." size="40" autofocus>
     <button type="submit">进入</button>
