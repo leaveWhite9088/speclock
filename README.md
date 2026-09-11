@@ -18,9 +18,15 @@ SpecLock 是业务文档的**唯一信源**平台：文档按模块（Block）�
                 └── 非功能性需求（Markdown）
 ```
 
-- 模块的 API 区是**结构化列表**，每个字段 = 字段名 + 类型（string/number/integer/boolean/array/object）
-  + 是否必填 + 说明。它是编辑与 diff 的真相源（`apis_json`）；发布时自动生成 OpenAPI 3.x YAML
-  （`openapi_yaml`）供机器/下游消费。用户全程不需要面对 YAML。
+- 模块的 API 区是**结构化列表**，字段模型是递归的：`{name, type, required,
+  description, children}`——类型为 `object` / `array` 的字段可以携带 `children`
+  子字段（array 的 children 描述元素结构），层级不限。字段类型枚举：
+  string/number/integer/boolean/array/object。`apis_json` 是编辑与 diff 的真相源；
+  发布时自动生成 OpenAPI 3.x YAML（`openapi_yaml`，递归输出嵌套 schema）供机器/下游消费。
+  用户全程不需要面对 YAML。
+- **diff 与破坏性判定**基于 apis_json 递归 flatten，路径用点号表达
+  （如 `response:GET /x:data.items.id: number`）；子字段的增删/类型变更同样识别，
+  删字段、改类型 = 破坏性。
 - **两级版本**：模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增字段 → MINOR，其余 PATCH）；
   任一模块发布成功时，所属文档自动派生一个**文档版本**（manifest = 该文档全部模块当前已发布版本
   清单）。文档版本规则：任一模块 MAJOR → 文档 MAJOR；否则任一模块 MINOR（含模块首发）→ 文档 MINOR；
@@ -32,8 +38,8 @@ SpecLock 是业务文档的**唯一信源**平台：文档按模块（Block）�
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"   # 或: pip install fastapi uvicorn "sqlalchemy>=2" pydantic jinja2 pyyaml httpx pytest "mcp>=2"
 
-# 生成 demo 数据（运营 / 经营日报 / 数据采集·异常数据展示·历史记录 三个模块，
-# 各发布 1.0.0，文档版本派生至 1.2.0），并打印两个 key：
+# 生成 demo 数据（运营大业务下「经营日报」4 模块 +「售罄率报表」4 模块，
+# 全部发布 1.0.0，两个文档版本各派生至 1.3.0），并打印两个 key：
 .venv/Scripts/python.exe -m speclock.seed
 #   human key (读写/UI): human-xxxxxxxx...
 #   agent key (只读+提案): agent-xxxxxxxx...
@@ -85,12 +91,39 @@ MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `
 
 ## Web UI
 
-- 文档树：大业务 → 文档（含文档版本徽章）→ 模块
-- 模块编辑页：业务描述 textarea + **API 填表区**（增删 API 条目、增删请求体/响应体字段行，
-  全部表单控件，无 YAML）+ 非功能性需求 textarea + 保存草稿 / 秒批发布按钮
+- 文档树：大业务 → 文档（含文档版本徽章）→ 模块；三层都有「新建 / 重命名 / 删除」入口
+  （prompt/confirm 级交互）
+- 模块编辑页：业务描述 textarea + **API 填表区**（增删 API 条目；字段行递归树形展示，
+  object/array 字段可「+子字段」无限层级下钻，删父级联删子；全程表单控件，无 YAML）
+  + 非功能性需求 textarea + 保存草稿 / 秒批发布按钮
 - 文档页：文档版本历史 + 每个版本的模块版本清单（manifest）
-- diff 视图：结构化 delta（ADDED/MODIFIED/REMOVED 字段清单）+ 业务描述文本 diff
+- diff 视图：结构化 delta（ADDED/MODIFIED/REMOVED 字段清单，含嵌套点号路径）+ 业务描述文本 diff
 - 提案收件箱（一键批准并发布 / 拒绝）、「已完成」回执看板
+
+## 删除语义（已发布内容不可消失）
+
+| 对象 | 删除行为 |
+|---|---|
+| 草稿态模块 | 直接删除 |
+| 已发布模块 | 删除 = 归档（agent 读 404、index 排除、下一文档版本 manifest 移除，历史版本保留可查）；`POST /blocks/{id}/restore` 可恢复 |
+| 文档 / 大业务 | 仅当其下无已发布模块时允许删除，否则 409 并列出已发布模块，提示先归档 |
+
+## Demo 数据结构
+
+```
+Demo 电商系统
+ └── 运营
+      ├── 经营日报（文档 @1.3.0）
+      │    ├── 数据采集模块 @1.0.0        GET  /api/daily-report/collect-status
+      │    ├── 异常数据展示模块 @1.0.0    GET  /api/daily-report/anomalies
+      │    ├── 历史记录模块 @1.0.0        GET  /api/daily-report/history
+      │    └── 异常规则配置模块 @1.0.0    POST /api/daily-report/anomaly-rules（rule/scope 两层 object 嵌套）
+      └── 售罄率报表（文档 @1.3.0）
+           ├── 数据采集模块 @1.0.0        GET  /api/sellout-report/collect-status
+           ├── 异常数据展示模块 @1.0.0    GET  /api/sellout-report/anomalies
+           ├── 历史版本记录模块 @1.0.0    GET  /api/sellout-report/history（snapshots→stores→skus 三层 array 嵌套）
+           └── 异常规则配置模块 @1.0.0    POST /api/sellout-report/anomaly-rules（condition/scope 嵌套）
+```
 
 ## 架构与红线
 
@@ -100,9 +133,9 @@ speclock/
 ├── api_admin.py   # 写路由：仅 human-* key（agent key 一律 403）；发布 + 文档版本派生
 ├── api_agent.py   # 只读路由：仅 agent-* key；不存在任何文档写端点
 ├── auth.py        # X-API-Key 双凭据 + 审计
-├── diffing.py     # 结构化 API 校验、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
+├── diffing.py     # 结构化 API 校验（递归嵌套）、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
 ├── mcp_server.py  # stdio MCP，8 工具，经 HTTP 调本系统 REST
-└── seed.py        # demo 数据（3 模块）+ 打印两个 key
+└── seed.py        # demo 数据（2 文档 × 4 模块）+ 打印两个 key
 ```
 
 - **物理只读隔离**：写端点与读端点分属两个 router、两个 auth 依赖。生产形态应把 admin
@@ -124,11 +157,13 @@ speclock/
 | S4 | 版本可钉住、历史可重放 | 模块与文档两级 pin；`test_version_pin_reads_exact_snapshot`、文档 manifest pin 测试；ack 回执记录 `模块@版本` |
 | S5 | 端到端：建块→发布→AI 读→提案→审批→再发布→AI 读新版 | `test_full_proposal_lifecycle` + 冒烟实测 |
 
-冒烟实测记录（uvicorn + curl，demo 数据）：seed 后 3 模块各 @1.0.0、文档派生至 1.2.0 →
-human 给数据采集模块响应体加 `failed_reason` 字段 → fastTrack 发布 → 模块 1.1.0、文档 1.3.0、
-manifest `{数据采集: 1.1.0, 异常展示: 1.0.0, 历史记录: 1.0.0}`，另两个模块版本不变 →
-agent 读到新模块版本与文档 manifest，且能 pin 回文档 1.0.0 的历史 manifest →
-agent key 调写端点 403。
+冒烟实测记录（uvicorn + curl，demo 数据）：seed 后 2 文档 × 4 模块各 @1.0.0、文档版本各派生至 1.3.0 →
+嵌套字段经 UI 提交接口（PUT apis，object/array 多层 children）保存与读取一致 →
+fastTrack 发布嵌套子字段新增 → delta 为点号路径
+`request:POST ...:rule.scope.channels.channel_id`，模块 1.1.0、文档 1.4.0 →
+新建大业务→文档→模块→发布→agent 可读（200）→ 归档已发布模块：agent 404、index 排除、
+下一文档 manifest 移除 → 删除含已发布模块的文档 409 并列出已发布模块 → restore 恢复后 agent 200 →
+agent key 对全部写端点（含三层 CRUD 新端点）403。
 
 ## License
 

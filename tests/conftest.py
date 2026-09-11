@@ -24,18 +24,18 @@ APIS_V1 = [
         "name": "拉取日报主表",
         "api": "GET /api/daily-report",
         "request": [
-            {"name": "date", "type": "string", "required": True, "desc": "查询日期"},
+            {"name": "date", "type": "string", "required": True, "description": "查询日期"},
         ],
         "response": [
-            {"name": "sales", "type": "number", "required": True, "desc": "销售额"},
-            {"name": "orders", "type": "integer", "required": True, "desc": "订单量"},
+            {"name": "sales", "type": "number", "required": True, "description": "销售额"},
+            {"name": "orders", "type": "integer", "required": True, "description": "订单量"},
         ],
     }
 ]
 
 APIS_V2_MINOR = copy.deepcopy(APIS_V1)
 APIS_V2_MINOR[0]["response"].append(
-    {"name": "extra_note", "type": "string", "required": False, "desc": "运营备注"}
+    {"name": "extra_note", "type": "string", "required": False, "description": "运营备注"}
 )
 
 APIS_V2_BREAKING = copy.deepcopy(APIS_V1)

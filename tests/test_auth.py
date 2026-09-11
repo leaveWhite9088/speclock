@@ -13,10 +13,15 @@ from tests.conftest import publish_v1
 WRITE_ENDPOINTS = [
     ("POST", "/api/v1/projects", {"name": "x"}),
     ("POST", "/api/v1/domains", {"project_id": 1, "name": "x"}),
+    ("PUT", "/api/v1/domains/1", {"name": "x"}),
+    ("DELETE", "/api/v1/domains/1", None),
     ("POST", "/api/v1/documents", {"domain_id": 1, "title": "x"}),
+    ("PUT", "/api/v1/documents/1", {"name": "x"}),
+    ("DELETE", "/api/v1/documents/1", None),
     ("POST", "/api/v1/blocks", {"document_id": 1, "title": "x"}),
     ("PUT", "/api/v1/blocks/1", {"title": "hacked"}),
     ("DELETE", "/api/v1/blocks/1", None),
+    ("POST", "/api/v1/blocks/1/restore", None),
     ("POST", "/api/v1/blocks/1/publish", {"change_note": "x", "fastTrack": True}),
     ("POST", "/api/v1/proposals/1/resolve", {"action": "approve"}),
 ]

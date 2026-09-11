@@ -1,20 +1,24 @@
 """Structured-API validation, diffing and OpenAPI generation.
 
 The source of truth for a module's API section is a structured list
-(``apis_json``)::
+(``apis_json``) with a RECURSIVE field model::
 
     [{"name": "拉取日报主表", "api": "GET /api/daily-report",
-      "request":  [{"name": "date", "type": "string", "required": true, "desc": "查询日期"}],
-      "response": [{"name": "sales", "type": "number", "required": true, "desc": "销售额"}]}]
+      "request":  [{"name": "date", "type": "string", "required": true,
+                    "description": "查询日期", "children": []}],
+      "response": [{"name": "data", "type": "object", "required": true,
+                    "description": "", "children": [
+                        {"name": "items", "type": "array", "required": true,
+                         "description": "", "children": [
+                             {"name": "id", "type": "integer", ...}]}]}]}]
 
-- ``validate_apis``: structural validation (api name must parse to
-  METHOD + /path; field name non-empty; type in enum). Invalid modules
-  cannot be saved or published.
-- ``flatten_apis`` / ``delta`` / ``is_breaking``: field-level diff —
-  added/removed request & response fields and type (or required-flag)
-  changes are detected; removed fields and type changes are breaking.
-- ``apis_to_openapi``: generates the OpenAPI 3.x document stored on each
-  BlockVersion for machine consumers.
+- ``children`` is only allowed under ``object`` / ``array`` types (for array it
+  describes the element structure). Nesting depth is not artificially limited.
+- ``flatten_apis`` / ``delta`` / ``is_breaking``: recursive field-level diff —
+  paths are dotted (e.g. ``response:GET /x:data.items.id: number``); added /
+  removed / type-changed nested fields are detected; removed fields and type
+  changes are breaking.
+- ``apis_to_openapi``: recursively generates nested OpenAPI 3.x schemas.
 - Versioning helpers: module semver + derived document semver.
 """
 
@@ -25,6 +29,7 @@ import difflib
 import yaml
 
 FIELD_TYPES = ("string", "number", "integer", "boolean", "array", "object")
+CONTAINER_TYPES = ("object", "array")
 HTTP_METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH")
 
 
@@ -58,11 +63,21 @@ def _validate_field(field: object, where: str) -> dict:
         raise ApisValidationError(
             f"{where} 字段 {name!r} 的类型必须是 {FIELD_TYPES} 之一，got {ftype!r}"
         )
+    children = field.get("children") or []
+    if not isinstance(children, list):
+        raise ApisValidationError(f"{where} 字段 {name!r} 的 children 必须是数组")
+    if children and ftype not in CONTAINER_TYPES:
+        raise ApisValidationError(
+            f"{where} 字段 {name!r} 是 {ftype} 类型，不允许有子字段"
+            f"（children 只可用于 object/array）"
+        )
+    fwhere = f"{where}.{name}"
     return {
         "name": name.strip(),
         "type": ftype,
         "required": bool(field.get("required", False)),
-        "desc": str(field.get("desc", "") or ""),
+        "description": str(field.get("description", "") or ""),
+        "children": [_validate_field(c, fwhere) for c in children],
     }
 
 
@@ -96,20 +111,26 @@ def validate_apis(apis: object) -> list[dict]:
     return normalized
 
 
-def flatten_apis(apis: list) -> dict[str, str]:
-    """Flatten to {dotted.path: descriptor} for field-level diffing.
+def _flatten_fields(flat: dict[str, str], key: str, prefix: str, fields: list[dict]) -> None:
+    for f in fields:
+        path = f"{prefix}{f['name']}"
+        flat[f"{key}:{path}"] = f"{f['type']}{' required' if f['required'] else ''}"
+        if f["children"]:
+            _flatten_fields(flat, key, path + ".", f["children"])
 
-    Display names are deliberately excluded (文案改动不算契约变更)。
+
+def flatten_apis(apis: list) -> dict[str, str]:
+    """Recursively flatten to {dotted.path: descriptor} for field-level diffing.
+
+    Display names and descriptions are deliberately excluded (文案改动不算契约变更)。
     """
     flat: dict[str, str] = {}
     for entry in validate_apis(apis):
         method, path = parse_api_name(entry["api"])
-        key = f"{method} {path}"
-        flat[f"api:{key}"] = "operation"
+        key_prefix = f"{method} {path}"
+        flat[f"api:{key_prefix}"] = "operation"
         for kind in ("request", "response"):
-            for f in entry[kind]:
-                suffix = f"{f['type']}{' required' if f['required'] else ''}"
-                flat[f"{kind}:{key}:{f['name']}"] = suffix
+            _flatten_fields(flat, f"{kind}:{key_prefix}", "", entry[kind])
     return flat
 
 
@@ -132,16 +153,40 @@ def is_breaking(d: dict[str, list[str]]) -> bool:
     return bool(d["removed"] or d["modified"])
 
 
-def _fields_to_schema(fields: list[dict]) -> dict:
+def _field_to_schema(f: dict) -> dict:
+    schema: dict = {"type": f["type"]}
+    if f.get("description"):
+        schema["description"] = f["description"]
+    children = f.get("children") or []
+    if f["type"] == "object":
+        props, required = _children_to_properties(children)
+        schema["properties"] = props
+        if required:
+            schema["required"] = required
+    elif f["type"] == "array":
+        if children:
+            props, required = _children_to_properties(children)
+            items: dict = {"type": "object", "properties": props}
+            if required:
+                items["required"] = required
+            schema["items"] = items
+        else:
+            schema["items"] = {}
+    return schema
+
+
+def _children_to_properties(children: list[dict]) -> tuple[dict, list[str]]:
     props: dict[str, dict] = {}
     required: list[str] = []
-    for f in fields:
-        prop: dict = {"type": f["type"]}
-        if f.get("desc"):
-            prop["description"] = f["desc"]
-        props[f["name"]] = prop
+    for f in children:
+        props[f["name"]] = _field_to_schema(f)
         if f.get("required"):
             required.append(f["name"])
+    return props, required
+
+
+def _fields_to_schema(fields: list[dict]) -> dict:
+    props, required = _children_to_properties(fields)
     schema: dict = {"type": "object", "properties": props}
     if required:
         schema["required"] = required

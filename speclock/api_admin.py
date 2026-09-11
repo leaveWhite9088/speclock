@@ -38,6 +38,7 @@ from speclock.schemas import (
     ProjectCreate,
     PublishRequest,
     PublishResult,
+    RenameRequest,
     ResolveRequest,
 )
 
@@ -206,6 +207,54 @@ def create_domain(body: DomainCreate, db: Session = Depends(get_db)):
     return {"id": d.id, "name": d.name}
 
 
+@router.put("/domains/{domain_id}")
+def rename_domain(domain_id: int, body: RenameRequest, db: Session = Depends(get_db)):
+    d = db.get(Domain, domain_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="domain not found")
+    d.name = body.name
+    audit(db, "human", "rename", f"domain:{d.id}", {"name": body.name})
+    db.commit()
+    return {"id": d.id, "name": d.name}
+
+
+def _hard_delete_block(db: Session, block: Block) -> None:
+    db.query(BlockVersion).filter(BlockVersion.block_id == block.id).delete()
+    db.query(Ack).filter(Ack.block_id == block.id).delete()
+    db.query(Proposal).filter(Proposal.block_id == block.id).delete()
+    db.delete(block)
+
+
+def _hard_delete_document(db: Session, doc: Document) -> None:
+    published = [b for b in doc.blocks if b.status == "published"]
+    if published:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "文档下仍有已发布模块，请先归档这些模块再删除文档",
+                "published_blocks": [{"id": b.id, "title": b.title} for b in published],
+            },
+        )
+    for b in doc.blocks:
+        _hard_delete_block(db, b)
+    db.query(DocumentVersion).filter(DocumentVersion.document_id == doc.id).delete()
+    db.delete(doc)
+
+
+@router.delete("/domains/{domain_id}")
+def delete_domain(domain_id: int, db: Session = Depends(get_db)):
+    """大业务删除：仅当其下无已发布模块时允许，否则 409 提示先归档模块。"""
+    d = db.get(Domain, domain_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="domain not found")
+    for doc in d.documents:
+        _hard_delete_document(db, doc)  # raises 409 if any published module
+    audit(db, "human", "delete", f"domain:{d.id}", {"name": d.name})
+    db.delete(d)
+    db.commit()
+    return {"id": domain_id, "deleted": True}
+
+
 @router.post("/documents", status_code=201)
 def create_document(body: DocumentCreate, db: Session = Depends(get_db)):
     if db.get(Domain, body.domain_id) is None:
@@ -214,6 +263,29 @@ def create_document(body: DocumentCreate, db: Session = Depends(get_db)):
     db.add(doc)
     db.commit()
     return {"id": doc.id, "title": doc.title}
+
+
+@router.put("/documents/{document_id}")
+def rename_document(document_id: int, body: RenameRequest, db: Session = Depends(get_db)):
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    doc.title = body.name
+    audit(db, "human", "rename", f"document:{doc.id}", {"title": body.name})
+    db.commit()
+    return {"id": doc.id, "title": doc.title}
+
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: int, db: Session = Depends(get_db)):
+    """文档删除：仅当其下无已发布模块时允许，否则 409 提示先归档模块。"""
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    audit(db, "human", "delete", f"document:{doc.id}", {"title": doc.title})
+    _hard_delete_document(db, doc)
+    db.commit()
+    return {"id": document_id, "deleted": True}
 
 
 # ---------- block (module) CRUD — draft ----------
@@ -273,13 +345,32 @@ def update_block(block_id: int, body: BlockUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/blocks/{block_id}")
-def archive_block(block_id: int, db: Session = Depends(get_db)):
-    """Archive = stop distribution. Agents lose read access immediately."""
+def delete_block(block_id: int, db: Session = Depends(get_db)):
+    """删除语义：草稿态直接删除；已发布模块删除 = 归档（agent 读不到、index
+    不出现，历史版本保留可查，并从下一次文档版本 manifest 中移除）。"""
     block = _get_block(db, block_id)
+    if block.status == "draft":
+        _hard_delete_block(db, block)
+        audit(db, "human", "delete", f"block:{block_id}", {"title": block.title})
+        db.commit()
+        return {"id": block_id, "deleted": True}
     block.status = "archived"
     audit(db, "human", "archive", f"block:{block.id}", {})
     db.commit()
     return {"id": block.id, "status": block.status}
+
+
+@router.post("/blocks/{block_id}/restore")
+def restore_block(block_id: int, db: Session = Depends(get_db)):
+    """恢复已归档模块：重新进入已发布状态（历史版本从未丢失）。"""
+    block = _get_block(db, block_id)
+    if block.status != "archived":
+        raise HTTPException(status_code=409, detail=f"block is {block.status}, not archived")
+    block.status = "published"
+    audit(db, "human", "restore", f"block:{block.id}", {})
+    db.commit()
+    return {"id": block.id, "status": block.status,
+            "current_published_version": block.current_published_version}
 
 
 # ---------- publish / versions ----------

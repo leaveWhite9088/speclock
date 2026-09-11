@@ -11,10 +11,13 @@ from pydantic import BaseModel, Field
 
 
 class ApiField(BaseModel):
+    """递归字段模型：object/array 类型可携带 children 子字段。"""
+
     name: str
     type: str  # string|number|integer|boolean|array|object（语义校验在 diffing）
     required: bool = False
-    desc: str = ""
+    description: str = ""
+    children: list["ApiField"] = []
 
 
 class ApiEntry(BaseModel):
@@ -53,6 +56,10 @@ class PublishRequest(BaseModel):
 class ResolveRequest(BaseModel):
     action: str = Field(pattern="^(approve|reject)$")
     resolution_note: str = ""
+
+
+class RenameRequest(BaseModel):
+    name: str
 
 
 class DocumentCreate(BaseModel):

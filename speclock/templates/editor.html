@@ -40,42 +40,90 @@
 const KEY = {{ key | tojson }};
 const BID = {{ block.id }};
 const TYPES = ["string", "number", "integer", "boolean", "array", "object"];
+const CONTAINERS = ["object", "array"];
 let APIS = JSON.parse(document.getElementById('apis-data').textContent);
 
-function fieldRow(kind, ai, fi, f) {
+function newField() {
+  return {name: '', type: 'string', required: false, description: '', children: []};
+}
+
+// path = 索引数组，定位嵌套字段
+function getField(ai, kind, path) {
+  let arr = APIS[ai][kind];
+  let f = null;
+  for (const i of path) { f = arr[i]; arr = f.children; }
+  return f;
+}
+function getSiblings(ai, kind, path) {
+  let arr = APIS[ai][kind];
+  for (const i of path.slice(0, -1)) arr = arr[i].children;
+  return arr;
+}
+
+function fieldRow(ai, kind, path, f, depth) {
   const tr = document.createElement('tr');
   tr.innerHTML =
-    '<td><input value=""></td>' +
+    '<td><input value="" style="margin-left:' + (depth * 22) + 'px"></td>' +
     '<td><select>' + TYPES.map(t => '<option>' + t + '</option>').join('') + '</select></td>' +
     '<td style="text-align:center"><input type="checkbox"></td>' +
-    '<td><input value="" size="30"></td>' +
-    '<td><button type="button">删</button></td>';
-  const [nameTd, typeTd, reqTd, descTd] = tr.children;
+    '<td><input value="" size="24"></td>' +
+    '<td class="rowops"></td>';
+  const [nameTd, typeTd, reqTd, descTd, opsTd] = tr.children;
   nameTd.firstChild.value = f.name || '';
-  nameTd.firstChild.oninput = e => { APIS[ai][kind][fi].name = e.target.value; };
+  nameTd.firstChild.oninput = e => { getField(ai, kind, path).name = e.target.value; };
   typeTd.firstChild.value = TYPES.includes(f.type) ? f.type : 'string';
-  typeTd.firstChild.onchange = e => { APIS[ai][kind][fi].type = e.target.value; };
+  typeTd.firstChild.onchange = e => {
+    const fld = getField(ai, kind, path);
+    fld.type = e.target.value;
+    if (!CONTAINERS.includes(fld.type)) fld.children = [];  // 切回标量则丢弃子字段
+    render();
+  };
   reqTd.firstChild.checked = !!f.required;
-  reqTd.firstChild.onchange = e => { APIS[ai][kind][fi].required = e.target.checked; };
-  descTd.firstChild.value = f.desc || '';
-  descTd.firstChild.oninput = e => { APIS[ai][kind][fi].desc = e.target.value; };
-  tr.lastChild.firstChild.onclick = () => { APIS[ai][kind].splice(fi, 1); render(); };
+  reqTd.firstChild.onchange = e => { getField(ai, kind, path).required = e.target.checked; };
+  descTd.firstChild.value = f.description || '';
+  descTd.firstChild.oninput = e => { getField(ai, kind, path).description = e.target.value; };
+
+  if (CONTAINERS.includes(f.type)) {
+    const addChild = document.createElement('button');
+    addChild.type = 'button';
+    addChild.textContent = '+子字段';
+    addChild.onclick = () => {
+      getField(ai, kind, path).children.push(newField());
+      render();
+    };
+    opsTd.appendChild(addChild);
+  }
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.textContent = '删';
+  del.onclick = () => {  // 删除父字段，children 随字段一起被移除（级联）
+    getSiblings(ai, kind, path).splice(path[path.length - 1], 1);
+    render();
+  };
+  opsTd.appendChild(del);
   return tr;
+}
+
+function renderFields(ai, kind, fields, path, depth, tbody) {
+  fields.forEach((f, fi) => {
+    const p = path.concat(fi);
+    tbody.appendChild(fieldRow(ai, kind, p, f, depth));
+    if (f.children && f.children.length) {
+      renderFields(ai, kind, f.children, p, depth + 1, tbody);
+    }
+  });
 }
 
 function fieldTable(kind, ai, fields) {
   const wrap = document.createElement('div');
   const tbl = document.createElement('table');
   tbl.innerHTML = '<tr><th>字段名</th><th>类型</th><th>必填</th><th>说明</th><th></th></tr>';
-  fields.forEach((f, fi) => tbl.appendChild(fieldRow(kind, ai, fi, f)));
+  renderFields(ai, kind, fields, [], 0, tbl);
   wrap.appendChild(tbl);
   const add = document.createElement('button');
   add.type = 'button';
   add.textContent = '+ 加字段行';
-  add.onclick = () => {
-    APIS[ai][kind].push({name: '', type: 'string', required: false, desc: ''});
-    render();
-  };
+  add.onclick = () => { APIS[ai][kind].push(newField()); render(); };
   wrap.appendChild(add);
   return wrap;
 }
