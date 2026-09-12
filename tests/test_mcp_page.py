@@ -59,3 +59,16 @@ def test_nav_has_mcp_entry(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     body = env["client"].get(f"/ui?key={env['human']['X-API-Key']}").text
     assert "AI 接入" in body and "/ui/mcp" in body
+
+
+def test_mcp_page_brief_for_agent(env):
+    """复制本页内容：内嵌给 agent 的完整 Markdown 接入说明。"""
+    publish_v1(env["client"], env["human"], env["block_id"])
+    body = env["client"].get(f"/ui/mcp?key={env['human']['X-API-Key']}").text
+    assert "复制本页内容" in body
+    assert "const BRIEF = " in body
+    # brief 内含配置 JSON、工具清单与使用规则（中文经 tojson 转义，断言 ASCII 部分）
+    assert "```json" in body and ".mcp.json" in body
+    assert env["agent"]["X-API-Key"] in body
+    for tool in ALL_TOOLS:
+        assert f"`{tool}`" in body, tool

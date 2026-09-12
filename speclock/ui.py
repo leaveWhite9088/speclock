@@ -243,6 +243,30 @@ def mcp_page(request: Request, db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
+    config_json = json.dumps(config, indent=2, ensure_ascii=False)
+    tools_md = "\n".join(f"- `{name}`：{desc}" for name, desc in MCP_TOOLS)
+    brief = (
+        "# SpecLock · AI 接入说明\n\n"
+        "你是一名开发 AI agent。SpecLock 是本项目的业务文档单一事实源："
+        "所有业务文档在这里维护并版本化，你通过它的 MCP server 以只读方式获取已发布文档。"
+        "请按以下步骤自行完成接入。\n\n"
+        "## 1. 写入 MCP 配置\n\n"
+        "把下面的 JSON 合并到项目根目录的 `.mcp.json`"
+        "（若已有 `mcpServers` 字段，只合并其中 `speclock` 一项），"
+        "然后重启你的客户端使配置生效。MCP server 以 stdio 方式启动。\n\n"
+        "```json\n" + config_json + "\n```\n\n"
+        f"## 2. 你可用的工具（{len(MCP_TOOLS)} 个）\n\n"
+        + tools_md + "\n\n"
+        "## 3. 使用规则\n\n"
+        "- 先调用 `get_index` 拿 大业务→小业务→模块 的三层索引树，在树里选中目标模块后用 `get_block` 拉取，不要逐个全量拉取。\n"
+        "- 索引树每个模块节点都带 `completed` 完成标记：迭代时只做 `completed=false` 的模块"
+        "（也可用 `get_index(incomplete_only=true)` 直接过滤），不要重做已完成模块。\n"
+        "- 实现前用 `get_document` / `get_block` 的版本参数 pin 住快照；实现完成后调用 `ack_block` 回执「已按 模块@版本 实现」。\n"
+        "- 你只能读到已发布版本；草稿与已归档内容对你不可见。\n"
+        "- 你没有任何修改文档的工具。发现文档有误或缺失时，用 `submit_proposal` 提交变更提案"
+        "（你唯一的写出口），经人审批发布后才生效；用 `get_proposal` 轮询提案状态。\n"
+        "- 需要对比两个版本时调用 `get_diff`，按结构化 diff 增量调整实现。\n"
+    )
     return templates.TemplateResponse(
         request,
         "mcp.html",
@@ -252,6 +276,7 @@ def mcp_page(request: Request, db: Session = Depends(get_db)):
             "agent_key": agent_key,
             "tools": MCP_TOOLS,
             "activities": activities,
+            "brief": brief,
         },
     )
 
