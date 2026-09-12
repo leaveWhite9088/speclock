@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from speclock import diffing
-from speclock.auth import audit, require_human
+from speclock.auth import audit, new_key, require_human
 from speclock.db import get_db
 from speclock.models import (
     Ack,
@@ -35,6 +35,7 @@ from speclock.schemas import (
     BlockUpdate,
     DocumentCreate,
     DomainCreate,
+    KeyCreate,
     ProjectCreate,
     PublishRequest,
     PublishResult,
@@ -603,3 +604,49 @@ def list_acks(db: Session = Depends(get_db)):
         }
         for a in db.query(Ack).order_by(Ack.id.desc()).all()
     ]
+
+
+# ---------- API key management (用户/密钥管理) ----------
+
+
+def _key_out(k: ApiKey) -> dict:
+    return {
+        "id": k.id,
+        "key": k.key,
+        "prefix": k.prefix,
+        "label": k.label,
+        "project_id": k.project_id,
+        "created_at": k.created_at,
+    }
+
+
+@router.get("/keys")
+def list_keys(db: Session = Depends(get_db)):
+    return [_key_out(k) for k in db.query(ApiKey).order_by(ApiKey.id).all()]
+
+
+@router.post("/keys", status_code=201)
+def create_key(body: KeyCreate, db: Session = Depends(get_db)):
+    k = ApiKey(key=new_key(body.prefix), prefix=body.prefix, label=body.label)
+    db.add(k)
+    audit(db, "human", "key_create", f"apikey:{k.key}", {"prefix": k.prefix, "label": k.label})
+    db.commit()
+    return _key_out(k)
+
+
+@router.delete("/keys/{key_id}")
+def delete_key(key_id: int, db: Session = Depends(get_db)):
+    k = db.get(ApiKey, key_id)
+    if k is None:
+        raise HTTPException(status_code=404, detail="key not found")
+    if k.prefix == "human":
+        humans = db.query(ApiKey).filter(ApiKey.prefix == "human").count()
+        if humans <= 1:
+            raise HTTPException(
+                status_code=409,
+                detail="这是最后一把 human key，删除后无人能管理系统，已拒绝",
+            )
+    audit(db, "human", "key_delete", f"apikey:{k.key}", {"prefix": k.prefix, "label": k.label})
+    db.delete(k)
+    db.commit()
+    return {"id": key_id, "deleted": True}

@@ -330,3 +330,17 @@ def acks(request: Request, db: Session = Depends(get_db)):
         return key
     rows = [(a, db.get(Block, a.block_id)) for a in db.query(Ack).order_by(Ack.id.desc()).all()]
     return templates.TemplateResponse(request, "acks.html", {"key": key, "rows": rows})
+
+
+@router.get("/ui/keys", response_class=HTMLResponse)
+def keys_page(request: Request, db: Session = Depends(get_db)):
+    """密钥管理页：human/agent key 的列表、新建、删除。"""
+    key = _check_key(request, db)
+    if not isinstance(key, str):
+        return key
+    keys = db.query(ApiKey).order_by(ApiKey.id).all()
+    return templates.TemplateResponse(
+        request,
+        "keys.html",
+        {"key": key, "keys": keys, "current_key": key},
+    )

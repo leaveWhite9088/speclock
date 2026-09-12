@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}SpecLock · 密钥管理{% endblock %}
+{% block content %}
+<h1>密钥管理</h1>
+<p class="muted">human key 用于管理端（UI / 写接口），agent key 用于 AI 只读接入。
+删除立即生效：被删的 key 下次请求即 401。最后一把 human key 不可删除。</p>
+
+<h2>新建密钥</h2>
+<div class="card actions">
+  <select id="new-prefix">
+    <option value="human">human（管理端）</option>
+    <option value="agent">agent（AI 只读）</option>
+  </select>
+  <input id="new-label" placeholder="标签，如：张三 / claude-code" size="24">
+  <button type="button" onclick="createKey()">生成密钥</button>
+</div>
+
+<h2>现有密钥（{{ keys | length }} 把）</h2>
+<table>
+  <tr><th>类型</th><th>标签</th><th>Key</th><th>创建时间</th><th>操作</th></tr>
+  {% for k in keys %}
+  <tr>
+    <td><span class="badge {{ 'published' if k.prefix == 'human' else 'draft' }}">{{ k.prefix }}</span></td>
+    <td>{{ k.label or '-' }}</td>
+    <td class="mono">{{ k.key }}{% if k.key == current_key %} <span class="muted">（当前正在使用）</span>{% endif %}</td>
+    <td class="muted">{{ k.created_at.strftime('%Y-%m-%d %H:%M:%S') if k.created_at else '-' }}</td>
+    <td class="ops">
+      <button type="button" onclick='copyKey({{ k.key | tojson }}, this)'>复制</button>
+      <button type="button" class="btn-danger" onclick='delKey({{ k.id }}, {{ k.key | tojson }}, {{ (k.key == current_key) | tojson }})'>删除</button>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<script>
+const KEY = {{ key | tojson }};
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method,
+    headers: {'Content-Type': 'application/json', 'X-API-Key': KEY},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) { alert(r.status + ' ' + await r.text()); return null; }
+  return r.json();
+}
+async function createKey() {
+  const body = {
+    prefix: document.getElementById('new-prefix').value,
+    label: document.getElementById('new-label').value,
+  };
+  const r = await api('POST', '/api/v1/keys', body);
+  if (r) { alert('已生成 ' + r.prefix + ' key：\n' + r.key); location.reload(); }
+}
+async function copyKey(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '已复制 ✓';
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = '已复制 ✓';
+  }
+  setTimeout(() => { btn.textContent = '复制'; }, 1500);
+}
+function delKey(id, keyText, isCurrent) {
+  let msg = '删除密钥「' + keyText + '」？\n删除立即生效，使用该 key 的客户端将立即 401。';
+  if (isCurrent) msg = '⚠ 这是你当前正在使用的 key！\n' + msg + '\n删除后本页面将跳转回登录页。';
+  if (confirm(msg)) api('DELETE', '/api/v1/keys/' + id).then(r => { if (r) location.reload(); });
+}
+</script>
+{% endblock %}

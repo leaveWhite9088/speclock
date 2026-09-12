@@ -78,6 +78,11 @@ class ProjectCreate(BaseModel):
     name: str
 
 
+class KeyCreate(BaseModel):
+    prefix: str = Field(pattern="^(human|agent)$")
+    label: str = ""
+
+
 # ---------- agent requests ----------
 
 
@@ -98,15 +103,25 @@ class ProposalCreate(BaseModel):
 # ---------- responses ----------
 
 
-class IndexEntry(BaseModel):
+class IndexBlock(BaseModel):
     block_id: int
     title: str
-    domain: str
-    document: str
     version: str
     summary: str  # <= 50 chars
     completed: bool  # 当前已发布版本是否已被实现完成
     completed_version: str | None  # 上次完成对应的版本号
+
+
+class IndexDocument(BaseModel):
+    document_id: int
+    title: str
+    version: str | None  # 当前文档版本
+    blocks: list[IndexBlock]
+
+
+class IndexDomain(BaseModel):
+    domain: str
+    documents: list[IndexDocument]
 
 
 class Delta(BaseModel):
