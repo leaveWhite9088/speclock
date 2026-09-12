@@ -45,7 +45,7 @@ const BID = {{ block.id }};
 const TYPES = ["string", "number", "integer", "boolean", "array", "object"];
 const CONTAINERS = ["object", "array"];
 let APIS = JSON.parse(document.getElementById('apis-data').textContent);
-let COLLAPSED = APIS.map(() => true);  // 初始加载全部折叠
+let COLLAPSED = APIS.map(() => false);  // 初始加载全部展开
 
 function newField() {
   return {name: '', type: 'string', required: false, description: '', children: []};
