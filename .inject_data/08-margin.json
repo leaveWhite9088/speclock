@@ -1,0 +1,308 @@
+{
+  "domain": "价格表",
+  "document": "价格表",
+  "modules": [
+    {
+      "title": "当前批次与数据来源",
+      "summary": "展示当前价格表批次的四项统计与价格标准包采集状态，支持后台重新生成今日批次并下载结果。",
+      "content_md": "# 当前批次与数据来源（价格表）\n\n## 业务逻辑\n\n页面顶部为当前批次区，承载统计、数据来源摘要与主操作。\n\n**统计口径**：统计行固定 4 项——扫描商品数（scannedProducts）、建议提价（priceUpCount）、建议降价（priceDownCount）、保持现价（priceKeepCount）。当批次标记 `priceTableReady=true` 时展示该价格表口径；为兼容旧批次，未就绪时回退展示负毛利数、低毛利数、高价值低利润数三口径（OpsMargin.vue 统计行与 api/ops.ts getMarginCurrent 映射）。统计下方展示「最近生成于 {batchTime}」。\n\n**数据来源**：价格表依赖两个价格标准包来源——淘宝价格表标准包（dataset=taobao_activity_readonly）与美团价格表标准包（dataset=meituan_price_readonly）。GET /margin/sources 返回 targetDate、ready 与每个来源的状态（ready / collecting / blocked / missing）、业务日 businessDate、入库时间 receivedAt 与说明 message。页面以摘要行（状态点 + 「N/N 来源已齐备 · 业务日 X」）默认收起，采集中或存在待处理来源时自动展开抽屉明细；明细行内按状态提供「重试」（blocked）或「重新采集」按钮，调用 POST /api/v1/workbench/ops/source-collections/{dataset}/run 触发定向补采。来源异常有稳定错误码分流：REQUEST_BUDGET_EXCEEDED（淘宝采集范围过大已停止以保护平台）、DATASET_NOT_READY（美团自动读取未完成）等，分别给出固定引导文案。只有全部来源 ready 才允许重新生成。\n\n**重新生成**：主按钮「更新价格表」点击后弹出确认框，明示「需要流式读取并计算约 82 万条商品，容量预估 20–60 分钟；任务在后台运行，刷新或切换菜单不会中断；旧批次保留到新批次成功」。确认后 POST /margin/generation-jobs 提交后台任务并本地登记 runId，随后轮询 GET /margin/generation-jobs/{runId} 直至终态（queued/running/succeeded/failed/blocked），完成后自动后台静默刷新列表与历史批次。\n\n**下载**：批次已持久化（persisted）且存在 batchId 时可下载当前批次价格表 xlsx（按钮文案按是否为今日目标批次在「下载今日批次价格表 / 下载最近结果（日期）」间切换，复用正式批次下载接口 GET /margin/batches/{id}/download）；边缘操作区提供「下载爆好价商品」，导出当前批次中报名爆好价商品的 11 列清单（爆好价补贴取报名补贴 registrationSubsidy，淘宝月销量取门店月销，口径对齐后端 workbook 导出）。\n\n**状态提示**：来源未就绪、非目标批次、存在 blockers 或读取失败时，操作行下方显示单行状态提示（错误红/警示黄），保留最近结果可查看。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/margin/current`：读取当前批次统计与就绪状态（列表数据见「价格表与批量调价」模块）。\n- `GET /api/v1/workbench/ops/margin/sources`：读取两个价格标准包来源的采集就绪状态。\n- `POST /api/v1/workbench/ops/margin/generation-jobs`：提交价格表后台重建任务（终态经 GET 同路径 /{runId} 轮询）。",
+      "nfr_md": "- 来源采集中（存在 status=collecting）时前端每 5 秒串行轮询一次 /margin/sources，全部就绪后自动后台刷新列表与批次并停止轮询（OpsMargin.vue SOURCE_POLL_INTERVAL_MS）。\n- 价格表重建为长任务（界面预估 20–60 分钟），必须后台异步执行并支持跨页面轮询恢复；页面初始化与轮询请求均走 background+silent，不触发全局加载遮罩，上次快照先行渲染（推测：面向生产约 82 万条商品规模）。",
+      "apis": [
+        {
+          "name": "查询当前批次（统计与就绪状态）",
+          "api": "GET /api/v1/workbench/ops/margin/current",
+          "request": [
+            { "name": "itemScope", "type": "string", "required": false, "description": "商品范围，页面固定传 all（可选 valid / blocked）", "children": [] },
+            { "name": "page", "type": "integer", "required": true, "description": "页码，从 1 开始", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数", "children": [] }
+          ],
+          "response": [
+            { "name": "batchId", "type": "string", "required": true, "description": "当前批次 ID", "children": [] },
+            { "name": "batchTime", "type": "string", "required": true, "description": "批次生成时间，如 2026-07-30 06:00", "children": [] },
+            { "name": "scannedProducts", "type": "integer", "required": true, "description": "扫描商品数", "children": [] },
+            { "name": "priceUpCount", "type": "integer", "required": true, "description": "建议提价商品数", "children": [] },
+            { "name": "priceDownCount", "type": "integer", "required": true, "description": "建议降价商品数", "children": [] },
+            { "name": "priceKeepCount", "type": "integer", "required": true, "description": "保持现价商品数", "children": [] },
+            { "name": "negativeCount", "type": "integer", "required": false, "description": "负毛利数（旧口径兼容字段）", "children": [] },
+            { "name": "lowCount", "type": "integer", "required": false, "description": "低毛利数（旧口径兼容字段）", "children": [] },
+            { "name": "highValueLowProfitCount", "type": "integer", "required": false, "description": "高价值低利润数（旧口径兼容字段）", "children": [] },
+            { "name": "priceTableReady", "type": "boolean", "required": true, "description": "价格表口径是否就绪，决定统计展示口径", "children": [] },
+            { "name": "persisted", "type": "boolean", "required": true, "description": "批次是否已持久化，未持久化不可下载", "children": [] },
+            { "name": "sourceDataDate", "type": "string", "required": true, "description": "当前结果的数据业务日", "children": [] },
+            { "name": "sourceStatus", "type": "string", "required": false, "description": "来源状态：ready / waiting_sources / stale_sources / not_scheduled", "children": [] },
+            { "name": "blockers", "type": "array", "required": false, "description": "阻断生成的原因文案列表", "children": [
+              { "name": "-", "type": "string", "required": false, "description": "阻断原因文案", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "查询价格来源采集状态",
+          "api": "GET /api/v1/workbench/ops/margin/sources",
+          "request": [],
+          "response": [
+            { "name": "targetDate", "type": "string", "required": true, "description": "目标业务日，如 2026-08-08", "children": [] },
+            { "name": "ready", "type": "boolean", "required": true, "description": "全部来源是否就绪，决定能否重新生成", "children": [] },
+            { "name": "sources", "type": "array", "required": true, "description": "来源列表（淘宝/美团价格标准包）", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单个来源状态", "children": [
+                { "name": "dataset", "type": "string", "required": true, "description": "数据集标识：taobao_activity_readonly / meituan_price_readonly", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "来源名称，如 淘宝价格表标准包", "children": [] },
+                { "name": "channel", "type": "string", "required": true, "description": "渠道：TAOBAO / MEITUAN", "children": [] },
+                { "name": "status", "type": "string", "required": true, "description": "采集状态：ready / collecting / blocked / missing", "children": [] },
+                { "name": "businessDate", "type": "string", "required": false, "description": "已入库业务日", "children": [] },
+                { "name": "receivedAt", "type": "string", "required": false, "description": "入库时间（ISO8601）", "children": [] },
+                { "name": "reason", "type": "string", "required": false, "description": "稳定分流原因码，如 input_missing / collection_failed / platform_not_ready", "children": [] },
+                { "name": "errorCode", "type": "string", "required": false, "description": "稳定采集错误码，如 REQUEST_BUDGET_EXCEEDED / DATASET_NOT_READY", "children": [] },
+                { "name": "message", "type": "string", "required": true, "description": "面向用户的状态说明", "children": [] },
+                { "name": "action", "type": "string", "required": false, "description": "建议的恢复动作", "children": [] }
+              ] }
+            ] },
+            { "name": "blockers", "type": "array", "required": false, "description": "整体阻断原因列表", "children": [
+              { "name": "-", "type": "string", "required": false, "description": "阻断原因文案", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "提交价格表后台生成任务",
+          "api": "POST /api/v1/workbench/ops/margin/generation-jobs",
+          "request": [],
+          "response": [
+            { "name": "runId", "type": "string", "required": true, "description": "后台任务 ID，用于后续轮询 GET 同路径 /{runId}", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态：queued / running / succeeded / failed / blocked", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "任务业务日", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "附加说明或失败原因", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "价格表与批量调价",
+      "summary": "全量商品价格大表（成本/原价/活动价/报名价/生效价/毛利/销量/处理建议/目标价），支持筛选、目标价录入与批量人工调价确认。",
+      "content_md": "# 价格表与批量调价（价格表）\n\n## 业务逻辑\n\n**价格大表**：页面默认查询全部商品（itemScope=all，含正常商品及待完善记录），与亏损页共用 useOpsMetricPage 骨架。列为：商品/来源（名称、渠道·店面、可点击复制的 SKU 徽章）、成本（purchasePrice）、原价（originalPrice）、活动价（discountPrice）、报名价（registrationPrice）、生效价（effectivePrice，高亮）、毛利（absoluteProfit，负数红色）、毛利率（marginRate）、单店月销（storeMonthSales）、全店月销（marketMonthSales）、处理建议、目标价录入框。全部列支持服务端排序（sortBy/sortOrder）。\n\n**数据口径**（mock 体现）：生效价取原价、有效折扣价、有效报名价三者最低值；毛利 = 生效价 + 平台补贴 − 采购价 − 生效价×6% 佣金。\n\n**处理建议**：以后端 processingAdvice 为准，四大类 raise_price（提价）/ lower_price（降价）/ keep（保持现价）/ review（人工复核），筛选枚举同此四类；后端可能输出组合建议 raise_or_explosive_product（提价或设为爆品）、explosive_product_review（复核活动或爆品设置），前端保留展示文案但归入大类筛选。提价项附 suggestedPrice（后端按当前成本和门店毛利目标计算的建议价）；降价项系统只给方向、不给具体金额。\n\n**筛选**：关键词（SKU/商品/门店模糊，带自动补全）、门店（storeKey，取自门店映射）、渠道（TAOBAO 淘宝等）、处理建议，任一变化即回第一页重新查询。\n\n**目标价录入**：每行右侧输入框。行加载时若后端给出 suggestedPrice 则预填（保本价 breakEvenPrice 与上一批草稿不得冒充推荐价）；人工编辑后按商品身份（channel+storeKey+sku+platformProductId）保留草稿，批次更新后提示「已保留 N 项目标价，确认时将重新核算」。\n\n**待完善商品表**：readiness.blockedItems 单独成表（待完善商品、门店、商品编码、需要处理的问题），点击「查看详情」提示核实商品档案与售卖规格，记录保留、匹配成功后重新计算。\n\n**批量调价**：勾选行后点「批量调价（N）」；未填拟调整价的行被跳过并提示数量。确认弹窗（PriceAdjustmentBatchConfirmDialog）逐项调用收益预览：双并发 worker 逐项 POST /price-adjustments/preview，重新读取当前价格、成本、来源并返回调整后毛利/利润与 previewToken；全部 eligible 才可「确认并提交」，逐项 POST /price-adjustments/confirm（携带 previewToken，服务端幂等入队，重复提交返回同一任务）。结果逐项展示：已受理（accepted）/ 正在核验不会重发（unknown，网络异常时假定可能已写入、禁止重投）/ 未能受理（error）。存在调整后毛利为负的行时弹警告；blockCode 为 target_not_effective / ambiguous_effective_activity 时提示「单次改价不会生效」，引导去活动报名记录处理更低的折扣/报名活动。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/margin/current`：分页查询当前批次价格大表（含筛选、排序与待完善商品）。\n- `POST /api/v1/workbench/ops/price-adjustments/preview`：按目标价生成只读收益预览并签发 previewToken。\n- `POST /api/v1/workbench/ops/price-adjustments/confirm`：凭 previewToken 幂等确认调价并入队执行。",
+      "nfr_md": "- 列表服务端分页，每页 10/20/50/100 可选（默认 10）；同一列表并发刷新时只允许最后一次请求写入页面，避免慢响应覆盖用户已改筛选。\n- 批量调价预览以 2 个并发 worker 逐项拉取，单批规模受人工勾选限制（推测：防止同时打满预览接口）。\n- 调价确认必须携带服务端签发的 previewToken，目标价或对象变化即 409 拒绝，且同一 token 重复确认幂等返回同一任务（防重复写入平台）。",
+      "apis": [
+        {
+          "name": "查询当前批次价格大表",
+          "api": "GET /api/v1/workbench/ops/margin/current",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码，从 1 开始", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数（10/20/50/100）", "children": [] },
+            { "name": "itemScope", "type": "string", "required": false, "description": "商品范围：all / valid / blocked，页面默认 all", "children": [] },
+            { "name": "keyword", "type": "string", "required": false, "description": "SKU、商品名称或门店名称模糊搜索", "children": [] },
+            { "name": "storeKey", "type": "string", "required": false, "description": "门店筛选键", "children": [] },
+            { "name": "channel", "type": "string", "required": false, "description": "渠道筛选：TAOBAO / MEITUAN", "children": [] },
+            { "name": "advice", "type": "string", "required": false, "description": "处理建议筛选：raise_price / lower_price / keep / review", "children": [] },
+            { "name": "sortBy", "type": "string", "required": false, "description": "排序字段（列 prop）", "children": [] },
+            { "name": "sortOrder", "type": "string", "required": false, "description": "排序方向：asc / desc", "children": [] }
+          ],
+          "response": [
+            { "name": "items", "type": "array", "required": true, "description": "价格表行列表", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单个商品价格行", "children": [
+                { "name": "itemId", "type": "string", "required": true, "description": "行项目 ID", "children": [] },
+                { "name": "productName", "type": "string", "required": true, "description": "商品名称", "children": [] },
+                { "name": "storeName", "type": "string", "required": true, "description": "门店（含渠道前缀，如 淘宝 · 重庆渝北空港店）", "children": [] },
+                { "name": "storeKey", "type": "string", "required": true, "description": "门店键", "children": [] },
+                { "name": "channel", "type": "string", "required": true, "description": "渠道：TAOBAO / MEITUAN", "children": [] },
+                { "name": "skuCode", "type": "string", "required": true, "description": "商品 SKU 编码", "children": [] },
+                { "name": "purchasePrice", "type": "number", "required": true, "description": "成本（采购价）", "children": [] },
+                { "name": "originalPrice", "type": "number", "required": true, "description": "原价", "children": [] },
+                { "name": "discountPrice", "type": "number", "required": false, "description": "活动价（折扣价），无则空", "children": [] },
+                { "name": "registrationPrice", "type": "number", "required": false, "description": "报名价（爆好价活动价），无则空", "children": [] },
+                { "name": "effectivePrice", "type": "number", "required": true, "description": "生效价（原价/活动价/报名价最低值）", "children": [] },
+                { "name": "absoluteProfit", "type": "number", "required": true, "description": "毛利额（生效价+平台补贴−采购价−佣金）", "children": [] },
+                { "name": "marginRate", "type": "string", "required": true, "description": "毛利率百分比文本，如 12.50%", "children": [] },
+                { "name": "storeMonthSales", "type": "integer", "required": false, "description": "单店近30天销量", "children": [] },
+                { "name": "marketMonthSales", "type": "integer", "required": false, "description": "全店（大盘）近30天销量", "children": [] },
+                { "name": "processingAdvice", "type": "string", "required": false, "description": "处理建议：raise_price / lower_price / keep / review / raise_or_explosive_product / explosive_product_review", "children": [] },
+                { "name": "suggestedPrice", "type": "string", "required": false, "description": "后端按成本与门店毛利目标计算的建议价（仅提价方向给出）", "children": [] },
+                { "name": "breakEvenPrice", "type": "string", "required": false, "description": "保本价", "children": [] },
+                { "name": "adjustmentReason", "type": "string", "required": false, "description": "建议原因说明", "children": [] }
+              ] }
+            ] },
+            { "name": "itemTotal", "type": "integer", "required": true, "description": "当前筛选条件下的总条数", "children": [] },
+            { "name": "blockedItems", "type": "array", "required": false, "description": "待完善商品列表", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "待完善商品记录", "children": [
+                { "name": "itemId", "type": "string", "required": true, "description": "行项目 ID", "children": [] },
+                { "name": "productName", "type": "string", "required": true, "description": "商品名称", "children": [] },
+                { "name": "storeName", "type": "string", "required": true, "description": "门店", "children": [] },
+                { "name": "skuCode", "type": "string", "required": true, "description": "商品编码", "children": [] },
+                { "name": "reason", "type": "string", "required": true, "description": "需要处理的问题（缺失字段说明）", "children": [] }
+              ] }
+            ] }
+          ]
+        },
+        {
+          "name": "调价收益预览",
+          "api": "POST /api/v1/workbench/ops/price-adjustments/preview",
+          "request": [
+            { "name": "domain", "type": "string", "required": true, "description": "调价范围：价格表固定 margin（亏损为 loss）", "children": [] },
+            { "name": "itemKey", "type": "string", "required": true, "description": "行项目 ID", "children": [] },
+            { "name": "productKey", "type": "string", "required": false, "description": "商品键（SKU）", "children": [] },
+            { "name": "targetPrice", "type": "string", "required": false, "description": "拟调整目标价；缺省时回退采用建议价", "children": [] }
+          ],
+          "response": [
+            { "name": "previewToken", "type": "string", "required": true, "description": "预览令牌，绑定本次用户、对象、价格与当前事实，确认时必传", "children": [] },
+            { "name": "eligible", "type": "boolean", "required": true, "description": "是否满足确认条件（无有效目标价时为 false）", "children": [] },
+            { "name": "reason", "type": "string", "required": false, "description": "不可确认的原因说明", "children": [] },
+            { "name": "blockCode", "type": "string", "required": false, "description": "阻断码，如 target_not_effective / ambiguous_effective_activity", "children": [] },
+            { "name": "currentPrice", "type": "string", "required": true, "description": "平台当前价", "children": [] },
+            { "name": "targetPrice", "type": "string", "required": false, "description": "拟调整价", "children": [] },
+            { "name": "suggestedPrice", "type": "string", "required": false, "description": "系统建议价", "children": [] },
+            { "name": "breakEvenPrice", "type": "string", "required": false, "description": "保本价", "children": [] },
+            { "name": "cost", "type": "string", "required": true, "description": "当前成本", "children": [] },
+            { "name": "profitBefore", "type": "string", "required": true, "description": "调整前单件利润", "children": [] },
+            { "name": "profitAfter", "type": "string", "required": false, "description": "调整后单件利润", "children": [] },
+            { "name": "marginBefore", "type": "string", "required": false, "description": "调整前毛利率（百分比文本）", "children": [] },
+            { "name": "marginAfter", "type": "string", "required": false, "description": "调整后毛利率（百分比文本）", "children": [] },
+            { "name": "priceType", "type": "string", "required": false, "description": "当前价价格类型，如 当前平台售价", "children": [] },
+            { "name": "profitBasis", "type": "string", "required": false, "description": "利润口径说明（未计入订单优惠、配送费等）", "children": [] }
+          ]
+        },
+        {
+          "name": "确认调价并入队",
+          "api": "POST /api/v1/workbench/ops/price-adjustments/confirm",
+          "request": [
+            { "name": "domain", "type": "string", "required": true, "description": "调价范围：margin", "children": [] },
+            { "name": "itemKey", "type": "string", "required": true, "description": "行项目 ID，须与预览一致", "children": [] },
+            { "name": "productKey", "type": "string", "required": false, "description": "商品键，须与预览一致", "children": [] },
+            { "name": "targetPrice", "type": "string", "required": true, "description": "拟调整价，须与预览完全一致，否则 409", "children": [] },
+            { "name": "previewToken", "type": "string", "required": true, "description": "预览接口签发的令牌，服务端据此幂等入队", "children": [] }
+          ],
+          "response": [
+            { "name": "revisionId", "type": "string", "required": true, "description": "目标价版本 ID", "children": [] },
+            { "name": "attemptId", "type": "string", "required": true, "description": "调价任务 ID，用于查询执行与读回结果", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "受理状态：queued / succeeded / blocked / unknown / failed", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "历史记录",
+      "summary": "按批次保留价格表生成历史，支持查看批次统计详情与按批次时间命名下载。",
+      "content_md": "# 历史记录（价格表）\n\n## 业务逻辑\n\n页面底部为历史记录卡片，展示历次价格表批次（mock 口径为每天一批、早间 06:00 生成）。GET /margin/batches 一次返回全部批次，前端分页展示（PagerRow，默认每页 3 条）。\n\n**列表列**：批次（生成时间 batchTime）、扫描商品数、三类统计——批次 priceTableReady=true 时显示建议提价/建议降价/保持现价，否则回退负毛利数/低毛利数/高价值低利润数（新旧口径混合时以是否存在价格表口径批次统一切换）。\n\n**查看**：点击「查看」调用 GET /margin/batches/{id} 打开批次信息弹窗（OpsMetricBatchDialog），展示业务日（sourceDataDate）、状态（pendingCount>0 时为「待关注 N」，否则「已完成」）及四项统计。\n\n**下载**：点击「下载」调用 GET /margin/batches/{id}/download 导出 xlsx，文件名按批次生成时间命名（如 价格表_202607300600.xlsx），不取下载时间；下载按 X-Export-Size / Content-Length 校验字节完整性。旧批次在新批次生成成功前一直保留，当前批次下载也复用该正式批次下载接口。\n\n**与规则的关系**：规则保存只影响后续新生成批次，历史批次结果不会重新计算（保存规则时的确认文案）。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/margin/batches`：查询全部历史批次及统计（前端分页）。\n- `GET /api/v1/workbench/ops/margin/batches/{id}`：查询单个批次详情，用于批次信息弹窗。",
+      "nfr_md": "- 批次列表一次全量返回、前端分页（默认每页 3 条），假定批次规模有限（按日生成，推测年量级数百条可接受）。\n- 历史下载文件需按响应头声明的字节数校验完整性，不完整则视为失败（推测：防止大文件截断后被当作有效价格表使用）。",
+      "apis": [
+        {
+          "name": "查询历史批次列表",
+          "api": "GET /api/v1/workbench/ops/margin/batches",
+          "request": [],
+          "response": [
+            { "name": "-", "type": "array", "required": true, "description": "批次数组（响应体即数组）", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单个批次摘要", "children": [
+                { "name": "batchId", "type": "string", "required": true, "description": "批次 ID", "children": [] },
+                { "name": "batchTime", "type": "string", "required": true, "description": "批次生成时间", "children": [] },
+                { "name": "scannedProducts", "type": "integer", "required": true, "description": "扫描商品数", "children": [] },
+                { "name": "priceUpCount", "type": "integer", "required": true, "description": "建议提价数", "children": [] },
+                { "name": "priceDownCount", "type": "integer", "required": true, "description": "建议降价数", "children": [] },
+                { "name": "priceKeepCount", "type": "integer", "required": true, "description": "保持现价数", "children": [] },
+                { "name": "negativeCount", "type": "integer", "required": false, "description": "负毛利数（旧口径）", "children": [] },
+                { "name": "lowCount", "type": "integer", "required": false, "description": "低毛利数（旧口径）", "children": [] },
+                { "name": "highValueLowProfitCount", "type": "integer", "required": false, "description": "高价值低利润数（旧口径）", "children": [] },
+                { "name": "priceTableReady", "type": "boolean", "required": true, "description": "该批次是否为价格表口径", "children": [] }
+              ] }
+            ] }
+          ]
+        },
+        {
+          "name": "查询批次详情",
+          "api": "GET /api/v1/workbench/ops/margin/batches/{id}",
+          "request": [
+            { "name": "id", "type": "string", "required": true, "description": "批次 ID（路径参数）", "children": [] }
+          ],
+          "response": [
+            { "name": "batchId", "type": "string", "required": true, "description": "批次 ID", "children": [] },
+            { "name": "batchTime", "type": "string", "required": true, "description": "批次生成时间", "children": [] },
+            { "name": "scannedProducts", "type": "integer", "required": true, "description": "扫描商品数", "children": [] },
+            { "name": "priceUpCount", "type": "integer", "required": true, "description": "建议提价数", "children": [] },
+            { "name": "priceDownCount", "type": "integer", "required": true, "description": "建议降价数", "children": [] },
+            { "name": "priceKeepCount", "type": "integer", "required": true, "description": "保持现价数", "children": [] },
+            { "name": "priceTableReady", "type": "boolean", "required": true, "description": "是否为价格表口径批次", "children": [] },
+            { "name": "sourceDataDate", "type": "string", "required": false, "description": "数据业务日", "children": [] },
+            { "name": "pendingCount", "type": "integer", "required": false, "description": "待关注条目数，>0 时状态显示「待关注 N」", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "运营备注与规则设置",
+      "summary": "维护跨批次生效的运营经验备注，以及按渠道（淘宝/美团）分别配置阈值与启停的价格判定规则。",
+      "content_md": "# 运营备注与规则设置（价格表）\n\n## 业务逻辑\n\n**运营备注（经验沉淀）**：页面底部常驻卡片，多行文本。GET /margin/experience 读取（content 字段），PUT /margin/experience 保存；保存后从下一个批次开始生效，不影响当前与历史结果（按钮旁常驻提示与接口返回文案一致）。mock 示例内容如「报名价低于采购价的引流品只作线索，须结合近30天销量判断」「平台补贴缺失的行不得按 0 计入毛利」。\n\n**规则设置**：主表操作区「规则设置」按钮打开弹窗（OpsMetricRuleDialog）。价格表版隐藏统一阈值表（hideBaseTable），只保留分渠道阈值表：每行一条规则（规则名、判定说明、单位），每列一个渠道（淘宝 taobao / 美团 meituan），单元格内为阈值数字输入（≥0）+ 启停开关；某渠道缺省配置时按统一阈值/启停惰性初始化。dataReady=false 的规则（如「高价值品最低单件利润」，会议未量化、当前不参与自动判断）禁止编辑。\n\n**规则清单**（mock 种子，体现真实规则集）：低毛利率线（%）、高价值品价格线（元）、高价值品最低单件利润（元，未启用）、大盘近30天销量线（单）、门店近30天销量线（单）、调价判断毛利率线（%）、最低折扣率线（%）。其中大盘销量线、门店销量线、调价判断毛利率线三条为启停联动组（coupledRuleIds），改动任一条的开关，同组一起启停。\n\n**保存**：PUT /margin/rules 整体提交规则数组（ruleKey、threshold、enabled、storeThresholds、excludedStoreKeys、channelRules）。保存前弹确认：「规则保存后只影响后续新生成批次，当前批次与历史结果不会重新计算。」保存成功后重新拉取规则。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/margin/rules`：读取价格判定规则（含分渠道阈值与启停）。\n- `PUT /api/v1/workbench/ops/margin/rules`：整体保存规则配置，下一批次起生效。\n- `PUT /api/v1/workbench/ops/margin/experience`：保存运营备注（读取用 GET 同路径，返回 content 字段）。",
+      "nfr_md": "- 规则保存为整体替换式 PUT，需携带全部规则的完整配置（含未修改项），避免部分更新丢配置（推测，依据请求体形状）。\n- 规则与备注的生效粒度为「批次」：保存不触发任何重算，只在下次生成时被读取（代码确认文案）。",
+      "apis": [
+        {
+          "name": "查询价格规则",
+          "api": "GET /api/v1/workbench/ops/margin/rules",
+          "request": [],
+          "response": [
+            { "name": "-", "type": "array", "required": true, "description": "规则数组（响应体即数组）", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单条规则", "children": [
+                { "name": "ruleKey", "type": "string", "required": true, "description": "规则标识，如 low-margin-rate / market-sales-floor", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "规则名，如 低毛利率线", "children": [] },
+                { "name": "desc", "type": "string", "required": true, "description": "判定说明", "children": [] },
+                { "name": "threshold", "type": "number", "required": true, "description": "统一阈值（分渠道未配置时的缺省值）", "children": [] },
+                { "name": "unit", "type": "string", "required": true, "description": "阈值单位：% / 元 / 单", "children": [] },
+                { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用", "children": [] },
+                { "name": "dataReady", "type": "boolean", "required": true, "description": "数据是否就绪，false 时禁止编辑", "children": [] },
+                { "name": "channelRules", "type": "object", "required": false, "description": "分渠道阈值与启停（key：taobao / meituan）", "children": [
+                  { "name": "taobao", "type": "object", "required": false, "description": "淘宝渠道配置", "children": [
+                    { "name": "threshold", "type": "number", "required": true, "description": "渠道阈值（≥0）", "children": [] },
+                    { "name": "enabled", "type": "boolean", "required": true, "description": "渠道启停", "children": [] }
+                  ] },
+                  { "name": "meituan", "type": "object", "required": false, "description": "美团渠道配置", "children": [
+                    { "name": "threshold", "type": "number", "required": true, "description": "渠道阈值（≥0）", "children": [] },
+                    { "name": "enabled", "type": "boolean", "required": true, "description": "渠道启停", "children": [] }
+                  ] }
+                ] }
+              ] }
+            ] }
+          ]
+        },
+        {
+          "name": "保存价格规则",
+          "api": "PUT /api/v1/workbench/ops/margin/rules",
+          "request": [
+            { "name": "-", "type": "array", "required": true, "description": "规则数组（请求体即数组，整体替换）", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单条规则配置", "children": [
+                { "name": "ruleKey", "type": "string", "required": true, "description": "规则标识", "children": [] },
+                { "name": "threshold", "type": "number", "required": true, "description": "统一阈值", "children": [] },
+                { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用", "children": [] },
+                { "name": "storeThresholds", "type": "object", "required": false, "description": "分门店阈值（storeKey → 阈值），价格表版界面未暴露编辑", "children": [] },
+                { "name": "excludedStoreKeys", "type": "array", "required": false, "description": "排除的门店键列表", "children": [
+                  { "name": "-", "type": "string", "required": false, "description": "门店键", "children": [] }
+                ] },
+                { "name": "channelRules", "type": "object", "required": false, "description": "分渠道阈值与启停（taobao / meituan）", "children": [
+                  { "name": "taobao", "type": "object", "required": false, "description": "淘宝渠道配置", "children": [
+                    { "name": "threshold", "type": "number", "required": true, "description": "渠道阈值", "children": [] },
+                    { "name": "enabled", "type": "boolean", "required": true, "description": "渠道启停", "children": [] }
+                  ] },
+                  { "name": "meituan", "type": "object", "required": false, "description": "美团渠道配置", "children": [
+                    { "name": "threshold", "type": "number", "required": true, "description": "渠道阈值", "children": [] },
+                    { "name": "enabled", "type": "boolean", "required": true, "description": "渠道启停", "children": [] }
+                  ] }
+                ] }
+              ] }
+            ] }
+          ],
+          "response": [
+            { "name": "-", "type": "array", "required": true, "description": "保存后的规则数组（形状同 GET /rules）", "children": [
+              { "name": "-", "type": "object", "required": true, "description": "单条规则（ruleKey、threshold、enabled、channelRules 等）", "children": [
+                { "name": "ruleKey", "type": "string", "required": true, "description": "规则标识", "children": [] },
+                { "name": "threshold", "type": "number", "required": true, "description": "生效阈值", "children": [] },
+                { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用", "children": [] }
+              ] }
+            ] }
+          ]
+        },
+        {
+          "name": "保存运营备注",
+          "api": "PUT /api/v1/workbench/ops/margin/experience",
+          "request": [
+            { "name": "content", "type": "string", "required": true, "description": "运营经验备注全文（多行文本）", "children": [] }
+          ],
+          "response": [
+            { "name": "message", "type": "string", "required": true, "description": "保存结果文案：经验已保存，从下一个批次开始生效", "children": [] }
+          ]
+        }
+      ]
+    }
+  ]
+}

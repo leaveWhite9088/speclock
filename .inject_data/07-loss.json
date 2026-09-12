@@ -1,0 +1,1064 @@
+{
+ "domain": "亏损订单处理",
+ "document": "亏损订单处理",
+ "modules": [
+  {
+   "title": "当前批次与数据来源",
+   "summary": "展示当前批次四项统计（扫描订单/亏损订单/新增记录/历史结转）、三项翱象来源就绪状态与抽屉明细，支持重新采集失败来源和后台重新生成当前批次。",
+   "content_md": "# 当前批次与数据来源（亏损订单处理）\n\n## 业务逻辑\n\n页面顶部统计行展示当前批次的 4 项指标，口径来自 `GET /loss/current` 响应的 `currentBatch`（api/ops.ts `getLossCurrent` 映射、OpsLoss.vue 统计行）：\n\n- **本批扫描订单**：`scannedOrders`；\n- **本批亏损订单**：`lossOrders`；\n- **本批新增记录**：`max(actionCount - carryoverCount, 0)`，即待处理记录数（`pendingFollow`/`actionListCount`）减去上批结转；\n- **历史结转记录**：`carryoverCount`，上一批未完成、本批继续跟进的订单数。\n\n批次键合同为 `loss-业务日-指纹`，业务日是订单数据归属日，生成时刻只是产出时间；页面提示「当前结果：<batchTime>」，未生成时展示「尚未生成结果」，已有结果在更新期间仍可查看。\n\n**数据来源**：亏损订单依赖三项翱象自动来源，前端按 sourceKey 白名单过滤（`aoxiang_order_profit` 翱象订单毛利、`aoxiang_sku_profit` 翱象商品毛利、`aoxiang_loss_sales_30d` 翱象近30天销量），取自经营日报共用的来源清单接口 `GET /api/v1/workbench/ops/reports/business/sources`。来源状态枚举：`ok`（已就绪）、`queued`/`running`（采集中）、`failed`/`blocked`/`needs_login`（需处理）、其余为等待平台出数。摘要行默认收起，有失败或采集中来源时自动展开「数据更新」抽屉；抽屉内每个来源可点「重试/重新采集」，调用 `POST /api/v1/workbench/ops/source-collections/{dataset}/run`（body 为 `businessDate`），服务器复用同业务日正在运行的任务。\n\n**就绪与重新生成**：`sourceStatus` 枚举为 `ready` / `waiting_sources` / `stale_sources` / `not_scheduled`；缺来源时按钮行展示「本次更新尚缺××，已保留上次结果」，并在 blockers/note 中给出完整原因。主按钮「重新生成当前批次」需二次确认（提示预计 1–3 分钟、任务在服务器后台完整重算、刷新页面或切换菜单不会中断、旧批次保留到新批次成功），调用 `POST /api/v1/workbench/ops/loss/generation-jobs` 提交持久后台 Worker，返回 `runId` 后通过 `GET .../generation-jobs/{runId}` 轮询，完成后产生站内通知「亏损订单表生成完成」。\n\n**本模块 API**\n\n- `GET /api/v1/workbench/ops/loss/current`：当前批次统计、批次就绪状态与亏损订单清单（本模块消费其统计与 readiness 部分）。\n- `GET /api/v1/workbench/ops/reports/business/sources`：来源文件清单，前端过滤出亏损订单三项翱象来源展示状态与采集时间。\n- `POST /api/v1/workbench/ops/loss/generation-jobs`：提交当前批次后台重建任务，返回 runId 供状态轮询。",
+   "nfr_md": "- 来源处于 queued/running 时前端每 5 秒轮询一次来源清单，无采集中来源即停止轮询（证据：OpsLoss.vue `scheduleLossSourcePoll`）。\n- 首屏统计、来源、历史、经验四个请求全部以 background/silent 静默并发发起，不弹全局加载遮罩（推测：面向运营高频进入页面的体验要求）。\n- 后台重建任务持久化在服务端，预计 1–3 分钟完成，期间旧批次结果保持可见可下载（证据：确认对话框文案）。",
+   "apis": [
+    {
+     "name": "当前批次统计与就绪状态",
+     "api": "GET /api/v1/workbench/ops/loss/current",
+     "request": [
+      {
+       "name": "page",
+       "type": "integer",
+       "required": true,
+       "description": "页码，从 1 开始",
+       "children": []
+      },
+      {
+       "name": "pageSize",
+       "type": "integer",
+       "required": true,
+       "description": "每页条数",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "ready",
+       "type": "boolean",
+       "required": true,
+       "description": "当前业务日结果是否已就绪",
+       "children": []
+      },
+      {
+       "name": "blockers",
+       "type": "array",
+       "required": true,
+       "description": "未生成原因列表",
+       "children": [
+        {
+         "name": "blocker",
+         "type": "string",
+         "required": false,
+         "description": "阻塞原因文案",
+         "children": []
+        }
+       ]
+      },
+      {
+       "name": "sourceStatus",
+       "type": "string",
+       "required": true,
+       "description": "来源就绪状态：ready / waiting_sources / stale_sources / not_scheduled",
+       "children": []
+      },
+      {
+       "name": "sourceBusinessDate",
+       "type": "string",
+       "required": false,
+       "description": "来源数据归属业务日",
+       "children": []
+      },
+      {
+       "name": "sourceReceivedAt",
+       "type": "string",
+       "required": false,
+       "description": "来源最近接收时间",
+       "children": []
+      },
+      {
+       "name": "nextWindowAt",
+       "type": "string",
+       "required": false,
+       "description": "下一自动生成窗口时间",
+       "children": []
+      },
+      {
+       "name": "currentBatch",
+       "type": "object",
+       "required": true,
+       "description": "当前批次统计与清单",
+       "children": [
+        {
+         "name": "batchId",
+         "type": "string",
+         "required": true,
+         "description": "批次 ID，合同格式 loss-业务日-指纹",
+         "children": []
+        },
+        {
+         "name": "batchTime",
+         "type": "string",
+         "required": true,
+         "description": "批次生成时间",
+         "children": []
+        },
+        {
+         "name": "persisted",
+         "type": "boolean",
+         "required": true,
+         "description": "批次结果是否已持久化",
+         "children": []
+        },
+        {
+         "name": "scannedOrders",
+         "type": "integer",
+         "required": true,
+         "description": "本批扫描订单数",
+         "children": []
+        },
+        {
+         "name": "lossOrders",
+         "type": "integer",
+         "required": true,
+         "description": "本批亏损订单数",
+         "children": []
+        },
+        {
+         "name": "actionListCount",
+         "type": "integer",
+         "required": true,
+         "description": "待处理记录数（兼容字段 pendingFollow）",
+         "children": []
+        },
+        {
+         "name": "carryoverCount",
+         "type": "integer",
+         "required": false,
+         "description": "上批结转、本批继续跟进的记录数",
+         "children": []
+        },
+        {
+         "name": "itemTotal",
+         "type": "integer",
+         "required": true,
+         "description": "筛选后清单总条数",
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "数据来源清单（过滤三项翱象来源）",
+     "api": "GET /api/v1/workbench/ops/reports/business/sources",
+     "request": [],
+     "response": [
+      {
+       "name": "sources",
+       "type": "array",
+       "required": true,
+       "description": "来源清单；亏损订单仅取 sourceKey 为 aoxiang_order_profit / aoxiang_sku_profit / aoxiang_loss_sales_30d 的三项",
+       "children": [
+        {
+         "name": "sourceKey",
+         "type": "string",
+         "required": true,
+         "description": "来源标识，同时作为补采接口的 dataset 参数",
+         "children": []
+        },
+        {
+         "name": "name",
+         "type": "string",
+         "required": true,
+         "description": "来源名称",
+         "children": []
+        },
+        {
+         "name": "mode",
+         "type": "string",
+         "required": true,
+         "description": "采集方式，自动来源为 auto",
+         "children": []
+        },
+        {
+         "name": "status",
+         "type": "string",
+         "required": true,
+         "description": "ok / queued / running / failed / blocked / needs_login 等",
+         "children": []
+        },
+        {
+         "name": "effectiveDate",
+         "type": "string",
+         "required": false,
+         "description": "数据生效业务日，重试采集时作为 businessDate",
+         "children": []
+        },
+        {
+         "name": "fetchedAt",
+         "type": "string",
+         "required": false,
+         "description": "最近取得时间",
+         "children": []
+        },
+        {
+         "name": "message",
+         "type": "string",
+         "required": false,
+         "description": "状态说明（失败原因、采集进度等）",
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "重新生成当前批次（后台任务）",
+     "api": "POST /api/v1/workbench/ops/loss/generation-jobs",
+     "request": [],
+     "response": [
+      {
+       "name": "runId",
+       "type": "string",
+       "required": true,
+       "description": "后台任务 ID，用于 GET .../generation-jobs/{runId} 轮询",
+       "children": []
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": true,
+       "description": "queued / running / succeeded / failed / blocked",
+       "children": []
+      },
+      {
+       "name": "businessDate",
+       "type": "string",
+       "required": true,
+       "description": "任务业务日",
+       "children": []
+      },
+      {
+       "name": "message",
+       "type": "string",
+       "required": false,
+       "description": "任务说明或失败信息",
+       "children": []
+      },
+      {
+       "name": "finishedAt",
+       "type": "string",
+       "required": false,
+       "description": "完成时间",
+       "children": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "亏损订单待处理与调价",
+   "summary": "待处理表支持多维筛选与排序，行内查看订单明细（毛利汇总/商品明细/收支调整），亏损商品行填写目标价后经只读预览核算、凭 previewToken 确认提交调价并逐项核验平台结果。",
+   "content_md": "# 亏损订单待处理与调价（亏损订单处理）\n\n## 业务逻辑\n\n**待处理表**：数据来自 `GET /loss/current` 的 `currentBatch.items`。筛选条件在表外工具行：下单日期区间（orderDateFrom/orderDateTo）、关键词（订单号/问题商品，输入防抖 300ms）、亏损金额区间（lossAmountFrom/lossAmountTo，必须为 0 或负数，且下限不能大于上限，按负值原值筛选）。合同还支持订单类型（单品单/多品单，多品由 `orderType` 前缀「多品」判定）、亏损原因、处理范围 scope（`price_adjustment` / `order_reconciliation`）、门店 storeCode 筛选与自定义排序。亏损原因枚举（mock）：`订单级收支调整`、`整单与商品待对账`、`商品行亏损`、`商品明细缺失`。亏损金额取 `estimatedMargin`（负数）。订单汇总行没有独立当前平台价，suggestedPrice/breakEvenPrice 保持 null 并由 suggestionReason 说明「请展开订单后读取商品当前事实」。注意：已按 2026-09-08 决策取消人工「标记已跟进」按钮及对应筛选，页面以查看原因、核对价格、确认调价和真实执行结果为主。\n\n**订单明细抽屉**（点「查看并处理」，按行所属批次调 `GET /loss/batches/{batchId}/items/{orderNo}`）：\n\n- 毛利汇总 6 项：平台预计毛利（`rawEstimatedMargin`）、商品毛利（`skuMarginTotal`）、筛查扣减补贴（`screeningSubsidyTotal`，去补贴毛利＝预计毛利−三项预估补贴，三项均取翱象订单毛利原生字段、只剔除一次）、筛查后毛利（`estimatedMargin`）、平台补贴收入（订单级证据，不分摊到商品行）、收支调整（只汇总标记「计入合计」的原生收支，商品优惠/红包已在商品毛利中体现不重复相加）。\n- 商品明细：数量、成交价、活动价（折扣价）、报名价、成本、单件毛利、近30天月销；实售价取报名价与折扣价较低者（mock 口径）。亏损商品（unitMargin<0）排在前面，仅亏损商品可勾选调价。\n- 订单级收支调整明细：`orderAdjustmentLines` 中 amount≠0 的项目（配送费、包装费、平台佣金、商品优惠/红包、平台补贴等），`includedInTotal=false` 的标注「仅作原始证据」。\n\n**目标价与确认调价**：亏损商品行内填写「拟调整价」，目标价草稿默认填入服务端建议价（毛利达标参考 suggestedPrice = cost/0.6，mock 口径）；输入后经 `POST /api/v1/workbench/ops/price-adjustments/preview` 只读核算（防抖 400ms、并发上限 2），行内展示当前售价、保本参考价与「调整后毛利/毛利率」。点「确认调价」打开确认窗，重新读取最终预览（含当前价、成本及来源时间、价格类型、计算说明 profitBasis），并列该商品最近执行记录（最多 10 条）。确认条件：预览 `eligible` 且持有 `previewToken`、目标价为大于 0 的数值、无「结果待核验」记录。提交调 `POST /price-adjustments/confirm`，服务端用 previewToken 校验具体版本并幂等入队；409 冲突表示来源或当前价格已变化，需重新预览；提交结果未知（`unknown`）时禁止重发、由系统核验。执行状态机：queued→prechecking→submitting→submitted→verifying→succeeded，另有 blocked（未执行）/failed/unknown。预览 `blockCode` 为 `target_not_effective`/`ambiguous_effective_activity` 时提示单次改价不会成为生效价，需先去活动报名记录处理更低的折扣/报名活动。已完成且读回匹配的执行记录可「恢复原价」（restore-preview/restore-confirm，价格由原执行记录固定，不接受用户输入历史金额）。调整影响后续销售，不改变已发生订单的亏损。\n\n**批量调价**：主表勾选多个订单后点「调价（N）」，前端按并发 3 逐个读取订单明细，把各订单中 unitMargin<0 的亏损商品行合并为候选清单（LossBatchAdjustmentDialog）；明细读取失败的订单先跳过并提示。批量确认窗（PriceAdjustmentBatchConfirmDialog）逐项重新读取最终收益预览再确认，结果分 accepted/unknown/error 汇总提示。明细抽屉内也可勾选多个亏损商品行「确认所选」走同一批量确认流程。\n\n**本模块 API**\n\n- `GET /api/v1/workbench/ops/loss/current`：待处理亏损订单分页列表（筛选/排序）及批次统计。\n- `GET /api/v1/workbench/ops/loss/batches/{batchId}/items/{orderNo}`：单笔订单明细（毛利汇总、商品行、订单级收支调整）。\n- `POST /api/v1/workbench/ops/price-adjustments/confirm`：人工调价唯一确认入口，凭 previewToken 幂等入队（前置只读预览为 `POST /price-adjustments/preview`）。",
+   "nfr_md": "- 行内价格预览输入防抖 400ms，同时进行的预览请求不超过 2 个（证据：usePriceAdjustmentPreviews `PREVIEW_DEBOUNCE_MS`/`MAX_CONCURRENT_PREVIEWS`）。\n- 批量读取订单明细时并发 worker 固定为 3，避免一次性打满接口（证据：OpsLoss.vue `loadSelectedLossDetails`）。\n- 主表分页可选 10/20/50/100 条每页；确认提交接口幂等，409 需重新预览，结果未知禁止客户端重发（推测：防止平台重复改价）。",
+   "apis": [
+    {
+     "name": "待处理亏损订单列表（筛选/排序/分页）",
+     "api": "GET /api/v1/workbench/ops/loss/current",
+     "request": [
+      {
+       "name": "page",
+       "type": "integer",
+       "required": true,
+       "description": "页码，从 1 开始",
+       "children": []
+      },
+      {
+       "name": "pageSize",
+       "type": "integer",
+       "required": true,
+       "description": "每页条数（10/20/50/100）",
+       "children": []
+      },
+      {
+       "name": "keyword",
+       "type": "string",
+       "required": false,
+       "description": "订单号 / 问题商品模糊搜索",
+       "children": []
+      },
+      {
+       "name": "type",
+       "type": "string",
+       "required": false,
+       "description": "订单类型：单品单 / 多品单",
+       "children": []
+      },
+      {
+       "name": "reason",
+       "type": "string",
+       "required": false,
+       "description": "亏损原因：订单级收支调整 / 整单与商品待对账 / 商品行亏损 / 商品明细缺失",
+       "children": []
+      },
+      {
+       "name": "scope",
+       "type": "string",
+       "required": false,
+       "description": "处理范围：price_adjustment / order_reconciliation",
+       "children": []
+      },
+      {
+       "name": "storeCode",
+       "type": "string",
+       "required": false,
+       "description": "门店筛选（storeKey）",
+       "children": []
+      },
+      {
+       "name": "orderDateFrom",
+       "type": "string",
+       "required": false,
+       "description": "下单开始日期 YYYY-MM-DD",
+       "children": []
+      },
+      {
+       "name": "orderDateTo",
+       "type": "string",
+       "required": false,
+       "description": "下单结束日期 YYYY-MM-DD",
+       "children": []
+      },
+      {
+       "name": "lossAmountFrom",
+       "type": "number",
+       "required": false,
+       "description": "亏损金额下限，0 或负数（如 -5）",
+       "children": []
+      },
+      {
+       "name": "lossAmountTo",
+       "type": "number",
+       "required": false,
+       "description": "亏损金额上限，0 或负数，不小于下限",
+       "children": []
+      },
+      {
+       "name": "sortBy",
+       "type": "string",
+       "required": false,
+       "description": "排序字段（orderNo/type/products/lossAmount/reason）",
+       "children": []
+      },
+      {
+       "name": "sortOrder",
+       "type": "string",
+       "required": false,
+       "description": "asc / desc",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "currentBatch",
+       "type": "object",
+       "required": true,
+       "description": "当前批次及分页清单",
+       "children": [
+        {
+         "name": "batchId",
+         "type": "string",
+         "required": true,
+         "description": "批次 ID，明细接口的路径参数",
+         "children": []
+        },
+        {
+         "name": "itemTotal",
+         "type": "integer",
+         "required": true,
+         "description": "筛选后总条数",
+         "children": []
+        },
+        {
+         "name": "items",
+         "type": "array",
+         "required": true,
+         "description": "亏损订单行",
+         "children": [
+          {
+           "name": "orderNo",
+           "type": "string",
+           "required": true,
+           "description": "订单号",
+           "children": []
+          },
+          {
+           "name": "createdAt",
+           "type": "string",
+           "required": false,
+           "description": "下单时间",
+           "children": []
+          },
+          {
+           "name": "storeCode",
+           "type": "string",
+           "required": true,
+           "description": "门店标识",
+           "children": []
+          },
+          {
+           "name": "storeName",
+           "type": "string",
+           "required": true,
+           "description": "门店名称",
+           "children": []
+          },
+          {
+           "name": "channel",
+           "type": "string",
+           "required": true,
+           "description": "渠道（淘宝闪购 / 美团）",
+           "children": []
+          },
+          {
+           "name": "orderType",
+           "type": "string",
+           "required": true,
+           "description": "订单类型，前缀「多品」判为多品单",
+           "children": []
+          },
+          {
+           "name": "productName",
+           "type": "string",
+           "required": true,
+           "description": "问题商品（、分隔）",
+           "children": []
+          },
+          {
+           "name": "purchasePrice",
+           "type": "number",
+           "required": false,
+           "description": "采购价（单品为单位价，多品为整单成本合计）",
+           "children": []
+          },
+          {
+           "name": "salePrice",
+           "type": "number",
+           "required": false,
+           "description": "实售价",
+           "children": []
+          },
+          {
+           "name": "estimatedMargin",
+           "type": "number",
+           "required": true,
+           "description": "订单亏损金额（筛查后毛利，负数）",
+           "children": []
+          },
+          {
+           "name": "lossReason",
+           "type": "string",
+           "required": true,
+           "description": "亏损原因",
+           "children": []
+          },
+          {
+           "name": "suggestedPrice",
+           "type": "string",
+           "required": false,
+           "description": "毛利达标参考价；订单汇总行通常为 null",
+           "children": []
+          },
+          {
+           "name": "suggestionReason",
+           "type": "string",
+           "required": false,
+           "description": "建议价缺失说明",
+           "children": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "单笔订单明细（毛利汇总/商品明细/收支调整）",
+     "api": "GET /api/v1/workbench/ops/loss/batches/{batchId}/items/{orderNo}",
+     "request": [
+      {
+       "name": "batchId",
+       "type": "string",
+       "required": true,
+       "description": "路径参数，行所属批次 ID",
+       "children": []
+      },
+      {
+       "name": "orderNo",
+       "type": "string",
+       "required": true,
+       "description": "路径参数，订单号",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "orderNo",
+       "type": "string",
+       "required": true,
+       "description": "订单号",
+       "children": []
+      },
+      {
+       "name": "lossReason",
+       "type": "string",
+       "required": true,
+       "description": "亏损原因",
+       "children": []
+      },
+      {
+       "name": "rawEstimatedMargin",
+       "type": "number",
+       "required": true,
+       "description": "平台预计毛利（翱象原生导出）",
+       "children": []
+      },
+      {
+       "name": "estimatedMargin",
+       "type": "number",
+       "required": true,
+       "description": "筛查后毛利",
+       "children": []
+      },
+      {
+       "name": "skuMarginTotal",
+       "type": "number",
+       "required": true,
+       "description": "商品毛利合计",
+       "children": []
+      },
+      {
+       "name": "screeningSubsidyTotal",
+       "type": "number",
+       "required": true,
+       "description": "筛查扣减补贴（三项预估补贴，只从预计毛利剔除一次）",
+       "children": []
+      },
+      {
+       "name": "platformSubsidy",
+       "type": "number",
+       "required": true,
+       "description": "平台补贴收入（订单级证据）",
+       "children": []
+      },
+      {
+       "name": "orderLevelAdjustments",
+       "type": "number",
+       "required": true,
+       "description": "订单级收支调整合计",
+       "children": []
+      },
+      {
+       "name": "productLines",
+       "type": "array",
+       "required": true,
+       "description": "商品明细行",
+       "children": [
+        {
+         "name": "productName",
+         "type": "string",
+         "required": true,
+         "description": "商品名称",
+         "children": []
+        },
+        {
+         "name": "productCode",
+         "type": "string",
+         "required": true,
+         "description": "商品编码（翱象 SKU）",
+         "children": []
+        },
+        {
+         "name": "quantity",
+         "type": "integer",
+         "required": true,
+         "description": "数量",
+         "children": []
+        },
+        {
+         "name": "purchaseUnitPrice",
+         "type": "number",
+         "required": true,
+         "description": "单位采购成本",
+         "children": []
+        },
+        {
+         "name": "unitPrice",
+         "type": "number",
+         "required": true,
+         "description": "成交价（报名价与折扣价取低）",
+         "children": []
+        },
+        {
+         "name": "registrationPrice",
+         "type": "number",
+         "required": false,
+         "description": "报名价（平台活动）",
+         "children": []
+        },
+        {
+         "name": "discountPrice",
+         "type": "number",
+         "required": false,
+         "description": "折扣价（商家自营销）",
+         "children": []
+        },
+        {
+         "name": "unitMargin",
+         "type": "number",
+         "required": true,
+         "description": "单件毛利，<0 的商品可调价",
+         "children": []
+        },
+        {
+         "name": "suggestedPrice",
+         "type": "string",
+         "required": false,
+         "description": "毛利达标参考价",
+         "children": []
+        },
+        {
+         "name": "breakEvenPrice",
+         "type": "string",
+         "required": false,
+         "description": "保本参考价",
+         "children": []
+        },
+        {
+         "name": "sales30d",
+         "type": "integer",
+         "required": false,
+         "description": "近30天销量",
+         "children": []
+        }
+       ]
+      },
+      {
+       "name": "orderAdjustmentLines",
+       "type": "array",
+       "required": true,
+       "description": "订单级收支调整明细（amount≠0）",
+       "children": [
+        {
+         "name": "sourceField",
+         "type": "string",
+         "required": true,
+         "description": "项目（配送费/包装费/平台佣金/商品优惠红包/平台补贴等）",
+         "children": []
+        },
+        {
+         "name": "amount",
+         "type": "number",
+         "required": true,
+         "description": "翱象原始金额",
+         "children": []
+        },
+        {
+         "name": "includedInTotal",
+         "type": "boolean",
+         "required": true,
+         "description": "是否计入订单级收支调整合计，否则仅作原始证据",
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "确认调价（幂等入队，唯一人工调价入口）",
+     "api": "POST /api/v1/workbench/ops/price-adjustments/confirm",
+     "request": [
+      {
+       "name": "domain",
+       "type": "string",
+       "required": true,
+       "description": "业务域，亏损订单为 loss",
+       "children": []
+      },
+      {
+       "name": "itemKey",
+       "type": "string",
+       "required": true,
+       "description": "业务对象键，亏损域为订单号",
+       "children": []
+      },
+      {
+       "name": "productKey",
+       "type": "string",
+       "required": false,
+       "description": "商品键（商品编码）",
+       "children": []
+      },
+      {
+       "name": "targetPrice",
+       "type": "string",
+       "required": true,
+       "description": "本次拟调整价，大于 0 的数值字符串",
+       "children": []
+      },
+      {
+       "name": "previewToken",
+       "type": "string",
+       "required": true,
+       "description": "POST /price-adjustments/preview 签发的预览令牌，绑定用户、对象、价格与当前事实，服务端据此校验版本并幂等入队",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "attemptId",
+       "type": "string",
+       "required": true,
+       "description": "调价执行记录 ID",
+       "children": []
+      },
+      {
+       "name": "revisionId",
+       "type": "string",
+       "required": true,
+       "description": "目标价版本 ID",
+       "children": []
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "required": true,
+       "description": "受理/执行状态：queued / prechecking / submitting / submitted / verifying / succeeded / blocked / failed / unknown；unknown 表示结果待核验、禁止重发",
+       "children": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "历史记录",
+   "summary": "页面底部卡片列出全部历史批次（生成时间、扫描/亏损/待处理/上批结转），支持查看批次信息弹窗和按批次下载亏损订单表。",
+   "content_md": "# 历史记录（亏损订单处理）\n\n## 业务逻辑\n\n`GET /api/v1/workbench/ops/loss/batches` 一次返回全部历史批次，前端在页面底部卡片内做前端分页（PagerRow，默认每页 3 条）。每行展示：批次（生成时间 batchTime）、扫描订单数、亏损订单数、待处理记录数、上批结转数。mock 样例为每 4 小时一批、共 14 个批次（推测：与自动调度窗口对应）。\n\n行操作两项：\n\n- **查看**：调 `GET /loss/batches/{id}` 打开批次信息弹窗（OpsMetricBatchDialog），展示业务日（取 batchTime 前 10 位）、扫描订单数、亏损订单数、待处理记录数，状态固定展示「已生成」。\n- **下载**：调 `GET /loss/batches/{id}/download` 导出亏损订单表（CSV/XLSX 文件流），文件名按批次生成时间命名（如 `20260730-1200-亏损订单表`），不取下载时间。当前批次的下载复用同一正式批次下载接口。\n\n**本模块 API**\n\n- `GET /api/v1/workbench/ops/loss/batches`：全部历史批次列表（前端分页）。\n- `GET /api/v1/workbench/ops/loss/batches/{id}`：单个批次统计详情，用于批次信息弹窗。",
+   "nfr_md": "- 批次接口一次返回全量，历史记录为纯前端分页（默认每页 3 条，可选 3/10/20/50），无服务端分页参数（证据：OpsLoss.vue `pagedBatches`）。\n- 批次与统计读取均走 background/silent 静默加载，不阻塞首屏（推测）。",
+   "apis": [
+    {
+     "name": "历史批次列表",
+     "api": "GET /api/v1/workbench/ops/loss/batches",
+     "request": [],
+     "response": [
+      {
+       "name": "batches",
+       "type": "array",
+       "required": true,
+       "description": "全部历史批次（一次返回，前端分页）",
+       "children": [
+        {
+         "name": "batchId",
+         "type": "string",
+         "required": true,
+         "description": "批次 ID",
+         "children": []
+        },
+        {
+         "name": "batchTime",
+         "type": "string",
+         "required": true,
+         "description": "批次生成时间（下载文件名取它）",
+         "children": []
+        },
+        {
+         "name": "scannedOrders",
+         "type": "integer",
+         "required": true,
+         "description": "扫描订单数",
+         "children": []
+        },
+        {
+         "name": "lossOrders",
+         "type": "integer",
+         "required": true,
+         "description": "亏损订单数",
+         "children": []
+        },
+        {
+         "name": "actionListCount",
+         "type": "integer",
+         "required": true,
+         "description": "待处理记录数（兼容字段 pendingFollow）",
+         "children": []
+        },
+        {
+         "name": "carryoverCount",
+         "type": "integer",
+         "required": false,
+         "description": "上批结转记录数",
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "批次详情",
+     "api": "GET /api/v1/workbench/ops/loss/batches/{id}",
+     "request": [
+      {
+       "name": "id",
+       "type": "string",
+       "required": true,
+       "description": "路径参数，批次 ID",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "batchId",
+       "type": "string",
+       "required": true,
+       "description": "批次 ID",
+       "children": []
+      },
+      {
+       "name": "batchTime",
+       "type": "string",
+       "required": true,
+       "description": "批次生成时间，前 10 位即业务日",
+       "children": []
+      },
+      {
+       "name": "scannedOrders",
+       "type": "integer",
+       "required": true,
+       "description": "扫描订单数",
+       "children": []
+      },
+      {
+       "name": "lossOrders",
+       "type": "integer",
+       "required": true,
+       "description": "亏损订单数",
+       "children": []
+      },
+      {
+       "name": "actionListCount",
+       "type": "integer",
+       "required": true,
+       "description": "待处理记录数",
+       "children": []
+      },
+      {
+       "name": "pendingFollow",
+       "type": "integer",
+       "required": false,
+       "description": "待跟进数（批次详情口径）",
+       "children": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "运营备注与规则设置",
+   "summary": "页面底部常驻运营备注（经验沉淀）文本保存后从下一批次生效；规则设置弹窗维护 5 条亏损判定规则的阈值与启停，两条引流销量线启停联动。",
+   "content_md": "# 运营备注与规则设置（亏损订单处理）\n\n## 业务逻辑\n\n**运营备注（经验沉淀）**：页面底部常驻文本区，读取 `GET /loss/experience` 回显，保存调 `PUT /loss/experience`（body `{ content }`）。保存后从下一个批次开始生效（接口返回文案「经验已保存，从下一个批次开始生效」）。mock 初始内容体现口径：高配送费、采购成本上涨、活动优惠和引流属性只作人工核对线索；不能由当前字段证明的原因必须标记为待人工核对。\n\n**规则设置**：主表操作区「规则设置」按钮打开 OpsMetricRuleDialog 弹窗，页面不再平铺规则列表。规则来自 `GET /loss/rules`，保存调 `PUT /loss/rules`，请求体为数组 `[{ ruleKey, threshold, enabled }]`（名称/描述/单位由服务端保留，前端只提交阈值与启停）。mock 种子 5 条规则：\n\n| ruleKey | 名称 | 默认阈值 | 说明 |\n| --- | --- | --- | --- |\n| unit-loss-redline | 单品亏损红线 | 4 元 | 单品亏损达到该值即进入人工处置清单 |\n| traffic-sales-floor | 引流品销量线 | 20 单 | 多商品订单小额亏损放行必须满足近30天销量 |\n| single-item-sales-floor | 单品单引流销量线 | 100 单 | 单品订单小额亏损放行必须满足近30天销量 |\n| small-loss-exemption | 小额免处理 | 1 元 | 完成对账后整单和商品行亏损均严格小于该值 |\n| high-value-price | 高价值商品价格线 | 50 元 | 默认停用，当前只作人工复核线索 |\n\n启停联动：`traffic-sales-floor` 与 `single-item-sales-floor` 为耦合规则组（coupledRuleIds），启用/停用其中一条会联动另一条。保存前弹「确认保存亏损规则」二次确认。规则保存后影响后续批次的亏损判定（推测：与经验沉淀同样下一批次生效）。\n\n**本模块 API**\n\n- `GET/PUT /api/v1/workbench/ops/loss/experience`：运营备注（经验沉淀）读取与保存。\n- `GET/PUT /api/v1/workbench/ops/loss/rules`：亏损判定规则读取与保存（阈值 + 启停）。",
+   "nfr_md": "- 规则保存提交全量规则数组，服务端按 ruleKey 合并阈值与启停，未提交的字段保持不变（证据：mock PUT 实现）。\n- 备注与规则的读取均走 background/silent 静默加载；保存类操作需人工确认后提交（推测：防止误改判定口径）。",
+   "apis": [
+    {
+     "name": "运营备注（经验沉淀）读取",
+     "api": "GET /api/v1/workbench/ops/loss/experience",
+     "request": [],
+     "response": [
+      {
+       "name": "content",
+       "type": "string",
+       "required": true,
+       "description": "GET 响应：当前经验文本",
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "运营备注（经验沉淀）保存",
+     "api": "PUT /api/v1/workbench/ops/loss/experience",
+     "request": [
+      {
+       "name": "content",
+       "type": "string",
+       "required": true,
+       "description": "PUT 请求体：经验文本全文，保存后从下一个批次开始生效",
+       "children": []
+      }
+     ],
+     "response": [
+      {
+       "name": "message",
+       "type": "string",
+       "required": false,
+       "description": "PUT 响应：保存结果提示",
+       "children": []
+      }
+     ]
+    },
+    {
+     "name": "亏损判定规则读取",
+     "api": "GET /api/v1/workbench/ops/loss/rules",
+     "request": [],
+     "response": [
+      {
+       "name": "rules",
+       "type": "array",
+       "required": true,
+       "description": "规则列表（GET 返回、PUT 保存后回显）",
+       "children": [
+        {
+         "name": "ruleKey",
+         "type": "string",
+         "required": true,
+         "description": "规则标识",
+         "children": []
+        },
+        {
+         "name": "name",
+         "type": "string",
+         "required": true,
+         "description": "规则名称",
+         "children": []
+        },
+        {
+         "name": "desc",
+         "type": "string",
+         "required": true,
+         "description": "规则说明",
+         "children": []
+        },
+        {
+         "name": "threshold",
+         "type": "number",
+         "required": true,
+         "description": "当前阈值",
+         "children": []
+        },
+        {
+         "name": "unit",
+         "type": "string",
+         "required": true,
+         "description": "单位（元 / 单）",
+         "children": []
+        },
+        {
+         "name": "enabled",
+         "type": "boolean",
+         "required": true,
+         "description": "是否启用",
+         "children": []
+        },
+        {
+         "name": "dataReady",
+         "type": "boolean",
+         "required": true,
+         "description": "规则依赖数据是否就绪",
+         "children": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "亏损判定规则保存",
+     "api": "PUT /api/v1/workbench/ops/loss/rules",
+     "request": [
+      {
+       "name": "rules",
+       "type": "array",
+       "required": true,
+       "description": "PUT 请求体：全量规则数组，按 ruleKey 合并",
+       "children": [
+        {
+         "name": "ruleKey",
+         "type": "string",
+         "required": true,
+         "description": "规则标识（unit-loss-redline / traffic-sales-floor / single-item-sales-floor / small-loss-exemption / high-value-price）",
+         "children": []
+        },
+        {
+         "name": "threshold",
+         "type": "number",
+         "required": true,
+         "description": "阈值（金额元或销量单）",
+         "children": []
+        },
+        {
+         "name": "enabled",
+         "type": "boolean",
+         "required": true,
+         "description": "是否启用；两条引流销量线启停联动",
+         "children": []
+        }
+       ]
+      }
+     ],
+     "response": [
+      {
+       "name": "rules",
+       "type": "array",
+       "required": true,
+       "description": "规则列表（GET 返回、PUT 保存后回显）",
+       "children": [
+        {
+         "name": "ruleKey",
+         "type": "string",
+         "required": true,
+         "description": "规则标识",
+         "children": []
+        },
+        {
+         "name": "name",
+         "type": "string",
+         "required": true,
+         "description": "规则名称",
+         "children": []
+        },
+        {
+         "name": "desc",
+         "type": "string",
+         "required": true,
+         "description": "规则说明",
+         "children": []
+        },
+        {
+         "name": "threshold",
+         "type": "number",
+         "required": true,
+         "description": "当前阈值",
+         "children": []
+        },
+        {
+         "name": "unit",
+         "type": "string",
+         "required": true,
+         "description": "单位（元 / 单）",
+         "children": []
+        },
+        {
+         "name": "enabled",
+         "type": "boolean",
+         "required": true,
+         "description": "是否启用",
+         "children": []
+        },
+        {
+         "name": "dataReady",
+         "type": "boolean",
+         "required": true,
+         "description": "规则依赖数据是否就绪",
+         "children": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

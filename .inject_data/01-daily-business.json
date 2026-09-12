@@ -1,0 +1,251 @@
+{
+  "domain": "日报与异常数据",
+  "document": "经营日报",
+  "modules": [
+    {
+      "title": "数据采集与来源区",
+      "summary": "汇总经营日报依赖的翱象/淘宝/美团三路自动来源的采集状态与门店覆盖就绪度，支持单项失败来源手动补采。",
+      "content_md": "# 数据采集与来源区（经营日报）\n\n## 业务逻辑\n\n经营日报的数据完全来自系统自动采集，页面顶部以「来源摘要行 + 可展开明细」展示当前业务日各来源的采集结果。\n\n- **来源清单与口径**：经营日报（type=business）依赖 7 项自动来源（mode=auto），mock 数据给出真实示例：翱象经营详情.xlsx（aoxiang_sku_profit）、翱象订单毛利明细.xlsx（aoxiang_order_profit）、翱象近30天亏损销售明细.xlsx（aoxiang_loss_sales_30d）、淘宝经营数据.json（taobao_business_daily）、淘宝推广报表.json（taobao_promotion_daily）、美团成交明细.csv（meituan_operations_daily）、美团门店推广.json（meituan_promotion_daily），各项均带行数（rowCount）与采集时间（fetchedAt）。\n- **来源状态机**：单项来源状态为 ok / missing / stale / format_error / queued / running / failed / needs_login / blocked / cancelled / not_scheduled（见 ReportSource 类型）。页面文案映射：ok→「业务日 X · 采集时间」；stale→「当前只有旧业务日版本」；queued/running→「采集中」；failed/cancelled→「采集失败」；blocked→「采集受阻」（附后端 message 具体原因）；needs_login→「采集受阻 · 数据源认证不可用」；format_error→「来源文件格式未通过校验」；not_scheduled→「今日未安排采集」。\n- **摘要行规则**：有来源在采集中时显示「N 项采集中 · x/y 已就绪」；存在 failed/blocked/needs_login 时显示「N 项需处理」且状态点为红色；全部就绪时显示「x/y 来源已采集 · 最近 <最近 fetchedAt>」。采集中或出现失败来源时明细自动展开，之后不自动收起。\n- **手动补采**：非 queued/running 状态的来源可点「重试/重新采集」，调用补采接口，请求体携带业务日（取来源 effectiveDate，缺省取当前报表 dataDate；两者皆无则报错「当前业务日尚未确定，无法补采」）。服务器会复用同业务日正在运行的任务，不重复起任务。补采提交后页面以 5 秒间隔轮询来源状态，直到没有 queued/running 来源即停止轮询。\n- **门店覆盖就绪度**：仅经营日报额外读取就绪度接口，汇总当前业务日门店映射情况：mappingCount/expectedMappingCount（已映射/应映射门店数）、pendingMappingCandidates（翱象已发现但未确认映射的候选门店，含 aoxiangStoreCode、storeName、channels、businessDataPresent），以及 aoxiang/taobao/meituan 三路来源各自的 matchedStoreCount/expectedStoreCount 与 missingFields。美团来源采集成功但部分门店平台暂无数据时，摘要显示「采集成功，N 家平台暂无数据，生成日报时对应位置标记\"/\"」（N = expectedStoreCount − matchedStoreCount）。该接口失败不影响主流程，仅降级为不显示缺口文案。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/reports/business/sources`：读取当前业务日来源文件清单及各项采集状态。\n- `POST /api/v1/workbench/ops/source-collections/{dataset}/run`：对单个失败/受阻来源发起补采（dataset 为 sourceKey）。\n- `GET /api/v1/workbench/ops/daily/readiness`：读取经营日报门店覆盖与三平台来源就绪状态。",
+      "nfr_md": "- 来源状态轮询仅在存在 queued/running 来源时进行，间隔 5 秒（源码 SOURCE_POLL_MS = 5000），无在途任务即停止，避免稳定状态下重复请求。\n- 就绪度接口只在页面加载和无在途采集任务时读取，不充当 5 秒心跳（代码注释明确「避免用较重的业务接口充当心跳」）。\n- 来源、就绪度读取均为 background + silent 请求，不触发全局加载遮罩；失败静默降级，不影响生成与下载主流程（推测：为保证首屏切换流畅）。",
+      "apis": [
+        {
+          "name": "报表来源清单",
+          "api": "GET /api/v1/workbench/ops/reports/business/sources",
+          "request": [],
+          "response": [
+            {
+              "name": "(root)",
+              "type": "array",
+              "required": true,
+              "description": "来源对象数组（服务端也可能返回旧版字符串数组，前端会兜底为 legacy 来源）",
+              "children": [
+                { "name": "sourceKey", "type": "string", "required": true, "description": "来源标识，如 aoxiang_sku_profit / taobao_business_daily / meituan_operations_daily", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "来源文件名，如 翱象经营详情.xlsx、美团成交明细.csv", "children": [] },
+                { "name": "mode", "type": "string", "required": true, "description": "采集方式：auto（自动采集）/ manual（人工上传）；经营日报来源均为 auto", "children": [] },
+                { "name": "status", "type": "string", "required": true, "description": "采集状态：ok/missing/stale/format_error/queued/running/failed/needs_login/blocked/cancelled/not_scheduled", "children": [] },
+                { "name": "fetchedAt", "type": "string", "required": true, "description": "最近采集时间，如 2026-07-29 06:30", "children": [] },
+                { "name": "effectiveDate", "type": "string", "required": false, "description": "来源数据对应的业务日，如 2026-07-28", "children": [] },
+                { "name": "rowCount", "type": "number", "required": false, "description": "来源文件行数（mock 示例：翱象订单毛利明细 28640 行）", "children": [] },
+                { "name": "message", "type": "string", "required": false, "description": "状态补充说明；blocked 时携带具体受阻原因", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "单来源补采",
+          "api": "POST /api/v1/workbench/ops/source-collections/{dataset}/run",
+          "request": [
+            { "name": "dataset", "type": "string", "required": true, "description": "路径参数，来源 sourceKey", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "请求体，补采的业务日（YYYY-MM-DD）", "children": [] }
+          ],
+          "response": [
+            { "name": "taskId", "type": "string", "required": true, "description": "采集任务 ID", "children": [] },
+            { "name": "workflowRunId", "type": "string", "required": true, "description": "后台工作流运行 ID（同业务日运行中的任务会被复用）", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态，提交后通常为 queued", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "提示文案，如「xx 已进入后台采集队列」", "children": [] }
+          ]
+        },
+        {
+          "name": "经营日报就绪度",
+          "api": "GET /api/v1/workbench/ops/daily/readiness",
+          "request": [],
+          "response": [
+            { "name": "dataDate", "type": "string", "required": true, "description": "当前业务日", "children": [] },
+            { "name": "ready", "type": "boolean", "required": true, "description": "门店映射与来源是否整体就绪", "children": [] },
+            { "name": "mappingCount", "type": "number", "required": true, "description": "已完成跨平台映射的门店数", "children": [] },
+            { "name": "expectedMappingCount", "type": "number", "required": true, "description": "应映射门店总数", "children": [] },
+            { "name": "pendingMappingCount", "type": "number", "required": true, "description": "待确认映射的候选门店数", "children": [] },
+            { "name": "reportStale", "type": "boolean", "required": true, "description": "当前报表是否基于旧业务日", "children": [] },
+            { "name": "blockers", "type": "array", "required": true, "description": "阻塞原因列表（字符串）", "children": [] },
+            {
+              "name": "sources",
+              "type": "array",
+              "required": true,
+              "description": "三平台来源就绪明细",
+              "children": [
+                { "name": "sourceKey", "type": "string", "required": true, "description": "aoxiang / taobao / meituan", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "来源名，如 翱象经营详情、美团经营数据", "children": [] },
+                { "name": "present", "type": "boolean", "required": true, "description": "当前业务日是否已有该来源数据", "children": [] },
+                { "name": "matchedStoreCount", "type": "number", "required": true, "description": "该来源已匹配门店数", "children": [] },
+                { "name": "expectedStoreCount", "type": "number", "required": true, "description": "该来源应覆盖门店数（与 matched 之差即平台暂无数据门店数）", "children": [] },
+                { "name": "missingFields", "type": "array", "required": true, "description": "缺失字段列表（字符串）", "children": [] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "报表生成与下载",
+      "summary": "经营日报生成走持久后台工作流，页面提交后可离开，完成后通知；生成/下载由后端自动定版，可下载当前或最近可用报表。",
+      "content_md": "# 报表生成与下载（经营日报）\n\n## 业务逻辑\n\n- **生成方式**：点击「生成经营日报」调用生成任务接口，统一提交持久后台工作流，返回 runId 与状态（queued/running）。任务信息保存在本地（backgroundGeneration 快照），离开页面、刷新或切换菜单后仍可继续跟踪，完成后由后台事件触发整页重载，并通过通知中心推送「经营日报生成完成」。\n- **按钮状态流转**：生成按钮按任务状态依次显示「生成经营日报」→「排队等待生成…」/「等待来源数据…」（queued 且带缺来源 message）→「后台生成中…」（running）；任务在途时按钮禁用。页面文案标注「预计 10 秒–2 分钟，后台运行，完成后通知」。等待来源时弹出警示条：「尚缺 N 项核心来源数据，系统会继续在后台补采；数据齐备后自动生成」（N 由 message 中「缺少」出现次数推断）。\n- **生成阻断**：来源缺口导致生成失败时，后端返回形如「taobao_promotion_spend 缺 3 店」的阻断信息，前端翻译为「淘宝推广费用缺少当前 3 家门店数据。系统未用 0 或历史值补齐，请完成对应平台采集后重试」——即日报生成不会用 0 或历史值填补缺口（代码注释级业务规则）。\n- **定版规则**：首版报表生成/下载后由后端自行定版，前端不再有人工确认步骤；ReportState.confirmed 仅作展示，不作为任何操作的门槛。\n- **下载规则**：state.generated=true 时显示「下载经营日报」，按钮旁提示「当前报表生成于 <定版时间>」；当前业务日未生成时按钮变为「下载最近可用经营日报」，回退到历史记录中最新一期并提示「已下载 <业务日> 的最近可用报表」；既无当前又无历史时按钮禁用并显示「经营日报尚未生成」。下载文件名优先取当前生效报表的 fileName（经 displayFileName 规整：剥掉与业务日期重复的生成时间戳，业务日期格式化为 YYYY-MM-DD）。\n- **状态读取**：页面加载时并行读取报表状态（generated/dataDate）、来源清单和历史记录；generated 决定异常分析区是否展示（未生成时仅展示「等待经营日报生成」等待态，旧报表保留在历史记录，符合验收规则）。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/reports/business/state`：读取报表生成/定版状态与当前业务日。\n- `POST /api/v1/workbench/ops/reports/business/generation-jobs`：提交后台生成任务，返回 runId；任务进度经 `GET .../generation-jobs/{runId}` 后台轮询（心跳类，从略）。\n- `GET /api/v1/workbench/ops/reports/business/download`：下载当前业务日已定版报表文件。",
+      "nfr_md": "- 生成预计耗时 10 秒–2 分钟（页面文案），故采用异步后台任务 + 通知，而非同步等待。\n- 生成任务进度查询为 background+silent 轮询，不打断用户操作；任务句柄持久化在浏览器本地，跨页面可恢复（推测：避免刷新丢失任务状态）。\n- 下载走统一下载通道，全局加载遮罩仅用于下载等「等待任务」场景（AGENTS.md UI 规则）。",
+      "apis": [
+        {
+          "name": "报表状态",
+          "api": "GET /api/v1/workbench/ops/reports/business/state",
+          "request": [],
+          "response": [
+            { "name": "type", "type": "string", "required": true, "description": "报表类型，固定 business", "children": [] },
+            { "name": "name", "type": "string", "required": true, "description": "报表名：经营日报", "children": [] },
+            { "name": "generated", "type": "boolean", "required": true, "description": "当前业务日是否已生成可下载文件；驱动下载按钮与异常分析区展示", "children": [] },
+            { "name": "confirmed", "type": "boolean", "required": true, "description": "首版是否已定版（后端自动定版，仅展示，不作操作门槛）", "children": [] },
+            { "name": "dataDate", "type": "string", "required": true, "description": "当前业务日期，异常扫描与下载据此命中当前报表", "children": [] }
+          ]
+        },
+        {
+          "name": "提交报表生成任务",
+          "api": "POST /api/v1/workbench/ops/reports/business/generation-jobs",
+          "request": [],
+          "response": [
+            { "name": "runId", "type": "string", "required": true, "description": "后台生成任务 ID，用于后续进度查询", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态：queued / running / succeeded / failed / blocked", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "本次生成的业务日", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "状态补充；queued 时携带缺少的核心来源说明", "children": [] }
+          ]
+        },
+        {
+          "name": "下载当前经营日报",
+          "api": "GET /api/v1/workbench/ops/reports/business/download",
+          "request": [],
+          "response": [
+            { "name": "fileStream", "type": "string", "required": true, "description": "报表文件流（正式环境为 xlsx，经统一下载通道落盘，文件名取定版记录 fileName）", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "异常数据与异常规则配置",
+      "summary": "基于当前已生成报表做门店×指标级异常判定，支持筛选、重新扫描与阈值规则在线配置。",
+      "content_md": "# 异常数据与异常规则配置（经营日报）\n\n## 业务逻辑\n\n- **数据口径**：异常分析只针对「当前应出报表」（activeReport = state.dataDate 对应的历史记录）；报表未生成时整区显示等待态，历史异常不混入。接口按报表一次返回全部异常行，筛选、排序、分页均为前端对已冻结快照的本地操作（代码注释：不能把局部筛选误当成新的异常扫描结果）。\n- **行结构**：每行 = 门店（store）× 指标（metric），含报表日数值（today，带单位字符串如「9,860 元」「8.6%」）、日环比（dayRatio）、较上周同日（weekRatio），两者均为带 % 的格式化字符串原样展示；isPercent 标记百分比口径指标（其环比/同比为百分点差值口径）。\n- **判定四态**（优先级：无法判断 > 不可比 > 异常 > 正常）：dataUnavailable=true 表示上游未返回该指标，标「无法判断」并汇总为「数据覆盖：N 项指标待补齐」的可展开缺口清单；comparable=false（缺比较日报、缺比较值或上期为 0，日环比与周同比两方向均须可比）时比较列显示「—」不标红；abnormal=true 标「异常」，否则「正常」。提醒原因列优先展示后端 reason，否则回落到判断文案。\n- **mock 体现的判定阈值**：经营日报内置 17 条规则——实付金额/有效订单量/全渠道净利下降（日环比或周同比下降超 20% 判异常，净利转负也算）、淘宝/美团入店转化率过低（低于 10%）、淘宝/美团下单转化率过低（低于 25%）、各转化率下降（超 20%）、淘宝/美团推广消耗过低（当日低于 80 元）与过高（高于 300 元）。百分比指标判定按百分点差值（如 ≤ −1 个百分点判异常）。\n- **交互**：工具栏支持按门店、指标、判断（需要处理/正常）筛选并显示「筛选后 N 条」；表格列可排序。「重新发现异常」（仅 business 型显示）触发重扫，完成后提示「异常扫描完成：N 条异常，M 项因上游缺数无法判断」。「下载异常明细」导出 CSV（门店/指标/今日/日环比/周同比/判断）。\n- **规则配置**：弹窗内列出全部规则（规则名/判定说明/阈值/启用开关），阈值用数字输入框编辑、启停用开关切换；保存整体 PUT，提示「阈值与启停随保存即时生效，仅影响之后的异常判定」。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/reports/business/anomalies`：读取当前报表日的异常数据行。\n- `POST /api/v1/workbench/ops/reports/business/anomalies/rescan`：按当前规则重新扫描异常。\n- `PUT /api/v1/workbench/ops/reports/business/anomaly-rules`：整体保存异常规则（读取经 `GET .../anomaly-rules`）。",
+      "nfr_md": "- 异常接口一次性返回全量行，筛选/排序/分页在前端完成；分页每页 20 条（可选 20/50/100）。\n- 重新扫描 mock 延时约 1 秒（基础 300ms + 700ms），真实环境预计为秒级操作（推测）。\n- 履约/售罄类型异常接口未迁 V2 时静默降级为空清单（409 不透出），business 型照常抛错提示。",
+      "apis": [
+        {
+          "name": "异常数据列表",
+          "api": "GET /api/v1/workbench/ops/reports/business/anomalies",
+          "request": [
+            { "name": "dataDate", "type": "string", "required": false, "description": "查询参数，报表业务日（取当前生效报表的 businessDate）", "children": [] }
+          ],
+          "response": [
+            {
+              "name": "(root)",
+              "type": "array",
+              "required": true,
+              "description": "异常数据行数组",
+              "children": [
+                { "name": "id", "type": "number", "required": true, "description": "行 ID", "children": [] },
+                { "name": "store", "type": "string", "required": true, "description": "门店名，如 重庆南岸弹子石店", "children": [] },
+                { "name": "metric", "type": "string", "required": true, "description": "指标名，如 实付金额、全渠道净利、淘宝入店转化率", "children": [] },
+                { "name": "today", "type": "string", "required": true, "description": "报表日数值（带单位），如 9,860 元、-126 元、8.6%", "children": [] },
+                { "name": "dayRatio", "type": "string", "required": true, "description": "日环比，格式化字符串，如 -23.5%", "children": [] },
+                { "name": "weekRatio", "type": "string", "required": true, "description": "较上周同日，格式化字符串", "children": [] },
+                { "name": "isPercent", "type": "boolean", "required": false, "description": "是否百分比口径指标（环比按百分点差值理解）", "children": [] },
+                { "name": "dataUnavailable", "type": "boolean", "required": false, "description": "上游未返回该指标，无法判断正常/异常", "children": [] },
+                { "name": "comparable", "type": "boolean", "required": false, "description": "日环比与周同比是否均可比；缺省视为可比", "children": [] },
+                { "name": "abnormal", "type": "boolean", "required": true, "description": "是否达到阈值判为异常", "children": [] },
+                { "name": "reason", "type": "string", "required": false, "description": "后端给出的提醒原因，优先于前端判断文案展示", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "重新发现异常",
+          "api": "POST /api/v1/workbench/ops/reports/business/anomalies/rescan",
+          "request": [
+            { "name": "dataDate", "type": "string", "required": false, "description": "查询参数，报表业务日", "children": [] }
+          ],
+          "response": [
+            {
+              "name": "(root)",
+              "type": "array",
+              "required": true,
+              "description": "重扫后的异常数据行数组，结构与 GET anomalies 相同（store/metric/today/dayRatio/weekRatio/abnormal 等）",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "保存异常规则",
+          "api": "PUT /api/v1/workbench/ops/reports/business/anomaly-rules",
+          "request": [
+            {
+              "name": "rules",
+              "type": "array",
+              "required": true,
+              "description": "请求体，整体替换的规则数组（经营日报 mock 含 17 条）",
+              "children": [
+                { "name": "id", "type": "number", "required": true, "description": "规则 ID", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "规则名，如 实付金额下降、淘宝推广消耗过高", "children": [] },
+                { "name": "desc", "type": "string", "required": true, "description": "判定说明，如「日环比或周同比下降超过阈值（%）判异常」", "children": [] },
+                { "name": "threshold", "type": "number", "required": true, "description": "阈值（% / 元 / 分钟等，单位由规则 desc 约定），mock 默认 20%、10%、25%、80 元、300 元", "children": [] },
+                { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用；保存即时生效，仅影响之后的异常判定", "children": [] }
+              ]
+            }
+          ],
+          "response": [
+            {
+              "name": "(root)",
+              "type": "array",
+              "required": true,
+              "description": "保存后的规则数组（前端包装提示「异常规则已保存」）",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "历史记录",
+      "summary": "分页展示经营日报历史定版记录，支持查看记录信息与下载历史报表文件。",
+      "content_md": "# 历史记录（经营日报）\n\n## 业务逻辑\n\n- **记录来源**：每次报表生成/下载定版后由后端生成一条历史记录，无需人工确认；mock 示例形如「20260729-1046-经营日报」（定版时间 2026-07-29 10:46，业务日 2026-07-28，定版人 张哥）。\n- **列表字段**：文件名（经 displayFileName 规整：去掉文件名末尾与业务日期重复的生成时间戳，业务日期统一显示为 YYYY-MM-DD）、定版时间（confirmedAt）、定版人（operator；system:scheduler/system/scheduler 统一显示为「系统自动生成」，不暴露内部调度身份）、操作（查看/下载）。\n- **分页**：服务端分页，V2 报表端点使用 snake_case 参数（page + page_size）；页面默认每页 3 条（PagerRow 默认），可选 3/10/20/50。翻页请求带序号防串（historyRequest 递增，过期响应丢弃）。注意代码注释：pageSize 会静默回退到服务端默认值，可能使分页器总数与实际行数不一致。\n- **查看**：点「查看」读取记录详情，弹窗展示文件名、业务日期、定版时间、定版人、行数（rows，mock 示例 26 行）、来源文件数（sourceCount，示例 6 个）；不预览表内容，弹窗内可直接「下载该表」。\n- **下载**：点「下载」获取该期报表文件；下载成功（未取消）后该行本地标记 downloaded=true、status=downloaded。\n- **与当前报表的关系**：当前业务日未生成时，历史记录第一条作为「最近可用报表」供回退下载；异常分析只认当前应出报表，历史结果仅保留在本区（验收规则）。\n\n## 本模块 API\n\n- `GET /api/v1/workbench/ops/reports/business/history/page`：服务端分页读取历史定版记录。\n- `GET /api/v1/workbench/ops/reports/business/history/{id}`：读取单条记录详情（行数、来源文件数）。下载历史文件经 `GET .../history/{id}/download`（纯下载，从略）。",
+      "nfr_md": "- 历史记录服务端分页，默认每页 3 条、可选 3/10/20/50（PagerRow 统一规范）。\n- 分页参数为 snake_case（page_size），与服务端 V2 合同一致；pageSize 不匹配时服务端静默回退默认值（代码注释，推测为兼容旧消费者）。\n- 历史读取为 background 请求，不触发全局遮罩；切页请求带防串序号，避免慢响应覆盖新页（推测）。",
+      "apis": [
+        {
+          "name": "历史记录分页",
+          "api": "GET /api/v1/workbench/ops/reports/business/history/page",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码，从 1 开始", "children": [] },
+            { "name": "page_size", "type": "integer", "required": true, "description": "每页条数（snake_case；mock 限制 1–100，默认 10；页面默认传 3）", "children": [] }
+          ],
+          "response": [
+            {
+              "name": "items",
+              "type": "array",
+              "required": true,
+              "description": "历史记录数组",
+              "children": [
+                { "name": "id", "type": "number", "required": true, "description": "记录 ID", "children": [] },
+                { "name": "fileName", "type": "string", "required": true, "description": "文件名，如 20260729-1046-经营日报", "children": [] },
+                { "name": "businessDate", "type": "string", "required": true, "description": "冻结报表对应的业务日期", "children": [] },
+                { "name": "confirmedAt", "type": "string", "required": true, "description": "定版时间", "children": [] },
+                { "name": "operator", "type": "string", "required": true, "description": "定版人；system:scheduler 表示系统自动生成", "children": [] },
+                { "name": "status", "type": "string", "required": true, "description": "pending_download / downloaded / regenerated / confirmed", "children": [] },
+                { "name": "downloaded", "type": "boolean", "required": true, "description": "是否已下载过", "children": [] },
+                { "name": "confirmed", "type": "boolean", "required": true, "description": "是否已定版", "children": [] }
+              ]
+            },
+            { "name": "total", "type": "integer", "required": true, "description": "记录总数", "children": [] },
+            { "name": "page", "type": "integer", "required": true, "description": "当前页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数", "children": [] }
+          ]
+        },
+        {
+          "name": "历史记录详情",
+          "api": "GET /api/v1/workbench/ops/reports/business/history/{id}",
+          "request": [
+            { "name": "id", "type": "integer", "required": true, "description": "路径参数，记录 ID", "children": [] }
+          ],
+          "response": [
+            { "name": "id", "type": "number", "required": true, "description": "记录 ID", "children": [] },
+            { "name": "fileName", "type": "string", "required": true, "description": "文件名", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "业务日期", "children": [] },
+            { "name": "confirmedAt", "type": "string", "required": true, "description": "定版时间", "children": [] },
+            { "name": "operator", "type": "string", "required": true, "description": "定版人", "children": [] },
+            { "name": "rows", "type": "number", "required": true, "description": "报表行数（mock 示例 26）", "children": [] },
+            { "name": "sourceCount", "type": "number", "required": true, "description": "本报表使用的来源文件数（mock 示例 6）", "children": [] }
+          ]
+        }
+      ]
+    }
+  ]
+}

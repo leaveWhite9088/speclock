@@ -1,0 +1,224 @@
+{
+  "domain": "日报与异常数据",
+  "document": "售罄率报表",
+  "modules": [
+    {
+      "title": "数据采集与来源区",
+      "summary": "展示售罄率报表各来源文件的采集状态与就绪摘要，支持对失败来源单条重试/重新采集。",
+      "content_md": "# 数据采集与来源区（售罄率报表）\n\n## 业务逻辑\n\n页面顶部为来源摘要行（状态圆点 + 汇总文案 + 可展开的明细列表），来源数据由后端定时自动采集，页面只读展示并允许人工触发补采。\n\n- 售罄率报表的自动来源（mock 样例）：「翱象门店商品明细.xlsx」（aoxiang_store_sku_detail，约 26.4 万行）与「供应商管理表（已确认版本）.xlsx」（supplier_confirmed_version）；另有人工来源「甲方月度Top200名单.xlsx」（monthly_top200，见「月度Top200上传」模块），来源摘要只统计 mode=auto 的自动来源。\n- 每条来源包含状态、采集时间（fetchedAt）、生效业务日（effectiveDate）与行数（rowCount）；来源状态枚举为 ok / missing / stale / format_error / queued / running / failed / needs_login / blocked / cancelled / not_scheduled。\n- 摘要文案规则：有来源在采集中时显示「N 项采集中 · X/Y 已就绪」；有 failed/blocked/needs_login 时显示「N 项需处理」；全部就绪时显示「Y/Y 来源已采集 · 最近 <最近采集时间>」。采集中或出现失败来源时明细自动展开，之后不自动收起。\n- 售罄率专属口径：来源 ok 且后端消息以「可用门店数据已就绪」开头时，明细显示「可用门店已就绪 · 部分门店待补齐」（即允许部分门店缺数，系统不会用 0 或历史值补齐）。\n- 明细每条来源提供「重试 / 重新采集」按钮（queued/running 时禁用），调用补采接口后该来源进入采集队列，页面以约 5 秒间隔轮询来源状态直至没有 running/queued 来源。\n- 首次进入且无本地快照时表格区用局部 v-loading 表达加载；之后读过的页签先按本地快照渲染，再后台静默替换。\n\n## 本模块 API\n\n- GET /api/v1/workbench/ops/reports/sellout/sources：读取本报表来源文件清单（自动 + 人工来源）。\n- POST /api/v1/workbench/ops/source-collections/{dataset}/run：按 sourceKey 触发单个自动来源的补采，服务器会复用同业务日正在运行的任务。",
+      "nfr_md": "- 有来源处于 queued/running 时，页面以约 5 秒间隔（SOURCE_POLL_MS = 5000）串行轮询来源状态，无运行中来源即停止轮询（代码证据）。\n- 来源/状态读取均走 background 请求，不触发全局加载遮罩，仅表格区局部 loading（代码证据，推测为体验要求）。\n- 自动来源行数规模可达约 26 万行（mock：翱象门店商品明细 264000 行），采集为后端异步任务（推测）。",
+      "apis": [
+        {
+          "name": "报表来源清单",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/sources",
+          "request": [],
+          "response": [
+            { "name": "sources", "type": "array", "required": true, "description": "来源文件清单（响应体为数组）", "children": [
+              { "name": "sourceKey", "type": "string", "required": true, "description": "来源标识，如 aoxiang_store_sku_detail / supplier_confirmed_version / monthly_top200", "children": [] },
+              { "name": "name", "type": "string", "required": true, "description": "来源文件名，如 翱象门店商品明细.xlsx", "children": [] },
+              { "name": "mode", "type": "string", "required": true, "description": "采集方式：auto 自动采集 / manual 人工上传", "children": [] },
+              { "name": "status", "type": "string", "required": true, "description": "状态：ok/missing/stale/format_error/queued/running/failed/needs_login/blocked/cancelled/not_scheduled", "children": [] },
+              { "name": "fetchedAt", "type": "string", "required": true, "description": "最近采集完成时间", "children": [] },
+              { "name": "effectiveDate", "type": "string", "required": false, "description": "来源生效业务日期（YYYY-MM-DD），可为 null", "children": [] },
+              { "name": "rowCount", "type": "integer", "required": false, "description": "来源数据行数，可为 null", "children": [] },
+              { "name": "message", "type": "string", "required": false, "description": "状态补充说明（如 blocked 原因、可用门店就绪说明），可为 null", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "触发来源补采",
+          "api": "POST /api/v1/workbench/ops/source-collections/{dataset}/run",
+          "request": [
+            { "name": "dataset", "type": "string", "required": true, "description": "路径参数，来源 sourceKey，如 aoxiang_store_sku_detail", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "请求体：补采的业务日期（YYYY-MM-DD），取来源 effectiveDate 或当前业务日", "children": [] }
+          ],
+          "response": [
+            { "name": "taskId", "type": "string", "required": true, "description": "采集任务 ID", "children": [] },
+            { "name": "workflowRunId", "type": "string", "required": true, "description": "后台工作流运行 ID", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态，入队成功为 queued", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "入队结果说明", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "月度Top200上传",
+      "summary": "售罄率报表专属的常驻区块：人工上传/替换甲方月度 Top200 名单，并可下载标准模板与当前留档。",
+      "content_md": "# 月度Top200上传（售罄率报表）\n\n## 业务逻辑\n\n售罄率报表页签（OpsDaily.vue 中 type=sellout 且 show-top200-upload）在来源明细与生成区之间多出一个单行常驻区块「月度 Top200」，仅售罄率报表显示（经营日报、门店履约表不显示）。\n\n- 该来源对应 sourceKey=monthly_top200、mode=manual 的人工来源，初始状态为 missing；页面显示「尚未上传，生成报表时会提示缺少」。\n- 已上传时区块显示：文件名 · 行数 · 上传人（providedBy）· 资料日期（providedAt，缺省回退 effectiveDate）。\n- 操作三个：「上传名单」（未上传时）/「替换名单」（已上传时）、「下载模板」、「下载留档」（仅已上传时显示）。\n- 上传走文件选择 + 扩展名校验（xlsx 等表格格式，校验失败弹不自动消失的错误弹窗）；提交 FormData 携带 file、effectiveDate（当天）、version、providedBy（当前登录人显示名）、providedAt 和 mappingConfig（JSON：sheetName=Top200、storeCodeColumn=门店编码、skuColumn=翱象SKU）。\n- 上传成功即替换为当前生效版本（mock 中服务端会把来源置为 ok、rowCount=200，并返回 version 与「Top200 表已由 X 上传成功」）；上传失败由页面弹窗展示具体校验原因（如「第 2 列表头应为『翱象SKU』，实际为『商品SKU』」）。\n- 模板与留档文件列结构（mock 留档内容）：门店编码、翱象SKU 两列。\n\n## 本模块 API\n\n- POST /api/v1/workbench/ops/sellout/sources/monthly_top200/upload：上传/替换月度 Top200 名单（multipart 表单）。\n- GET /api/v1/workbench/ops/sellout/sources/monthly_top200/template：下载 Top200 标准模板（月度Top200标准模板.xlsx）。",
+      "nfr_md": "- 上传请求带 silent 标记，失败原因不弹全局错误，由页面以需手动关闭的弹窗展示（代码证据，推测为避免误重复上传）。\n- Top200 名单规模约 200 行/门店级（mock 上传后 rowCount=200，推测）。",
+      "apis": [
+        {
+          "name": "上传/替换月度Top200名单",
+          "api": "POST /api/v1/workbench/ops/sellout/sources/monthly_top200/upload",
+          "request": [
+            { "name": "file", "type": "string", "required": true, "description": "FormData 文件字段，xlsx 表格文件", "children": [] },
+            { "name": "effectiveDate", "type": "string", "required": true, "description": "生效日期（上传当天，YYYY-MM-DD）", "children": [] },
+            { "name": "version", "type": "string", "required": true, "description": "版本标识（日期-文件最后修改时间戳）", "children": [] },
+            { "name": "providedBy", "type": "string", "required": true, "description": "上传人显示名，缺省为「运营人员」", "children": [] },
+            { "name": "providedAt", "type": "string", "required": true, "description": "资料提供日期", "children": [] },
+            { "name": "mappingConfig", "type": "object", "required": true, "description": "JSON 字符串：列映射配置", "children": [
+              { "name": "sheetName", "type": "string", "required": true, "description": "工作表名，固定 Top200", "children": [] },
+              { "name": "storeCodeColumn", "type": "string", "required": true, "description": "门店列名，固定 门店编码", "children": [] },
+              { "name": "skuColumn", "type": "string", "required": true, "description": "SKU 列名，固定 翱象SKU", "children": [] }
+            ] }
+          ],
+          "response": [
+            { "name": "version", "type": "string", "required": true, "description": "服务端确认的版本标识", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "上传结果说明，如「Top200 表已由 X 上传成功」", "children": [] }
+          ]
+        },
+        {
+          "name": "下载Top200标准模板",
+          "api": "GET /api/v1/workbench/ops/sellout/sources/monthly_top200/template",
+          "request": [],
+          "response": [
+            { "name": "file", "type": "string", "required": true, "description": "文件流下载（月度Top200标准模板.xlsx），列为 门店编码、翱象SKU", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "报表生成与下载",
+      "summary": "查看当前业务日报表状态，手动触发生成需二次确认（系统每周一三五夜间自动生成），后台生成完成后可下载。",
+      "content_md": "# 报表生成与下载（售罄率报表）\n\n## 业务逻辑\n\n- 页面加载时读取报表状态（type/name/confirmed/generated/dataDate），判断当前业务日（dataDate）是否已有可下载报表；generated=true 时异常数据立即可查，无需人工定版（首版生成/下载后由后端自行定版）。\n- 「生成售罄率报表」按钮：售罄率报表有专属二次确认弹窗——「售罄率报表需要汇总全门店商品库存、销售和月度 Top200，预计约 30 秒–2 分钟。系统会在每周一、三、五夜间自动生成；确认现在重新生成？」，可选「确认重新生成」或「使用当前结果」（取消则不再发起）。\n- 确认后调用生成接口转入后台任务（返回 runId 与 status），按钮态依次切换：等待来源数据…（queued 且带缺少来源消息）→ 排队等待生成…（queued）→ 后台生成中…（running）；任务期间按钮禁用，离开页面不中断（任务记录存本地，经后台生成轮询与通知中心获知终态）。\n- 来源未齐时系统会继续在后台补采，数据齐备后自动生成；生成失败时展示阻断原因（如「XX缺少当前 N 家门店数据。系统未用 0 或历史值补齐」）。\n- 售罄率的耗时提示文案与其他报表不同：「每天自动生成；来源采集和整理完成后开始计算」（经营日报/履约表为「预计 10 秒–2 分钟」）。\n- 下载：已生成时按当前 dataDate 下载正式报表（售罄率的下载地址带 ?dataDate= 查询参数）；当前业务日未生成时，若有历史报表则按钮变为「下载最近可用售罄率报表」（走历史记录下载）；若从未生成过，售罄率专属兜底为「下载来源审核预览」，并提示「当前缺少正式来源，该文件不能作为正式报表」。\n\n## 本模块 API\n\n- GET /api/v1/workbench/ops/reports/sellout/state：读取报表状态（是否已生成、当前业务日）。\n- POST /api/v1/workbench/ops/reports/sellout/generation-jobs：提交后台生成任务（手动重新生成）。\n- GET /api/v1/workbench/ops/reports/sellout/download?dataDate=...：下载当前业务日已生成的报表文件。",
+      "nfr_md": "- 生成任务为后台异步工作流，单次约 30 秒–2 分钟（二次确认弹窗文案），系统每周一、三、五夜间自动生成（代码证据）。\n- 生成任务状态查询走 background+silent 轮询，不弹全局遮罩；终态经通知中心告知（代码证据，推测）。",
+      "apis": [
+        {
+          "name": "报表状态",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/state",
+          "request": [],
+          "response": [
+            { "name": "type", "type": "string", "required": true, "description": "报表类型，固定 sellout", "children": [] },
+            { "name": "name", "type": "string", "required": true, "description": "报表名：售罄率报表", "children": [] },
+            { "name": "confirmed", "type": "boolean", "required": true, "description": "首版是否已定版（仅展示，后端自行定版，不作为操作门槛）", "children": [] },
+            { "name": "generated", "type": "boolean", "required": true, "description": "当前业务日是否已生成可下载文件", "children": [] },
+            { "name": "dataDate", "type": "string", "required": true, "description": "当前业务日期（YYYY-MM-DD）", "children": [] }
+          ]
+        },
+        {
+          "name": "提交报表生成任务",
+          "api": "POST /api/v1/workbench/ops/reports/sellout/generation-jobs",
+          "request": [],
+          "response": [
+            { "name": "runId", "type": "string", "required": true, "description": "生成任务运行 ID", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态：queued/running/succeeded/failed/blocked", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "生成对应的业务日期", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "排队说明（如缺少哪些来源）", "children": [] }
+          ]
+        },
+        {
+          "name": "下载当前报表",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/download",
+          "request": [
+            { "name": "dataDate", "type": "string", "required": false, "description": "查询参数：业务日期（售罄率下载地址会带上）", "children": [] }
+          ],
+          "response": [
+            { "name": "file", "type": "string", "required": true, "description": "报表文件流；内容列为 门店、Top200售罄率、总商品售罄率、中台采购售罄率、中心仓售罄率、门店自采售罄率（mock 口径）", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "异常数据与异常规则配置",
+      "summary": "基于当前应出报表展示售罄异常（门店×指标），支持筛选排序分页；规则弹窗可调整阈值与启停。",
+      "content_md": "# 异常数据与异常规则配置（售罄率报表）\n\n## 业务逻辑\n\n- 异常分析仅使用「当前应出报表」（当前业务日已生成的报表）；当前报表未生成时只显示等待状态（「等待售罄率报表生成」），历史结果留在历史记录区。\n- 异常指标（mock 规则与异常样例体现的口径）共 5 项：门店Top200售罄率、门店总商品售罄率、中台采购商品售罄率、中心仓商品售罄率、门店自采品售罄率，均为百分比口径（isPercent=true），日环比/较上周同日按百分点差值展示。\n- 判定规则（mock 默认）：「售罄率本期减上期大于阈值（个百分点）判异常」，默认阈值 2 个百分点，指标名匹配忽略原文换行；mock 判定实现为日环比 day >= 2 即异常。\n- 异常接口一次返回当前报表的全部异常行（只含达到阈值的行），筛选（门店/指标/全部判断）、排序、分页均为前端对已冻结快照的本地操作，不代表重新扫描；默认每页 20 条，可选 20/50/100。\n- 判断列四态（无法判断 > 不可比 > 异常 > 正常）：上游未返回指标的行标「无法判断」（dataUnavailable），并汇总为「数据覆盖：N 项指标待补齐」的可展开明细；缺比较基准时环比列显示「—」。售罄率专属空态文案：「报表本身有数据；当前无上期可比值或没有指标超过阈值，因此未产生售罄异常」。\n- 与经营日报的差异：售罄率页签不提供「重新发现异常」与「下载异常明细」按钮（这两个按钮仅 type=business 显示）；且售罄率/履约的异常明细投影未迁入 V2 时后端统一返回 409，前端静默降级为空清单（推测：联调期过渡行为）。\n- 异常规则配置弹窗：表格列出规则名、判定说明、阈值（数字输入）与启用开关；保存后提示「异常规则已保存」，「阈值与启停随保存即时生效，仅影响之后的异常判定」。\n\n## 本模块 API\n\n- GET /api/v1/workbench/ops/reports/sellout/anomalies?dataDate=...：读取当前报表的异常行清单。\n- GET /api/v1/workbench/ops/reports/sellout/anomaly-rules：读取异常规则。\n- PUT /api/v1/workbench/ops/reports/sellout/anomaly-rules：保存阈值与启停（即时生效，仅影响之后判定）。",
+      "nfr_md": "- 异常接口一次返回全部异常行，前端本地分页（默认 20 条/页，可选 20/50/100）（代码证据）。\n- 异常读取走 background（且售罄率 silent）请求，不弹全局遮罩与错误消息（代码证据）。",
+      "apis": [
+        {
+          "name": "异常数据清单",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/anomalies",
+          "request": [
+            { "name": "dataDate", "type": "string", "required": false, "description": "查询参数：报表业务日期（YYYY-MM-DD）", "children": [] }
+          ],
+          "response": [
+            { "name": "anomalies", "type": "array", "required": true, "description": "异常行清单（响应体为数组，仅含达到阈值的行）", "children": [
+              { "name": "id", "type": "integer", "required": true, "description": "行 ID", "children": [] },
+              { "name": "store", "type": "string", "required": true, "description": "门店名，如 重庆渝北空港店", "children": [] },
+              { "name": "metric", "type": "string", "required": true, "description": "指标名，如 门店Top200售罄率", "children": [] },
+              { "name": "today", "type": "string", "required": true, "description": "报表日当前值，如 86.4%", "children": [] },
+              { "name": "dayRatio", "type": "string", "required": true, "description": "日环比（格式化字符串，如 +2.6%）", "children": [] },
+              { "name": "weekRatio", "type": "string", "required": true, "description": "较上周同日（格式化字符串）", "children": [] },
+              { "name": "isPercent", "type": "boolean", "required": false, "description": "指标是否为百分比口径（售罄率指标均为 true）", "children": [] },
+              { "name": "abnormal", "type": "boolean", "required": true, "description": "是否判定为异常", "children": [] },
+              { "name": "dataUnavailable", "type": "boolean", "required": false, "description": "上游未返回该指标，无法判断", "children": [] },
+              { "name": "reason", "type": "string", "required": false, "description": "提醒原因文案", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "读取异常规则",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/anomaly-rules",
+          "request": [],
+          "response": [
+            { "name": "rules", "type": "array", "required": true, "description": "规则清单（响应体为数组）", "children": [
+              { "name": "id", "type": "integer", "required": true, "description": "规则 ID", "children": [] },
+              { "name": "name", "type": "string", "required": true, "description": "规则名，如 门店Top200售罄率", "children": [] },
+              { "name": "desc", "type": "string", "required": true, "description": "判定说明，如「售罄率本期减上期大于阈值（个百分点）判异常；指标名匹配忽略原文换行」", "children": [] },
+              { "name": "threshold", "type": "number", "required": true, "description": "阈值（个百分点），mock 默认 2", "children": [] },
+              { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "保存异常规则",
+          "api": "PUT /api/v1/workbench/ops/reports/sellout/anomaly-rules",
+          "request": [
+            { "name": "rules", "type": "array", "required": true, "description": "完整规则数组（阈值与启停随保存即时生效）", "children": [
+              { "name": "id", "type": "integer", "required": true, "description": "规则 ID", "children": [] },
+              { "name": "threshold", "type": "number", "required": true, "description": "阈值（个百分点）", "children": [] },
+              { "name": "enabled", "type": "boolean", "required": true, "description": "是否启用", "children": [] }
+            ] }
+          ],
+          "response": [
+            { "name": "rules", "type": "array", "required": true, "description": "保存后的规则数组（原样返回）", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "历史记录",
+      "summary": "分页展示售罄率报表的历史定版记录，支持查看记录详情与下载历史报表。",
+      "content_md": "# 历史记录（售罄率报表）\n\n## 业务逻辑\n\n- 历史记录表列出每次定版的报表：文件名、定版时间（confirmedAt）、定版人（operator），操作列为「查看」「下载」。\n- 服务端分页读取，页面默认每页 3 条（PagerRow，可选 3/10/20/50）。\n- 展示口径：文件名中的末尾生成时间戳与紧凑业务日期（如 20260728）会被格式化为 YYYY-MM-DD 或剔除，业务日期只保留一次；定版人 system:scheduler / system / scheduler 统一显示为「系统自动生成」（不暴露内部调度身份，原值仍由后端记录用于审计）。\n- 「查看」弹窗只展示记录信息，不预览表内容：文件名、业务日期（businessDate）、定版时间、定版人、行数（rows）、来源文件数（sourceCount，售罄率 mock 为 3 个来源）。\n- 「下载」按记录 id 下载该历史报表文件；mock 售罄率历史样例每份 19 行。\n- 当前业务日未生成时，历史区仍保留旧报表，「下载最近可用售罄率报表」按钮复用历史记录下载。\n\n## 本模块 API\n\n- GET /api/v1/workbench/ops/reports/sellout/history/page：服务端分页读取历史记录。\n- GET /api/v1/workbench/ops/reports/sellout/history/{id}：读取单条历史记录详情（行数、来源文件数）。",
+      "nfr_md": "- 历史记录为服务端分页，页面默认每页 3 条，可选 3/10/20/50（代码证据）。\n- 历史读取走 background 请求，表格局部 loading（代码证据，推测为体验要求）。",
+      "apis": [
+        {
+          "name": "历史记录分页",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/history/page",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码，从 1 开始", "children": [] },
+            { "name": "page_size", "type": "integer", "required": true, "description": "每页条数（V2 端点为 snake_case；缺省回退服务端默认值）", "children": [] }
+          ],
+          "response": [
+            { "name": "items", "type": "array", "required": true, "description": "历史记录列表", "children": [
+              { "name": "id", "type": "integer", "required": true, "description": "记录 ID", "children": [] },
+              { "name": "fileName", "type": "string", "required": true, "description": "文件名，如 20260729-1121-售罄率报表", "children": [] },
+              { "name": "businessDate", "type": "string", "required": true, "description": "报表对应业务日期", "children": [] },
+              { "name": "confirmedAt", "type": "string", "required": true, "description": "定版时间", "children": [] },
+              { "name": "operator", "type": "string", "required": true, "description": "定版人（system:scheduler 显示为系统自动生成）", "children": [] },
+              { "name": "status", "type": "string", "required": true, "description": "记录状态：pending_download/downloaded/regenerated/confirmed", "children": [] }
+            ] },
+            { "name": "total", "type": "integer", "required": true, "description": "总记录数", "children": [] },
+            { "name": "page", "type": "integer", "required": true, "description": "当前页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数", "children": [] }
+          ]
+        },
+        {
+          "name": "历史记录详情",
+          "api": "GET /api/v1/workbench/ops/reports/sellout/history/{id}",
+          "request": [
+            { "name": "id", "type": "integer", "required": true, "description": "路径参数：记录 ID", "children": [] }
+          ],
+          "response": [
+            { "name": "id", "type": "integer", "required": true, "description": "记录 ID", "children": [] },
+            { "name": "fileName", "type": "string", "required": true, "description": "文件名", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "业务日期", "children": [] },
+            { "name": "confirmedAt", "type": "string", "required": true, "description": "定版时间", "children": [] },
+            { "name": "operator", "type": "string", "required": true, "description": "定版人", "children": [] },
+            { "name": "rows", "type": "integer", "required": true, "description": "报表行数（mock 售罄率为 19 行）", "children": [] },
+            { "name": "sourceCount", "type": "integer", "required": true, "description": "本报表使用的来源文件数（mock 为 3）", "children": [] }
+          ]
+        }
+      ]
+    }
+  ]
+}

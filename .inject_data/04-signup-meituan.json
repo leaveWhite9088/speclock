@@ -1,0 +1,421 @@
+{
+  "domain": "活动报名",
+  "document": "美团报名",
+  "modules": [
+    {
+      "title": "数据采集总览",
+      "summary": "页面顶部的「数据采集」分区：按当前业务日核对美团活动目录（神价清单）数据源是否就绪，支持手动补采，并提示毛利参数是否已签认。",
+      "content_md": "# 数据采集总览（美团报名）\n\n## 业务逻辑\n\n美团报名页（/ops/taobao 的美团页签）顶部的「数据采集」分区，回答“今天的活动目录数据齐了没有”。\n\n- 数据口径：总览接口返回业务日、活动快照与数据源完备性列表；美团页签只展示日采来源 `meituan_shenge_activities`（美团神价清单），`taobao_signup_enrolled`（淘宝已报名记录）属报名结果记录，不在此平铺。数据源 `status=present` 表示当日已就绪，否则显示服务端 `detail`（如“当日产物未就绪：夜窗采集在途，预计 06:30 前补齐”）。\n- 就绪展示：摘要行显示“n/n 个活动目录已就绪 · 业务日 yyyy-MM-dd”，未就绪时可展开明细逐项查看；平台页签标题下同步显示“n/n 活动目录已就绪 / 待补齐”。\n- 手动补采：未就绪的数据源提供「重新采集」按钮，以总览返回的 `businessDate` 触发后台补采任务；受理后行内显示“已进入后台采集队列”，并每 3 秒轮询一次总览刷新状态（不另建任务状态通道）。淘宝已报名对账补采必须附数字活动 ID，美团来源不需要。\n- 参数口径：读取当前毛利参数，参数 `status` 不是 `signed` 时分区标题旁显示「收益依据待确认」标记（预览口径，待签认）；参数读不到时保守显示该标记。\n- 总览同时返回活动快照（活动类型、起止时间、报名截止、商品数、价格上限、补贴上限）；美团报名资格不由该目录决定，最终由实时候选读取决定。\n\n## 本模块 API\n\n- `GET /api/v2/signup/overview`：报名总览——业务日、活动快照、数据源完备性与参数口径状态。\n- `POST /api/v2/signup/source-collections/{dataset}/run`：对指定数据源发起当日补采（美团为 `meituan_shenge_activities`）。\n- `GET /api/v2/signup/margin-params/current`：当前生效毛利参数，驱动“收益依据待确认”标记。",
+      "nfr_md": "- 补采受理后按 3 秒间隔轮询总览刷新数据源状态，刷新一轮即停止（代码证据：`sourceCollectionRefreshPolling` intervalMs=3000）。\n- 总览、参数等首屏请求带 `background` 标记走后台加载，不触发全屏加载遮罩（代码证据；推测旨在避免白屏）。",
+      "apis": [
+        {
+          "name": "报名总览",
+          "api": "GET /api/v2/signup/overview",
+          "request": [],
+          "response": [
+            { "name": "businessDate", "type": "string", "required": true, "description": "服务端按上海时区给出的当前业务日", "children": [] },
+            {
+              "name": "activities", "type": "array", "required": true, "description": "活动快照目录（目录可读不代表当前报名资格）",
+              "children": [
+                { "name": "platform", "type": "string", "required": true, "description": "平台，如 meituan / taobao", "children": [] },
+                { "name": "activityId", "type": "string", "required": true, "description": "活动 ID", "children": [] },
+                { "name": "activityName", "type": "string", "required": true, "description": "活动名称", "children": [] },
+                { "name": "activityType", "type": "string", "required": true, "description": "活动类型，如 神价", "children": [] },
+                { "name": "startTime", "type": "string", "required": false, "description": "活动开始时间（ISO）", "children": [] },
+                { "name": "endTime", "type": "string", "required": false, "description": "活动结束时间（ISO）", "children": [] },
+                { "name": "signupDeadline", "type": "string", "required": false, "description": "报名截止时间，确认预检的时间判定基准", "children": [] },
+                { "name": "itemCount", "type": "integer", "required": false, "description": "活动商品数", "children": [] },
+                { "name": "priceCap", "type": "number", "required": false, "description": "活动价格上限（元）", "children": [] },
+                { "name": "subsidyCap", "type": "number", "required": false, "description": "活动补贴上限（元）", "children": [] }
+              ]
+            },
+            {
+              "name": "datasets", "type": "array", "required": true, "description": "数据源完备性（美团页签只展示 meituan_shenge_activities）",
+              "children": [
+                { "name": "dataset", "type": "string", "required": true, "description": "数据源标识，如 meituan_shenge_activities", "children": [] },
+                { "name": "status", "type": "string", "required": true, "description": "present=当日已就绪，其余为未就绪", "children": [] },
+                { "name": "businessDate", "type": "string", "required": false, "description": "该数据源对应的业务日", "children": [] },
+                { "name": "detail", "type": "string", "required": false, "description": "未就绪原因说明", "children": [] }
+              ]
+            },
+            { "name": "paramsStatus", "type": "string", "required": false, "description": "毛利参数状态：preview/signed/null，驱动“预览口径，待签认”标记", "children": [] },
+            { "name": "paramsRevision", "type": "integer", "required": false, "description": "当前参数版本号", "children": [] }
+          ]
+        },
+        {
+          "name": "数据源补采",
+          "api": "POST /api/v2/signup/source-collections/{dataset}/run",
+          "request": [
+            { "name": "dataset", "type": "string", "required": true, "description": "路径参数：meituan_shenge_activities / taobao_signup_activities / taobao_signup_enrolled", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "补采业务日（取自总览 businessDate）", "children": [] },
+            { "name": "activityId", "type": "string", "required": false, "description": "活动 ID；仅淘宝已报名对账补采必须携带数字活动 ID", "children": [] }
+          ],
+          "response": [
+            { "name": "runId", "type": "string", "required": true, "description": "采集任务运行号", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "任务状态：queued/running/succeeded/failed/blocked", "children": [] },
+            { "name": "businessDate", "type": "string", "required": true, "description": "任务业务日", "children": [] },
+            { "name": "message", "type": "string", "required": false, "description": "受理说明，如“已进入后台采集队列”", "children": [] },
+            { "name": "errorCode", "type": "string", "required": false, "description": "失败业务码", "children": [] }
+          ]
+        },
+        {
+          "name": "当前毛利参数",
+          "api": "GET /api/v2/signup/margin-params/current",
+          "request": [],
+          "response": [
+            { "name": "revision", "type": "integer", "required": true, "description": "参数版本号", "children": [] },
+            { "name": "status", "type": "string", "required": true, "description": "preview=预览待签认 / signed=已签认", "children": [] },
+            { "name": "formulaId", "type": "string", "required": true, "description": "公式标识，如 v1_basic", "children": [] },
+            {
+              "name": "params", "type": "object", "required": true, "description": "参数载荷（snake_case，界面只消费 status/revision）",
+              "children": [
+                { "name": "commission_base", "type": "string", "required": true, "description": "扣点基数：original_price / activity_price", "children": [] },
+                { "name": "commission_rate", "type": "object", "required": true, "description": "分平台扣点率，如 { taobao: \"0.06\", meituan: \"0.06\" }", "children": [] },
+                { "name": "profit_denominator", "type": "string", "required": true, "description": "利润率分母：activity_price / receivable_price", "children": [] },
+                { "name": "conservative_subsidy_assumption", "type": "string", "required": false, "description": "保守补贴假设值，null 表示按零补贴", "children": [] }
+              ]
+            },
+            { "name": "signedAt", "type": "string", "required": false, "description": "签认时间；未签认为 null", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "候选商品筛选与读取",
+      "summary": "美团页签按“活动 → 商品组 → 门店”实时分批读取当前可报名候选，支持继续读取、成本准备中自动续读与收益区间本地筛选。",
+      "content_md": "# 候选商品筛选与读取（美团报名）\n\n## 业务逻辑\n\n美团页签不走历史清单，而是按“活动 → 商品组（子活动）→ 门店”实时读取当前可报名候选。\n\n- 范围选择：页面打开时读取服务端采集的父活动目录（不代表当前报名资格），默认选中首个活动，可多选/全选。选中活动后读取官方当前子活动目录：接口固定 10 条/页且不接受前端状态筛选，前端循环翻页直到读全；分页不连贯（缺页、总数变化、重复 subActId）直接报错“子活动分页未返回完整范围”。\n- 商品组口径：子活动 `canApply=true` 或带日采商品提示（`directoryHintSubActivities`，名称标注“待当前核验”）才纳入读取范围；商品组不做手选，始终全选当前可读项。目录刷新否定旧商品组后，旧的候选响应、勾选与报价预览全部失效重读。\n- 门店口径：门店选项来自正式门店对照，仅 `meituanPoiId` 为纯数字的门店算作美团有效门店，默认全选并显示“已选 x/y 家有效门店”。\n- 分批读取：候选按 活动×商品组×门店 组合逐范围读取，每个组合持有独立翻页游标；每批最多读 4 个门店范围、并发 2 路、每页 20 条（服务端 pageSize 上限 20）。摘要行显示“已读取 x/y 个门店范围的 n 件商品”，未读完时出现「继续读取」按钮——绝不把尚未读取的门店当作空结果。候选带 `expiresAt` 报价有效期，确认时由系统再次核对。\n- 成本准备中：读取返回业务码 `signup_candidate_preparing` 时，页面提示“正在准备部分商品成本，完成后会自动更新候选”，并每 15 秒自动继续读取，直到服务端准备完成。\n- 候选状态：候选行 `state` 四态——`needs_inputs`（可填写报名）、`cost_pending`（成本准备中，投影为成本 waiting）、`no_cost`（该门店未取得此商品成本）、`unavailable`（信息不完整或不可报名）；畸形行一律按 unavailable 处理，绝不形成可确认目标。\n- 收益区间筛选：利润率（%）与利润额（元）区间在前端本地过滤已读取候选，优先采用试算后的最新收益值；下限大于上限会被拦截提示“区间下限不能大于上限”。「查询」按当前勾选重读候选，「重置」回到首个活动+全部门店。\n\n## 本模块 API\n\n- `GET /api/v2/signup/meituan/live-activities`：服务端采集的父活动目录（含日采商品组提示）。\n- `GET /api/v2/signup/meituan/live-subactivities`：官方当前子活动目录，固定 10 条/页。\n- `GET /api/v2/signup/meituan/live-candidates`：按活动+商品组+门店读取一页实时美团候选（只读，身份由服务端冻结）。",
+      "nfr_md": "- 候选读取每批最多 4 个门店范围、并发 2 路、每页 20 条，控制对平台实时接口的压力（代码证据：`LIVE_STORE_READ_BATCH_SIZE=4`、`withReadConcurrency` 并发 2、`pageSize: 20`）。\n- 成本准备中（`signup_candidate_preparing`）时按 15 秒间隔自动续读（代码证据：`livePreparationPolling` intervalMs=15000）。\n- 子活动目录固定 10 条/页，前端全量翻页并校验页码连续性（代码证据）。",
+      "apis": [
+        {
+          "name": "父活动目录",
+          "api": "GET /api/v2/signup/meituan/live-activities",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码（页面固定请求 page=1, pageSize=100）", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数", "children": [] }
+          ],
+          "response": [
+            { "name": "page", "type": "integer", "required": true, "description": "当前页码", "children": [] },
+            { "name": "total", "type": "integer", "required": true, "description": "活动总数", "children": [] },
+            {
+              "name": "items", "type": "array", "required": true, "description": "父活动范围列表",
+              "children": [
+                { "name": "activityId", "type": "integer", "required": true, "description": "活动 ID（数字）", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "活动名称", "children": [] },
+                {
+                  "name": "directoryHintSubActivities", "type": "array", "required": true, "description": "日采活动商品提示，仅缩短候选读取启动等待，不代表当前 online 或可报名",
+                  "children": [
+                    { "name": "subActId", "type": "integer", "required": true, "description": "子活动（商品组）ID", "children": [] },
+                    { "name": "name", "type": "string", "required": true, "description": "日采 SKU 的真实商品名；缺失时不作为可选提示", "children": [] }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "子活动目录",
+          "api": "GET /api/v2/signup/meituan/live-subactivities",
+          "request": [
+            { "name": "activityId", "type": "integer", "required": true, "description": "父活动 ID", "children": [] },
+            { "name": "page", "type": "integer", "required": true, "description": "页码；接口固定 10 条/页", "children": [] }
+          ],
+          "response": [
+            { "name": "activityId", "type": "integer", "required": true, "description": "父活动 ID", "children": [] },
+            { "name": "activityName", "type": "string", "required": true, "description": "父活动名称", "children": [] },
+            { "name": "total", "type": "integer", "required": true, "description": "子活动总数", "children": [] },
+            { "name": "scopeComplete", "type": "boolean", "required": true, "description": "范围是否完整", "children": [] },
+            {
+              "name": "items", "type": "array", "required": true, "description": "官方当前目录的 online 子活动",
+              "children": [
+                { "name": "subActId", "type": "integer", "required": true, "description": "子活动（商品组）ID", "children": [] },
+                { "name": "name", "type": "string", "required": true, "description": "子活动名称", "children": [] },
+                { "name": "canApply", "type": "boolean", "required": true, "description": "当前是否可报名；最终资格仍在服务端候选读取时复核", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "实时美团候选分页",
+          "api": "GET /api/v2/signup/meituan/live-candidates",
+          "request": [
+            { "name": "activityId", "type": "integer", "required": true, "description": "活动 ID", "children": [] },
+            { "name": "subActId", "type": "integer", "required": true, "description": "子活动（商品组）ID", "children": [] },
+            { "name": "storeKey", "type": "string", "required": true, "description": "门店键（与门店对照共用 storeKey）", "children": [] },
+            { "name": "page", "type": "integer", "required": true, "description": "页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数，服务端上限 20", "children": [] }
+          ],
+          "response": [
+            { "name": "activityId", "type": "integer", "required": true, "description": "活动 ID", "children": [] },
+            { "name": "subActId", "type": "integer", "required": true, "description": "子活动 ID", "children": [] },
+            { "name": "storeKey", "type": "string", "required": true, "description": "门店键", "children": [] },
+            { "name": "storeName", "type": "string", "required": true, "description": "门店名称", "children": [] },
+            { "name": "total", "type": "integer", "required": true, "description": "该范围候选总数", "children": [] },
+            { "name": "scopeComplete", "type": "boolean", "required": true, "description": "范围读取是否完整", "children": [] },
+            { "name": "expiresAt", "type": "string", "required": false, "description": "本批报价有效期；确认时系统再次核对", "children": [] },
+            {
+              "name": "items", "type": "array", "required": true, "description": "候选商品列表（金额字段以字符串序列化，归一化为 number）",
+              "children": [
+                { "name": "state", "type": "string", "required": true, "description": "候选状态：needs_inputs / cost_pending / no_cost / unavailable", "children": [] },
+                { "name": "reason", "type": "string", "required": false, "description": "不可报名原因说明", "children": [] },
+                { "name": "candidateSnapshotId", "type": "string", "required": false, "description": "服务端冻结的候选唯一身份（UUID）；确认时唯一回传标识", "children": [] },
+                { "name": "barcode", "type": "string", "required": false, "description": "商品条码", "children": [] },
+                { "name": "skuCode", "type": "string", "required": false, "description": "平台 SKU 编码", "children": [] },
+                { "name": "productName", "type": "string", "required": false, "description": "商品名称", "children": [] },
+                { "name": "spec", "type": "string", "required": false, "description": "规格", "children": [] },
+                { "name": "originalPrice", "type": "number", "required": false, "description": "零售原价（元）", "children": [] },
+                { "name": "priceMin", "type": "number", "required": false, "description": "当前可报价格下限（元）", "children": [] },
+                { "name": "priceMax", "type": "number", "required": false, "description": "当前可报价格上限（元）", "children": [] },
+                { "name": "cost", "type": "number", "required": false, "description": "门店成本（元）；null=未取得，不冒充零", "children": [] },
+                { "name": "stockMin", "type": "integer", "required": false, "description": "当前可售库存下限；与 stockMax 构成正整数闭区间才可用于报名", "children": [] },
+                { "name": "stockMax", "type": "integer", "required": false, "description": "当前可售库存上限", "children": [] },
+                { "name": "commissionAmount", "type": "number", "required": false, "description": "平台扣点金额（元）", "children": [] },
+                { "name": "receivablePrice", "type": "number", "required": false, "description": "预计到手价（元）", "children": [] },
+                { "name": "absoluteProfit", "type": "number", "required": false, "description": "利润额（元）", "children": [] },
+                { "name": "marginRate", "type": "number", "required": false, "description": "利润率（百分数，40=40%）", "children": [] },
+                { "name": "advice", "type": "string", "required": false, "description": "引擎建议：recommend / review / skip；无建议为 null", "children": [] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "报名商品表与试算",
+      "summary": "实时候选投影进统一报名商品表：成本三态与行级可报名判定、改价自动服务端试算、补贴证据查询与智能报价优化。",
+      "content_md": "# 报名商品表与试算（美团报名）\n\n## 业务逻辑\n\n读取到的实时候选投影进统一的「报名商品」表，运营在此改价、试算、查补贴、生成报价建议。\n\n- 表格列：商品（名称+条码，多活动重叠标“多活动重叠”）、活动/门店、原价/成本、报名价（可编辑，两位小数，输入范围 priceMin–priceMax，行下显示可报范围提示）、补贴、预计到手、利润额/利润率、报名状态。\n- 成本三态：`matched` 已匹配成本；`waiting` 成本采集中（随 1019 成本补齐消除）；`unmatched` 无此条码成本（不会消除）。未匹配行成本/利润显示“成本采集中 / 未绑定翱象成本”，不能编辑、不能勾选——“不知道”不冒充零。\n- 行级可报名判定：仅当候选 `state=needs_inputs`、取得可信当前可售库存（stockMin/stockMax 为正整数闭区间）、可报价格范围已核实、原价>0 且成本已匹配时才可编辑勾选；否则报名状态列给出“缺成本 / 核库存中 / 缺原价 / 待完善数据”等提示，原因以 tooltip 承载。勾选单次上限 500 件，跨页勾选保留。\n- 改价试算：修改申报价后自动调用服务端试算；试算固定不传清单补贴值，服务端按保守零补贴假设回显（`subsidyAssumption.basis=conservative_assumption`，与确认快照口径一致）。试算结果（到手价、扣点、利润额、利润率、建议）覆盖行内展示；改了价但未完成试算的商品不能进入确认。收益口径（mock 与参数种子自洽）：扣点=原价×6%，到手价=报名价+补贴−扣点，利润=到手价−成本，利润率分母为报名价；美团建议阈值 30% 或利润额 20 元。建议三态：recommend 符合利润要求 / review 需要复核 / skip 不建议。\n- 补贴展示与查询：行内补贴列只展示证据——“x 元上限 / x 元·历史报名 / x 元·平台返回 / 未取得”，均不代表实际补贴；补贴依据查询返回证据值、可报价格区间与实时探针状态，页面提示“实际补贴未知，不以此视为实收”。\n- 报价优化（智能探测）：对单个候选请求报价优化前，页面先按 skuCode+条码+规格重读该候选所在页核对身份（身份或活动范围已变化则中止并要求重新查看商品）；探测返回逐价样本与选中方案，其中 `subsidy` 实为平台返回的 platChargeAmount 报价下限基数（最低报名价=基数+0.01 元，不代表固定补贴或实际到账）。选中的合格报价自动回填申报价并触发试算；无符合利润要求方案时明确提示“本次报价未找到符合利润要求的方案”。（推测：该入口经由表格 `quote-optimize` 事件接线，组件已声明该事件与 `liveQuotes` 展示数据。）\n\n## 本模块 API\n\n- `POST /api/v2/signup/margin-params/evaluate`：按当前毛利参数试算单个拟报名价的收益。\n- `GET /api/v2/signup/subsidy-lookup`：只读补贴证据查询（上限/历史值，不等同实际补贴）。\n- `POST /api/v2/signup/meituan/live-candidates/{candidateId}/optimize`：对实时候选做多轮报价探测，返回选中报价与逐价样本。",
+      "nfr_md": "- 改价后自动触发试算，请求带 `background+silent`；以版本号保证只有“当前价格、当前范围”的那次结果写回（代码证据：`trialVersions`/`trialSequence` 校验）。\n- 表格分页 20/50/100 可选，页面默认每页 50 条（代码证据：`pageSize` 默认 50）。\n- 报价优化前先重读候选所在页核对身份，避免按过期快照报价（代码证据：`refreshLiveCandidate`；推测用于控制误报风险）。",
+      "apis": [
+        {
+          "name": "收益试算",
+          "api": "POST /api/v2/signup/margin-params/evaluate",
+          "request": [
+            { "name": "channel", "type": "string", "required": true, "description": "渠道/平台，如 meituan", "children": [] },
+            { "name": "originalPrice", "type": "number", "required": true, "description": "原价（元）", "children": [] },
+            { "name": "activityPrice", "type": "number", "required": true, "description": "拟报名价（元）", "children": [] },
+            { "name": "cost", "type": "number", "required": true, "description": "成本（元）；成本未知不发起试算", "children": [] },
+            { "name": "platformSubsidy", "type": "number", "required": false, "description": "平台补贴；改价试算固定省略，服务端按保守零假设回显", "children": [] }
+          ],
+          "response": [
+            { "name": "commissionAmount", "type": "number", "required": false, "description": "扣点金额（元）", "children": [] },
+            { "name": "receivablePrice", "type": "number", "required": false, "description": "到手价（元）=报名价+补贴−扣点", "children": [] },
+            { "name": "absoluteProfit", "type": "number", "required": false, "description": "利润额（元）", "children": [] },
+            { "name": "marginRate", "type": "number", "required": false, "description": "利润率（百分数）", "children": [] },
+            { "name": "advice", "type": "string", "required": true, "description": "建议：recommend / review / skip", "children": [] },
+            { "name": "adviceReason", "type": "string", "required": true, "description": "建议原因", "children": [] },
+            { "name": "paramsRevision", "type": "integer", "required": true, "description": "试算所用参数版本", "children": [] },
+            { "name": "paramsStatus", "type": "string", "required": true, "description": "参数状态 preview / signed", "children": [] },
+            {
+              "name": "subsidyAssumption", "type": "object", "required": false, "description": "试算补贴口径回显，保守零与手工预览必须区分展示",
+              "children": [
+                { "name": "value", "type": "number", "required": false, "description": "试算采用的补贴值（元）", "children": [] },
+                { "name": "basis", "type": "string", "required": true, "description": "conservative_assumption / caller_provided / unknown", "children": [] },
+                { "name": "policyVersion", "type": "string", "required": false, "description": "口径版本标识", "children": [] }
+              ]
+            },
+            { "name": "evaluatedAt", "type": "string", "required": true, "description": "试算时间（ISO）", "children": [] }
+          ]
+        },
+        {
+          "name": "补贴依据查询",
+          "api": "GET /api/v2/signup/subsidy-lookup",
+          "request": [
+            { "name": "platform", "type": "string", "required": true, "description": "平台，如 meituan", "children": [] },
+            { "name": "activityId", "type": "string", "required": true, "description": "活动 ID", "children": [] },
+            { "name": "barcode", "type": "string", "required": false, "description": "商品条码", "children": [] },
+            { "name": "activityPrice", "type": "number", "required": false, "description": "报名价（元）", "children": [] }
+          ],
+          "response": [
+            { "name": "platform", "type": "string", "required": true, "description": "平台", "children": [] },
+            { "name": "activityId", "type": "string", "required": true, "description": "活动 ID", "children": [] },
+            { "name": "actualSubsidyKnown", "type": "boolean", "required": true, "description": "是否已取得实际补贴；false 时证据值不代表实收", "children": [] },
+            {
+              "name": "subsidyEvidence", "type": "object", "required": true, "description": "补贴证据（上限/历史值，不等同实际补贴）",
+              "children": [
+                { "name": "value", "type": "number", "required": false, "description": "证据金额（元）", "children": [] },
+                { "name": "basisLabel", "type": "string", "required": true, "description": "证据口径，如 活动补贴上限 / 试算假设", "children": [] }
+              ]
+            },
+            {
+              "name": "priceRange", "type": "object", "required": true, "description": "活动价格区间",
+              "children": [
+                { "name": "minimum", "type": "number", "required": false, "description": "价格下限（元）", "children": [] },
+                { "name": "maximum", "type": "number", "required": false, "description": "价格上限（元）", "children": [] }
+              ]
+            },
+            {
+              "name": "liveProbe", "type": "object", "required": true, "description": "实时探针状态",
+              "children": [
+                { "name": "status", "type": "string", "required": true, "description": "探针状态，如 disabled", "children": [] },
+                { "name": "reason", "type": "string", "required": false, "description": "状态原因说明", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "报价优化（智能探测）",
+          "api": "POST /api/v2/signup/meituan/live-candidates/{candidateId}/optimize",
+          "request": [
+            { "name": "candidateId", "type": "string", "required": true, "description": "路径参数：服务端冻结的候选 ID（candidateSnapshotId）", "children": [] }
+          ],
+          "response": [
+            { "name": "candidateSnapshotId", "type": "string", "required": true, "description": "候选 ID 回显", "children": [] },
+            {
+              "name": "selected", "type": "object", "required": false, "description": "选中的报价方案；无合格方案时为 null",
+              "children": [
+                { "name": "price", "type": "string", "required": true, "description": "建议报名价（元，字符串金额）", "children": [] },
+                { "name": "subsidy", "type": "string", "required": false, "description": "报价下限基数（platChargeAmount），最低报名价为该值+0.01 元，非实际补贴", "children": [] },
+                { "name": "profit", "type": "string", "required": false, "description": "预计利润（元）", "children": [] },
+                { "name": "marginRate", "type": "string", "required": false, "description": "利润率（百分数）", "children": [] },
+                { "name": "eligible", "type": "boolean", "required": true, "description": "是否符合利润要求", "children": [] }
+              ]
+            },
+            {
+              "name": "samples", "type": "array", "required": true, "description": "逐价探测样本",
+              "children": [
+                { "name": "price", "type": "string", "required": true, "description": "探测报名价（元）", "children": [] },
+                { "name": "subsidy", "type": "string", "required": false, "description": "该价对应的报价下限基数", "children": [] },
+                { "name": "profit", "type": "string", "required": false, "description": "预计利润（元）", "children": [] },
+                { "name": "marginRate", "type": "string", "required": false, "description": "利润率（百分数）", "children": [] },
+                { "name": "accepted", "type": "boolean", "required": true, "description": "平台是否接受该报价", "children": [] },
+                { "name": "eligible", "type": "boolean", "required": true, "description": "是否满足利润要求", "children": [] },
+                { "name": "reason", "type": "string", "required": false, "description": "未接受/不合格原因", "children": [] }
+              ]
+            },
+            { "name": "checkedAt", "type": "string", "required": true, "description": "探测时间（ISO）", "children": [] },
+            { "name": "source", "type": "string", "required": true, "description": "来源，固定 intelligent_probe", "children": [] },
+            { "name": "reason", "type": "string", "required": true, "description": "探测结论说明", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "报名确认与报名记录",
+      "summary": "确认弹窗逐项核对申报价/每日数量/限购后幂等提交报名；报名记录抽屉跟踪执行状态、平台对账，并支持撤回与撤销后重新报价。",
+      "content_md": "# 报名确认与报名记录（美团报名）\n\n## 业务逻辑\n\n勾选商品后经确认弹窗提交报名，结果进入「报名记录」抽屉跟踪执行与对账。\n\n- 确认前置校验：报名按活动分批提交，跨活动勾选被拦截（服务端 409 `signup_cross_activity` 兜底）；实时美团候选与历史清单行不能混入同一次确认。美团行必须申报价、每日数量、每人限购齐全且合规——申报价为正数最多两位小数、落在当前可报范围 priceMin–priceMax 内、不低于平台扣点基数+0.01 元、不超过最高申报价/原价上限；每日数量须在当前可售库存区间内；限购为正整数且符合活动配置范围。无可信库存或改了价未试算的行不能确认。\n- 确认弹窗：逐行展示申报价、活动数量（每日数量在确认界面逐行填写；「本批限购」一次填写应用到同批全部美团商品，同一批美团商品使用同一个限购值）、补贴证据、到手价、扣点、成本、利润率、利润额与建议；任一商品不合规时提交按钮禁用并给出具体原因。\n- 提交与幂等：每次打开弹窗生成一次幂等令牌（UUID，8–128 位），弹窗内重试复用同一令牌（24 小时去重窗口内网络重试不会重复落库），成功或重开弹窗再换新；单次最多确认 500 件。实时美团候选只回传服务端候选 ID（candidateSnapshotId）与运营核对的三值（申报价/日库存/限购，confirmed=true），不传 SKU、门店或活动身份——身份由服务端快照决定。服务端预检拒绝码包括活动截止（`signup_activity_closed`）、超价格上限（`signup_price_cap_exceeded`）、成本未就绪（`signup_not_ready`）、重复令牌（`signup_confirm_duplicate`）等；部分行被拒时逐行给出原因，被拒行保留人工输入与试算供修正，已受理行清理避免串单。\n- 报名记录抽屉：上半块为商品报名记录（确认时间、确认方式、平台、门店、商品、原价/报名价、补贴证据或报价下限基数、活动、状态、操作人）。执行状态文案：queued 已确认等待执行、running 系统正在提交、submitted 报名成功、submit_failed 提交被拒绝、submit_unknown 正在核实结果（不会重复提交）、cancelled 已确认撤销、cancel_failed 撤销被拒绝、cancel_unknown 正在核实撤回；unknown 状态必须继续核验，不能重发。\n- 行操作：「计算详情」回读确认头与行级五要素快照（报名价/补贴/到手价/成本/利润），含智能探测的逐价样本；「撤回此商品 / 核对撤回」仅对 submitted/cancel_unknown 开放，撤销目标只用确认详情返回的真实平台门店键（platformStoreGroups，经 `POST /api/v2/signup/submissions/cancel`），禁止由 storeKey 猜测；已撤销（cancelled）的美团记录可「重新报价」生成重报草稿（`POST /api/v2/signup/submissions/reprocess-draft`）——草稿令牌先持久化到浏览器本地再请求，避免响应丢失后换令牌命中 `reprocess_repeat`；实时美团候选不能用旧草稿重发，必须重新读取活动、门店和商品后创建新确认（服务端 409 `signup_not_ready`）。\n- 平台报名核对（对账）：抽屉下半块按门店×条码展示对账结果，三态 matched（报名成功）/ platform_only（平台已报名·我方无确认，疑似重复报名或平台侧人工报名）/ confirm_only（待对账·可能未成功），顶部汇总三态计数；确认受理后行先落 confirm_only（“确认已受理，系统将读回平台结果”），待后台对账任务读回平台结果后回写。\n\n## 本模块 API\n\n- `POST /api/v2/signup/confirms`：确认受理（落工作单）；实时美团候选传候选 ID+三值。\n- `GET /api/v2/signup/confirms`：报名记录列表（confirmKey 聚合摘要，含逐商品状态）。\n- `GET /api/v2/signup/reconciliations`：平台报名核对结果与三态汇总。",
+      "nfr_md": "- 幂等令牌 8–128 位，24 小时去重窗口内重试不重复落库；重放仅允许完全相同的已验证方案（代码证据：`newConfirmToken` 注释与 mock `tokenWindow` 校验）。\n- 单次确认上限 500 件，普通勾选与重新处理共用同一上限（代码证据：`SIGNUP_SELECTION_LIMIT=500` 及 mock 422）。\n- 报名记录分页默认 20 条/页、对账默认 50 条/页，超页自动回退到末页（代码证据）。",
+      "apis": [
+        {
+          "name": "确认报名",
+          "api": "POST /api/v2/signup/confirms",
+          "request": [
+            { "name": "activityId", "type": "string", "required": true, "description": "活动 ID；跨活动勾选被服务端 409 拒绝", "children": [] },
+            { "name": "clientConfirmToken", "type": "string", "required": true, "description": "幂等令牌（8–128 位，UUID）；24h 去重窗口内重试复用", "children": [] },
+            {
+              "name": "liveMeituanInputs", "type": "array", "required": true, "description": "实时美团候选确认项；只传服务端候选 ID 与运营填写三值，不传 SKU/门店/活动身份；与历史清单来源互斥，单次最多 500 件",
+              "children": [
+                { "name": "candidateSnapshotId", "type": "string", "required": true, "description": "服务端冻结的候选 ID", "children": [] },
+                { "name": "applyPrice", "type": "string", "required": true, "description": "申报价（元，两位小数字符串），须在可报范围内", "children": [] },
+                { "name": "actDayStock", "type": "string", "required": true, "description": "每日数量（正整数字符串），须在当前可售库存区间内", "children": [] },
+                { "name": "orderBuyLimit", "type": "string", "required": true, "description": "每人限购（正整数字符串），同批统一", "children": [] },
+                { "name": "confirmed", "type": "boolean", "required": true, "description": "逐项人工核对标记，必须为 true", "children": [] }
+              ]
+            }
+          ],
+          "response": [
+            { "name": "confirmKey", "type": "string", "required": true, "description": "确认记录键，如 SC-20260903-0001", "children": [] },
+            { "name": "precheckStatus", "type": "string", "required": true, "description": "预检状态，如 passed / missing", "children": [] },
+            { "name": "itemCount", "type": "integer", "required": true, "description": "已受理商品数（只计已冻结快照的行）", "children": [] },
+            { "name": "submissionStatus", "type": "string", "required": true, "description": "提交状态：work_order / queued / submitted / submit_failed / submit_unknown / cancelled 等", "children": [] },
+            { "name": "executionStatus", "type": "string", "required": false, "description": "后台执行与读回的逐项状态；unknown 必须继续核验不能重发", "children": [] },
+            { "name": "confirmationSource", "type": "string", "required": false, "description": "确认来源；user 表示服务端认证入口写入的人工确认", "children": [] },
+            {
+              "name": "rejectedItems", "type": "array", "required": true, "description": "逐行拒绝明细",
+              "children": [
+                { "name": "itemId", "type": "string", "required": true, "description": "被拒行 ID", "children": [] },
+                { "name": "reason", "type": "string", "required": true, "description": "拒绝原因", "children": [] }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "报名记录列表",
+          "api": "GET /api/v2/signup/confirms",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数，记录页默认 20", "children": [] },
+            { "name": "platform", "type": "string", "required": false, "description": "平台筛选，如 meituan", "children": [] },
+            { "name": "activityId", "type": "string", "required": false, "description": "活动筛选", "children": [] },
+            { "name": "submissionStatus", "type": "string", "required": false, "description": "提交状态筛选", "children": [] },
+            { "name": "businessDate", "type": "string", "required": false, "description": "业务日筛选", "children": [] }
+          ],
+          "response": [
+            {
+              "name": "items", "type": "array", "required": true, "description": "确认记录（confirmKey 聚合摘要）",
+              "children": [
+                { "name": "confirmKey", "type": "string", "required": true, "description": "确认记录键", "children": [] },
+                { "name": "platform", "type": "string", "required": true, "description": "平台", "children": [] },
+                { "name": "activityId", "type": "string", "required": true, "description": "活动 ID", "children": [] },
+                { "name": "activityName", "type": "string", "required": true, "description": "活动名称", "children": [] },
+                { "name": "businessDate", "type": "string", "required": true, "description": "业务日", "children": [] },
+                { "name": "itemCount", "type": "integer", "required": true, "description": "商品数", "children": [] },
+                { "name": "precheckStatus", "type": "string", "required": true, "description": "预检状态", "children": [] },
+                { "name": "submissionStatus", "type": "string", "required": true, "description": "提交状态", "children": [] },
+                { "name": "executionStatus", "type": "string", "required": false, "description": "执行/读回状态", "children": [] },
+                { "name": "confirmedBy", "type": "string", "required": true, "description": "操作人", "children": [] },
+                { "name": "confirmedAt", "type": "string", "required": true, "description": "确认时间（ISO）", "children": [] },
+                {
+                  "name": "products", "type": "array", "required": false, "description": "逐商品摘要（记录表按商品展开）",
+                  "children": [
+                    { "name": "rowId", "type": "string", "required": true, "description": "确认行 ID", "children": [] },
+                    { "name": "source", "type": "string", "required": false, "description": "来源：live_candidate / list_item", "children": [] },
+                    { "name": "storeKey", "type": "string", "required": true, "description": "门店键", "children": [] },
+                    { "name": "productName", "type": "string", "required": true, "description": "商品名称", "children": [] },
+                    { "name": "barcode", "type": "string", "required": true, "description": "条码", "children": [] },
+                    { "name": "originalPrice", "type": "number", "required": false, "description": "原价（元）", "children": [] },
+                    { "name": "activityPrice", "type": "number", "required": false, "description": "报名价（元）", "children": [] },
+                    { "name": "cost", "type": "number", "required": false, "description": "成本（元）", "children": [] },
+                    { "name": "submissionStatus", "type": "string", "required": true, "description": "该行提交状态", "children": [] },
+                    { "name": "failureReason", "type": "string", "required": false, "description": "平台失败原因（仅精确关联后展示）", "children": [] }
+                  ]
+                }
+              ]
+            },
+            { "name": "page", "type": "integer", "required": true, "description": "当前页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数", "children": [] },
+            { "name": "total", "type": "integer", "required": true, "description": "记录总数", "children": [] }
+          ]
+        },
+        {
+          "name": "平台报名核对（对账）",
+          "api": "GET /api/v2/signup/reconciliations",
+          "request": [
+            { "name": "page", "type": "integer", "required": true, "description": "页码", "children": [] },
+            { "name": "pageSize", "type": "integer", "required": true, "description": "每页条数，对账默认 50", "children": [] },
+            { "name": "businessDate", "type": "string", "required": false, "description": "业务日筛选", "children": [] },
+            { "name": "platform", "type": "string", "required": false, "description": "平台筛选", "children": [] },
+            { "name": "activityId", "type": "string", "required": false, "description": "活动筛选", "children": [] },
+            { "name": "matchStatus", "type": "string", "required": false, "description": "对账状态筛选：matched / platform_only / confirm_only", "children": [] },
+            { "name": "confirmKey", "type": "string", "required": false, "description": "按确认记录筛选", "children": [] }
+          ],
+          "response": [
+            {
+              "name": "items", "type": "array", "required": true, "description": "对账行（门店×条码粒度）",
+              "children": [
+                { "name": "businessDate", "type": "string", "required": true, "description": "业务日", "children": [] },
+                { "name": "platform", "type": "string", "required": true, "description": "平台", "children": [] },
+                { "name": "activityId", "type": "string", "required": true, "description": "活动 ID", "children": [] },
+                { "name": "activityName", "type": "string", "required": true, "description": "活动名称", "children": [] },
+                { "name": "storeKey", "type": "string", "required": true, "description": "门店键", "children": [] },
+                { "name": "barcode", "type": "string", "required": true, "description": "商品条码", "children": [] },
+                { "name": "matchStatus", "type": "string", "required": true, "description": "对账三态：matched 报名成功 / platform_only 平台有我无 / confirm_only 待对账", "children": [] },
+                { "name": "platformStatus", "type": "string", "required": false, "description": "平台侧状态，如 已报名", "children": [] },
+                { "name": "confirmKey", "type": "string", "required": false, "description": "关联的确认记录键", "children": [] },
+                { "name": "failureReason", "type": "string", "required": false, "description": "失败/异常原因说明", "children": [] },
+                { "name": "reconciledAt", "type": "string", "required": true, "description": "对账时间（ISO）", "children": [] }
+              ]
+            },
+            {
+              "name": "summary", "type": "object", "required": true, "description": "三态聚合计数（全量口径，不随分页截断）",
+              "children": [
+                { "name": "matched", "type": "integer", "required": true, "description": "报名成功数", "children": [] },
+                { "name": "platform_only", "type": "integer", "required": true, "description": "平台有我无数", "children": [] },
+                { "name": "confirm_only", "type": "integer", "required": true, "description": "待对账数", "children": [] }
+              ]
+            },
+            { "name": "total", "type": "integer", "required": true, "description": "对账行总数", "children": [] }
+          ]
+        }
+      ]
+    }
+  ]
+}

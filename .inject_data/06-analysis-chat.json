@@ -1,0 +1,163 @@
+{
+  "domain": "小尚AI",
+  "document": "AI 经营分析（小尚AI）",
+  "modules": [
+    {
+      "title": "会话管理",
+      "summary": "全宽聊天页左侧历史会话侧栏：分页加载会话列表，支持新对话、修改名称、置顶、归档、恢复与软删除，归档会话只读且仅在归档列表中出现。",
+      "content_md": "# 会话管理（AI 经营分析（小尚AI））\n\n## 业务逻辑\n\n「小尚AI」经营分析页（路由 /ops/analysis）采用全宽聊天布局，左侧为历史会话侧栏，窄屏（≤1100px）时折叠为抽屉（OpsAnalysis.vue）。\n\n**列表加载与分页**\n- 会话列表通过 `GET /api/v2/chat/sessions` 按 offset/limit 分页加载，前端固定每页 20 条（useOpsChat.ts `sessionLimit = 20`）；总数超过一页时侧栏底部显示上一页/下一页分页器。\n- 排序口径（mock 证据）：置顶会话优先，其余按最后一条消息时间倒序。\n- 列表项展示标题（置顶会话前置「置顶 ·」标记）；接口同时返回 `message_count`、`last_message_at` 和 `last_message_preview`（mock 中取最后一条用户提问截断 100 字）。\n- 仅运营（operations）与管理员（admin）角色可访问，其他角色 403（mock `requireOperations`）。\n\n**新对话与选中会话**\n- 「新对话」按钮调用 `POST /api/v2/chat/sessions`，默认标题「新对话」；mock 口径下若首轮提问时会话未自定义名称，则以首条提问（去换行、截断 48 字）作为会话标题。\n- 当前会话 ID 缓存在 localStorage（key `web2-ops-chat-session-id`），再次进入页面时优先恢复上次会话；无缓存时自动选中列表第一条，列表为空则自动创建新对话。\n\n**改名与置顶**\n- 条目下拉菜单提供「修改名称」（弹窗输入，≤256 字符，保存去首尾空白；空名称或超长返回 422）和「置顶/取消置顶」，均走 `PATCH /api/v2/chat/sessions/{sessionId}`，请求体至少包含 title 或 is_pinned 之一，否则 422。\n\n**归档、恢复与删除**\n- 「归档会话」调用 `POST /api/v2/chat/sessions/{sessionId}/archive`，服务端写入 `archived_at`；归档后会话只读、不能选中查看内容（前端提示「归档会话仅保留在历史列表中，请先恢复后查看内容」），也不再响应改名/置顶/发消息（mock 对已归档会话的写操作返回 409）。\n- 侧栏头部可切换「已归档会话」视图，此时请求带 `include_archived=true`，服务端只返回当前账号已归档的会话；归档视图下菜单只提供「恢复到历史对话」（`POST .../restore`，清空 archived_at）和删除。\n- 「删除会话」需 ElMessageBox 二次确认，调用 `DELETE /api/v2/chat/sessions/{sessionId}`；后端执行所有者隔离的软删除并保留审计记录（api/chat.ts 注释）。\n- 归档或删除当前正在查看的会话后，前端自动切换到列表中的下一条会话，没有可用会话时自动创建新对话。\n- 会话归账号私有：访问他人会话返回 403，不存在或已删除返回 404。\n\n## 本模块 API\n\n- `GET /api/v2/chat/sessions` — 分页查询当前账号的历史/已归档会话列表。\n- `POST /api/v2/chat/sessions` — 创建新会话（默认标题「新对话」）。\n- `PATCH /api/v2/chat/sessions/{sessionId}` — 修改会话名称或置顶状态。\n- 归档/恢复/删除（`POST .../archive`、`POST .../restore`、`DELETE .../{sessionId}`）为生命周期写操作，字段同会话对象，从略。",
+      "nfr_md": "- 会话列表默认每页 20 条，接口 limit 上限 100（mock 钳制），分页器仅提供上一页/下一页。\n- 列表请求带 `background: true`，不触发全屏加载遮罩；加载中侧栏显示骨架屏（推测：为首屏体验要求）。\n- 改名/置顶/归档等写操作互斥且发送消息期间禁用，避免并发修改（推测）。",
+      "apis": [
+        {
+          "name": "分页查询会话列表",
+          "api": "GET /api/v2/chat/sessions",
+          "request": [
+            { "name": "offset", "type": "integer", "required": false, "description": "分页偏移量，默认 0", "children": [] },
+            { "name": "limit", "type": "integer", "required": false, "description": "每页条数，默认 20，上限 100", "children": [] },
+            { "name": "include_archived", "type": "string", "required": false, "description": "传 'true' 时只返回当前账号已归档的会话；缺省返回未归档会话", "children": [] }
+          ],
+          "response": [
+            { "name": "items", "type": "array", "required": true, "description": "会话摘要列表，置顶优先、按最后消息时间倒序", "children": [
+              { "name": "id", "type": "string", "required": true, "description": "会话 ID（UUID）", "children": [] },
+              { "name": "actor_id", "type": "string", "required": true, "description": "会话所属账号用户名", "children": [] },
+              { "name": "title", "type": "string", "required": true, "description": "会话标题，新会话默认「新对话」，首轮提问后可自动取首条提问前 48 字", "children": [] },
+              { "name": "is_pinned", "type": "boolean", "required": true, "description": "是否置顶", "children": [] },
+              { "name": "archived_at", "type": "string", "required": false, "description": "归档时间（ISO 8601），非空表示已归档、只读", "children": [] },
+              { "name": "created_at", "type": "string", "required": true, "description": "创建时间（ISO 8601）", "children": [] },
+              { "name": "last_message_at", "type": "string", "required": false, "description": "最后一条消息时间，无消息时为 null", "children": [] },
+              { "name": "message_count", "type": "integer", "required": true, "description": "会话内消息总数", "children": [] },
+              { "name": "last_message_preview", "type": "string", "required": true, "description": "最后一条用户提问预览（截断 100 字），无提问时为空串", "children": [] }
+            ] },
+            { "name": "total", "type": "integer", "required": true, "description": "符合条件的会话总数", "children": [] },
+            { "name": "offset", "type": "integer", "required": true, "description": "本次分页偏移量", "children": [] },
+            { "name": "limit", "type": "integer", "required": true, "description": "本次分页条数", "children": [] }
+          ]
+        },
+        {
+          "name": "创建会话",
+          "api": "POST /api/v2/chat/sessions",
+          "request": [
+            { "name": "title", "type": "string", "required": false, "description": "会话标题，缺省为「新对话」，最长 256 字符", "children": [] }
+          ],
+          "response": [
+            { "name": "id", "type": "string", "required": true, "description": "新会话 ID", "children": [] },
+            { "name": "actor_id", "type": "string", "required": true, "description": "所属账号用户名", "children": [] },
+            { "name": "title", "type": "string", "required": true, "description": "会话标题", "children": [] },
+            { "name": "is_pinned", "type": "boolean", "required": true, "description": "是否置顶，新建为 false", "children": [] },
+            { "name": "archived_at", "type": "string", "required": false, "description": "归档时间，新建为 null", "children": [] },
+            { "name": "created_at", "type": "string", "required": true, "description": "创建时间", "children": [] }
+          ]
+        },
+        {
+          "name": "修改会话（改名/置顶）",
+          "api": "PATCH /api/v2/chat/sessions/{sessionId}",
+          "request": [
+            { "name": "title", "type": "string", "required": false, "description": "新会话名称，去首尾空白后非空且 ≤256 字符，否则 422", "children": [] },
+            { "name": "is_pinned", "type": "boolean", "required": false, "description": "置顶状态；title 与 is_pinned 至少提供一个，否则 422", "children": [] }
+          ],
+          "response": [
+            { "name": "id", "type": "string", "required": true, "description": "会话 ID", "children": [] },
+            { "name": "actor_id", "type": "string", "required": true, "description": "所属账号用户名", "children": [] },
+            { "name": "title", "type": "string", "required": true, "description": "更新后的会话标题", "children": [] },
+            { "name": "is_pinned", "type": "boolean", "required": true, "description": "更新后的置顶状态", "children": [] },
+            { "name": "archived_at", "type": "string", "required": false, "description": "归档时间，已归档会话不允许本操作（409）", "children": [] },
+            { "name": "created_at", "type": "string", "required": true, "description": "创建时间", "children": [] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "对话与工具调用",
+      "summary": "对话主面板：消息流区分用户提问、AI 回答与工具调用卡，发送提问走 SSE 流式返回（增量文本 + 工具事件），并支持整段消息回放。",
+      "content_md": "# 对话与工具调用（AI 经营分析（小尚AI））\n\n## 业务逻辑\n\n对话主面板位于聊天页中部，消息内容区最大宽度 860px 居中（OpsAnalysis.vue）。助手定位为「只做经营情况分析：门店、商品、时段、毛利等维度的表现解读，不代办其他业务操作」；空会话时展示 4 条引导问题，点击填入输入框。\n\n**消息模型与展示**\n- 消息角色为 `user / assistant / tool` 三类（model/chat.ts `ChatRole`）：用户提问与 AI 回答渲染为两侧气泡（OpsChatMessage），`tool` 角色渲染为工具调用卡（OpsChatToolCard）。\n- 后端为保持模型历史协议持久化的空工具调用占位消息（内容为 `[调用工具: [...]]` 格式且无 tool_name/tool_call_id 的 assistant 消息）前端过滤不展示（api/chat.ts `isVisibleMessage`）。\n- 发送中且尚无 AI 增量文本时，消息流底部显示「正在分析，可能需要查询多项数据」思考行，并按秒显示已等待时长。\n- 消息流自动跟随最新内容；用户上滚超过 72px 阈值后停止跟随并显示「回到最新」悬浮按钮。\n\n**工具调用卡**\n- 工具消息带 `tool_name` 与 `tool_call_id`，content 为 JSON 字符串；卡片头部展示工具中文名，已知映射：ops_daily_report=晨报汇总、ops_report_status=报表与来源核验、ops_store_brief=单店晨报、signup_list_items=报名清单、signup_overview=报名总览、signup_confirm_records=确认记录、sources_day_completeness=数据完备性，未知工具显示原名。\n- 卡片状态：`executing`=查询中、`completed`=查询完成、`failed`=调用失败（流事件 status=failed 或返回 JSON 含非「未就绪」语义的 error 字段）、`incomplete`=数据未就绪（业务状态为 not_ready/not_available/not_connected/incomplete/missing/partial/unavailable 等枚举，见 lib/chatToolResult.ts）、以及「结果已截断」（返回 JSON `_truncated=true` 或内容含「[已截断]」）。\n- 卡片摘要行优先展示返回 JSON 中 `meta.business_date`（业务日期）与 `meta.coverage`（覆盖范围，如「4 家门店」），可展开查看格式化后的完整 JSON。\n\n**发送与流式协议**\n- 发送提问调用 `POST /api/v2/chat/sessions/{sessionId}/messages`，真实后端以 SSE（text/event-stream）流式返回：\n  - `delta` 事件：增量文本，前端逐段拼接到临时 assistant 气泡；\n  - `tool_call` / `tool_result` 事件：按 `tool_call_id` 创建或更新工具卡（tool_call 视为 executing，tool_result 视为 completed）；\n  - `error` 事件：提示分析中断，本轮内容未保存；\n  - `done` 事件（`finish=stop`）或兼容尾行 `[DONE]` 才视为成功结束；未收到结束标志按连接中断处理。\n- 非流式（mock 或后端返回 JSON）时响应直接包含本轮新增的 user 与 assistant 消息（mock 返回 `{ final_text, messages }`）。\n- 流结束后前端再整体回放一次消息列表，以服务端持久化记录为准替换临时消息。\n\n**消息回放**\n- `GET /api/v2/chat/sessions/{sessionId}/messages` 按 offset/limit 分页返回消息数组（无信封包裹的分页对象，直接是数组），前端固定每页 100 条循环拉取直到取完；已归档会话不允许读取（mock 返回 409）。\n\n## 本模块 API\n\n- `POST /api/v2/chat/sessions/{sessionId}/messages` — 发送提问，SSE 流式返回增量文本与工具调用事件（或 JSON 同步返回本轮消息）。\n- `GET /api/v2/chat/sessions/{sessionId}/messages` — 分页回放会话内全部可见消息。",
+      "nfr_md": "- 消息回放每页固定 100 条、串行翻页直到取完（推测：保证长会话完整回放，单页上限 100 由 mock 钳制）。\n- 列表/回放请求均带 `background: true` + `silent: true`，不触发全局加载遮罩与自动错误弹窗（推测：聊天页首屏体验要求）。\n- SSE 解析兼容 \\r\\n\\r\\n / \\n\\n / \\r\\r 三种分帧符与无 event 名的纯文本增量行（推测：对接不同后端实现的容错要求）。",
+      "apis": [
+        {
+          "name": "发送提问（流式分析）",
+          "api": "POST /api/v2/chat/sessions/{sessionId}/messages",
+          "request": [
+            { "name": "content", "type": "string", "required": true, "description": "提问内容，去首尾空白后非空，否则 422；前端输入框上限 4000 字符", "children": [] }
+          ],
+          "response": [
+            { "name": "final_text", "type": "string", "required": false, "description": "非流式（JSON）响应时的回答全文；SSE 模式下无此字段，改为 delta 事件流", "children": [] },
+            { "name": "messages", "type": "array", "required": false, "description": "非流式响应时本轮新增的消息（通常为 1 条 user + 1 条 assistant）；SSE 模式下结果经事件流下发、结束后需重新回放", "children": [
+              { "name": "id", "type": "string", "required": true, "description": "消息 ID", "children": [] },
+              { "name": "session_id", "type": "string", "required": true, "description": "所属会话 ID", "children": [] },
+              { "name": "role", "type": "string", "required": true, "description": "消息角色：user / assistant / tool", "children": [] },
+              { "name": "actor_id", "type": "string", "required": false, "description": "提问者用户名，assistant/tool 消息为 null", "children": [] },
+              { "name": "content", "type": "string", "required": true, "description": "消息正文；tool 消息为 JSON 字符串，常含 meta.business_date、meta.coverage、rows 等结构", "children": [] },
+              { "name": "tool_name", "type": "string", "required": false, "description": "工具名（如 ops_daily_report），非工具消息为 null", "children": [] },
+              { "name": "tool_call_id", "type": "string", "required": false, "description": "工具调用 ID，用于流式事件与工具卡对应", "children": [] },
+              { "name": "created_at", "type": "string", "required": true, "description": "消息时间（ISO 8601）", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "回放会话消息",
+          "api": "GET /api/v2/chat/sessions/{sessionId}/messages",
+          "request": [
+            { "name": "offset", "type": "integer", "required": false, "description": "分页偏移量，默认 0", "children": [] },
+            { "name": "limit", "type": "integer", "required": false, "description": "每页条数，前端固定 100，接口上限 100", "children": [] }
+          ],
+          "response": [
+            { "name": "（响应根）", "type": "array", "required": true, "description": "响应体即消息数组（无分页包裹），按时间正序；不足一页时表示已到末尾", "children": [
+              { "name": "id", "type": "string", "required": true, "description": "消息 ID", "children": [] },
+              { "name": "session_id", "type": "string", "required": true, "description": "所属会话 ID", "children": [] },
+              { "name": "role", "type": "string", "required": true, "description": "消息角色：user / assistant / tool", "children": [] },
+              { "name": "actor_id", "type": "string", "required": false, "description": "提问者用户名，assistant/tool 为 null", "children": [] },
+              { "name": "content", "type": "string", "required": true, "description": "消息正文；tool 消息为工具返回的 JSON 字符串", "children": [] },
+              { "name": "tool_name", "type": "string", "required": false, "description": "工具名，非工具消息为 null", "children": [] },
+              { "name": "tool_call_id", "type": "string", "required": false, "description": "工具调用 ID", "children": [] },
+              { "name": "created_at", "type": "string", "required": true, "description": "消息时间（ISO 8601）", "children": [] }
+            ] }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "输入与断线恢复",
+      "summary": "底部输入区：Enter 发送、长度限制与发送条件控制；断线时以 replayRequired 锁定输入，回放核实该轮保存结果后才允许重试或继续提问。",
+      "content_md": "# 输入与断线恢复（AI 经营分析（小尚AI））\n\n## 业务逻辑\n\n底部输入区为多行文本框 + 发送按钮（OpsAnalysis.vue composer），核心状态由 useOpsChat.ts 管理。\n\n**输入与发送条件**\n- Enter 发送、Shift+Enter 换行，输入法组合中（isComposing）不触发发送。\n- 输入框 maxlength 4000；超过 2000 字时提示「消息较长，建议精简到 2000 字以内」。\n- 可发送条件（`canSend`）：存在当前会话、非归档视图且当前会话未归档、输入非空、不在发送中、不在加载中、且 `replayRequired` 为 false。归档会话输入框禁用并提示「已归档会话仅可查看，请恢复后继续提问」。\n- 无当前会话时发送会先自动创建新会话再提问。\n\n**断线重放保护（replayRequired）**\n- 发送前记录当前已持久化消息的 ID 基线集合（baselineIds），用于事后识别「本轮新增」。\n- 失败按保存状态分三类（`ReplayRequirement.kind`）：\n  - `rolled_back`：服务端明确回滚（SSE error 事件或业务错误），提示「本轮内容未保存」，提供「重试」按钮按原文重发；\n  - `unknown`：连接中断且保存状态未知（含未收到 SSE 结束标志），立即自动回放消息列表核实：找到本轮提问且有助手回答（complete）→ 解锁并提示已恢复完整记录；只有提问没有回答（user_only）或完全没找到（missing）→ 保持输入锁定，提示「保存状态待核实，请刷新记录」，用户点「刷新记录」再次核实；\n  - `offline`：浏览器明确离线（navigator.onLine=false）时请求尚未发出，刷新后未找到本轮记录即可安全解锁、允许重新提问。\n- `committed`：分析已完成但结束后回放刷新失败，同样锁定输入，提示「分析已完成，但对话回放刷新失败，请点击刷新」。\n- 锁定期间输入框禁用，占位提示「请先刷新并确认上一轮记录」；只有核实该轮新增提问与回答后才恢复发送，已确认回滚才可重试（AGENTS.md 决策记录）。\n- 切换会话、新建对话会清除未决的重放要求；组件卸载时中止进行中的流请求。\n\n**错误语义**\n- HTTP 409 或业务码 `chat_session_busy`：当前会话正在处理上一条消息，提示稍后重试。\n- HTTP 429：提问太频繁（限流），提示稍后再试。\n- HTTP 403（无权访问）/ 404（会话不存在）：自动创建新对话并提示原因。\n- 网络不可达（httpStatus=-1）：按保存状态待核实处理，进入断线核实流程。\n\n## 本模块 API\n\n- `POST /api/v2/chat/sessions/{sessionId}/messages` — 发送提问；其错误码（409/429/403/404）与 SSE 中断语义驱动重试与输入锁定。\n- `GET /api/v2/chat/sessions/{sessionId}/messages` — 断线后回放核对：以基线消息 ID 识别本轮新增的提问与回答，决定解锁、保持锁定或允许重提。",
+      "nfr_md": "- 单条提问前端限制 4000 字符（maxlength），并建议精简到 2000 字以内（推测：控制模型上下文与响应时延）。\n- 发送中为每会话串行：服务端以 409/chat_session_busy 拒绝并发提问，前端发送期间禁用全部会话操作（推测：保证单会话内消息顺序）。\n- 等待时长按秒计时展示（1s 定时器），流请求在页面卸载时主动 Abort（推测：避免悬挂连接与状态错乱）。",
+      "apis": [
+        {
+          "name": "发送提问（含并发与限流语义）",
+          "api": "POST /api/v2/chat/sessions/{sessionId}/messages",
+          "request": [
+            { "name": "content", "type": "string", "required": true, "description": "提问内容；空内容 422，归档会话 409，会话处理中返回 409/chat_session_busy，限流返回 429，无权/不存在返回 403/404", "children": [] }
+          ],
+          "response": [
+            { "name": "messages", "type": "array", "required": false, "description": "非流式响应时本轮新增消息；流式响应以 SSE 事件（delta/tool_call/tool_result/error/done）下发，done 且 finish=stop 才视为提交成功", "children": [
+              { "name": "id", "type": "string", "required": true, "description": "消息 ID", "children": [] },
+              { "name": "session_id", "type": "string", "required": true, "description": "所属会话 ID", "children": [] },
+              { "name": "role", "type": "string", "required": true, "description": "user / assistant / tool", "children": [] },
+              { "name": "content", "type": "string", "required": true, "description": "消息正文", "children": [] },
+              { "name": "created_at", "type": "string", "required": true, "description": "消息时间", "children": [] }
+            ] },
+            { "name": "error", "type": "object", "required": false, "description": "SSE error 事件或失败响应中的错误结构，出现即视为本轮回滚（rolled_back）", "children": [
+              { "name": "code", "type": "string", "required": true, "description": "业务错误码，如 chat_session_busy、chat_stream_interrupted、internal_error", "children": [] },
+              { "name": "message", "type": "string", "required": true, "description": "错误描述文案", "children": [] }
+            ] }
+          ]
+        },
+        {
+          "name": "回放核对消息（断线恢复）",
+          "api": "GET /api/v2/chat/sessions/{sessionId}/messages",
+          "request": [
+            { "name": "offset", "type": "integer", "required": false, "description": "分页偏移量，默认 0", "children": [] },
+            { "name": "limit", "type": "integer", "required": false, "description": "每页条数，前端固定 100", "children": [] }
+          ],
+          "response": [
+            { "name": "（响应根）", "type": "array", "required": true, "description": "消息数组；前端与发送前的基线 ID 集合对比，判定本轮为 complete（提问+回答都在）/user_only（仅提问）/missing（无新增），决定解锁或保持 replayRequired", "children": [
+              { "name": "id", "type": "string", "required": true, "description": "消息 ID，用于与基线集合对比识别本轮新增", "children": [] },
+              { "name": "role", "type": "string", "required": true, "description": "user / assistant / tool", "children": [] },
+              { "name": "content", "type": "string", "required": true, "description": "消息正文；核对时按用户消息正文与本轮提问文本匹配", "children": [] },
+              { "name": "session_id", "type": "string", "required": true, "description": "所属会话 ID", "children": [] },
+              { "name": "created_at", "type": "string", "required": true, "description": "消息时间", "children": [] }
+            ] }
+          ]
+        }
+      ]
+    }
+  ]
+}
