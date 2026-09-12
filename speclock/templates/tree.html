@@ -22,13 +22,10 @@
           <button type="button" onclick='delDocument({{ doc.id }}, {{ doc.title | tojson }})'>删除</button>
           <button type="button" onclick="newBlock({{ doc.id }})">+ 新建模块</button>
           <ul>
-          {% for block in doc.blocks %}
+          {% for block in doc.blocks if block.status != 'archived' %}
             <li>
               <a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a>
               <span class="badge {{ block.status }}">{{ block.status }}</span>
-              {% if block.status == 'archived' %}
-              <a href="/ui/archive?key={{ key }}" class="muted">归档管理 →</a>
-              {% endif %}
               {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}
               {% if block.status == 'published' %}
                 {% if block.completed %}
@@ -46,9 +43,6 @@
               {% endif %}
               <button type="button" onclick='delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})'>
                 {% if block.status == 'draft' %}删除{% else %}归档{% endif %}</button>
-              {% if block.status == 'archived' %}
-              <button type="button" onclick='restoreBlock({{ block.id }}, {{ block.title | tojson }})'>恢复</button>
-              {% endif %}
             </li>
           {% endfor %}
           </ul>
@@ -103,10 +97,6 @@ function delBlock(id, title, isDraft) {
     ? '删除草稿模块「' + title + '」？草稿将被直接删除。'
     : '归档已发布模块「' + title + '」？agent 将立即读不到它，历史版本保留可查。';
   if (confirm(msg)) api('DELETE', '/api/v1/blocks/' + id);
-}
-function restoreBlock(id, title) {
-  if (confirm('恢复模块「' + title + '」为已发布状态？'))
-    api('POST', '/api/v1/blocks/' + id + '/restore');
 }
 </script>
 {% endblock %}

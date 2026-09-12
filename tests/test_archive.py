@@ -78,10 +78,14 @@ def test_archive_page_renders_rows_and_actions(env):
     assert "没有已归档的模块" in c.get(f"/ui/archive?key={h['X-API-Key']}").text
 
 
-def test_tree_archived_badge_links_to_archive_page(env):
+def test_tree_hides_archived_blocks(env):
     c, h, bid = env["client"], env["human"], env["block_id"]
     publish_v1(c, h, bid)
     c.delete(f"/api/v1/blocks/{bid}", headers=h)
     body = c.get(f"/ui?key={h['X-API-Key']}").text
-    assert "归档管理 →" in body
-    assert "/ui/archive" in body
+    # 归档模块不再出现在文档树；恢复/删除只在归档管理页操作
+    assert "数据采集模块" not in body
+    assert "restoreBlock" not in body
+    # 恢复后重新出现
+    c.post(f"/api/v1/blocks/{bid}/restore", headers=h)
+    assert "数据采集模块" in c.get(f"/ui?key={h['X-API-Key']}").text
