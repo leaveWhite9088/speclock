@@ -21,31 +21,41 @@
           <button type="button" onclick='renameDocument({{ doc.id }}, {{ doc.title | tojson }})'>重命名</button>
           <button type="button" onclick='delDocument({{ doc.id }}, {{ doc.title | tojson }})'>删除</button>
           <button type="button" onclick="newBlock({{ doc.id }})">+ 新建模块</button>
-          <ul>
-          {% for block in doc.blocks if block.status != 'archived' %}
-            <li>
-              <a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a>
-              <span class="badge {{ block.status }}">{{ block.status }}</span>
-              {% if block.current_published_version %}@{{ block.current_published_version }}{% endif %}
-              {% if block.status == 'published' %}
-                {% if block.completed %}
-                <span class="badge completed">✓已完成@{{ block.completed_version }}</span>
-                {% else %}
-                <span class="badge incomplete">未完成</span>
+          {% set blocks = doc.blocks | rejectattr('status', 'eq', 'archived') | list %}
+          {% if blocks %}
+          <table class="block-table">
+            <tr><th>模块</th><th>状态</th><th>版本</th><th>完成度</th><th>摘要</th><th>操作</th></tr>
+            {% for block in blocks %}
+            <tr>
+              <td><a href="/ui/blocks/{{ block.id }}?key={{ key }}">{{ block.title }}</a></td>
+              <td><span class="badge {{ block.status }}">{{ block.status }}</span></td>
+              <td class="mono">{% if block.current_published_version %}@{{ block.current_published_version }}{% else %}-{% endif %}</td>
+              <td>
+                {% if block.status == 'published' %}
+                  {% if block.completed %}
+                  <span class="badge completed">✓已完成@{{ block.completed_version }}</span>
+                  {% else %}
+                  <span class="badge incomplete">未完成</span>
+                  {% endif %}
+                {% else %}-{% endif %}
+              </td>
+              <td class="muted">{{ block.summary }}</td>
+              <td class="ops">
+                {% if block.current_published_version %}
+                <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看</a>
+                {% if block.versions | length >= 2 %}
+                <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}" class="muted">最近 diff</a>
                 {% endif %}
-              {% endif %}
-              <span class="muted">{{ block.summary }}</span>
-              {% if block.current_published_version %}
-              <a href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看</a>
-              {% if block.versions | length >= 2 %}
-              <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}" class="muted">最近 diff</a>
-              {% endif %}
-              {% endif %}
-              <button type="button" onclick='delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})'>
-                {% if block.status == 'draft' %}删除{% else %}归档{% endif %}</button>
-            </li>
-          {% endfor %}
-          </ul>
+                {% endif %}
+                <button type="button" onclick='delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})'>
+                  {% if block.status == 'draft' %}删除{% else %}归档{% endif %}</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% else %}
+          <p class="muted">暂无模块。</p>
+          {% endif %}
         </li>
       {% endfor %}
       </ul>
