@@ -1,74 +1,88 @@
 # SpecLock
 
-> **Other spec tools put docs in your repo where agents can edit them. SpecLock puts docs behind a read-only API.**
+> **其他 spec 工具把文档放进 repo 让 agent 可以改；SpecLock 把文档放在只读 API 后面。**
 
-SpecLock 是业务文档的**唯一信源**平台：文档按模块（Block）管理、分模块发布、带两级版本与 diff；
-开发 AI 只能通过只读 API（REST + MCP）读取**已发布版本**；AI 唯一的写出口是**提案（Proposal）**
-通道，提案经人审批发布后才生效。约束是物理的（权限隔离），不是提示词约定。
+SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**，为"AI 参与开发"的团队设计：
 
-## 核心概念
+- 文档按 **大业务 → 小业务（文档）→ 模块** 三级管理，带两级语义化版本与结构化 diff；
+- 开发 AI 只能通过**只读 API**（REST + MCP）读取**已发布版本**，物理上无法修改文档；
+- AI 唯一的写出口是**提案（Proposal）**通道，经人审批发布后才生效。
+
+约束是物理的（权限隔离），不是提示词约定。
+
+## 核心特性
+
+- **物理只读隔离** — 写端点与读端点分属两个 router、两套凭据（`human-*` / `agent-*`），agent key 对所有写接口 100% 返回 403
+- **结构化 API 文档** — 模块的 API 区是递归字段模型（`object`/`array` 可无限嵌套 `children`），编辑与 diff 的真相源是结构化数据；发布时自动生成 OpenAPI 3.x YAML 供下游消费，用户全程不需要面对 YAML
+- **两级版本** — 模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增 → MINOR，其余 PATCH）；任一模块发布时所属文档自动派生文档版本（manifest = 全部模块当前版本清单）
+- **字段级 diff 与破坏性判定** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；删除必填字段 / 删除整个 API / 类型或必填标志变更为破坏性，删除可选字段不算
+- **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→小业务→模块 三层概要树（模块节点带一句话摘要与完成标记），选中后再按需精读，上下文占用最小
+- **提案通道** — AI 发现文档有误或缺失时提交提案，收件箱一键"批准并发布"，小变更从提出到发布 ≤2 分钟
+- **完成状态跟踪** — 模块级 `completed` 标记（发布新版自动重置），agent 可过滤未完成模块，只做没做完的小业务
+- **全链路审计** — 发布 / 提案 / 拉取 / ack 全部落 `AuditLog`
+
+## 工作原理
 
 ```
 项目 Project
  └── 大业务 Domain        （如：运营）
       └── 文档 Document   （如：经营日报；有自己的文档级版本）
-           └── 模块 Block （= 小业务，如：数据采集模块 / 异常数据展示模块 / 历史记录模块）
+           └── 模块 Block （= 小业务，如：数据采集模块）
                 ├── 业务描述（Markdown）
-                ├── API 列表（结构化表单：名称 / API 名(方法+路径) / 请求体字段表 / 响应体字段表）
+                ├── API 列表（结构化表单，递归字段模型）
                 └── 非功能性需求（Markdown）
 ```
 
-- 模块的 API 区是**结构化列表**，字段模型是递归的：`{name, type, required,
-  description, children}`——类型为 `object` / `array` 的字段可以携带 `children`
-  子字段（array 的 children 描述元素结构），层级不限。字段类型枚举：
-  string/number/integer/boolean/array/object。`apis_json` 是编辑与 diff 的真相源；
-  发布时自动生成 OpenAPI 3.x YAML（`openapi_yaml`，递归输出嵌套 schema）供机器/下游消费。
-  用户全程不需要面对 YAML。
-- **diff 与破坏性判定**基于 apis_json 递归 flatten，路径用点号表达
-  （如 `response:GET /x:data.items.id: number`）；子字段的增删/类型变更同样识别。
-  破坏性 = 删除必填字段 / 删除整个 API / 类型或必填标志变更；删除可选字段不算破坏性。
-- **两级版本**：模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增字段 → MINOR，其余 PATCH）；
-  任一模块发布成功时，所属文档自动派生一个**文档版本**（manifest = 该文档全部模块当前已发布版本
-  清单）。文档版本规则：任一模块 MAJOR → 文档 MAJOR；否则任一模块 MINOR（含模块首发）→ 文档 MINOR；
-  否则 PATCH。发布动作只有模块级，文档版本是派生物。
+```
+人（human key）                 AI（agent key）
+─────────────                 ─────────────
+编辑草稿 ──► 发布 ──► 已发布版本 ◄── get_index / get_block（只读，可 pin 版本）
+   ▲                                    │
+   └── 批准并发布 ◄── 提案（唯一写出口）──┘
+```
+
+- **版本 pin**：`GET /blocks/{id}@{version}`、`GET /documents/{id}@{version}` 读不可变快照；草稿对 agent 永远不可见
+- **发布两通道**：默认先 `dryRun` 预览（版本号 / delta 摘要 / 破坏性），确认后落库，破坏性变更须显式 `confirm=true`；`fastTrack` 秒批仅限非破坏性变更
+- **ack 回执**：agent 声明"已按 模块@版本 实现"，与权威完成状态 `completed` 互补
 
 ## 快速开始（Windows）
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e ".[dev]"   # 或: pip install fastapi uvicorn "sqlalchemy>=2" pydantic jinja2 pyyaml httpx pytest "mcp>=2"
+.venv/Scripts/python.exe -m pip install -e ".[dev]"
 
-# 生成 demo 数据（运营大业务下「经营日报」4 模块 +「售罄率报表」4 模块，
-# 全部发布 1.0.0，两个文档版本各派生至 1.3.0）。本地开发使用固定 key：
-#   human key (读写/UI): human-dev-0000000000000000000000000001
-#   agent key (只读+提案): agent-dev-0000000000000000000000000001
-# （重 seed 不换 key；生产部署必须用 SPECLOCK_HUMAN_KEY / SPECLOCK_AGENT_KEY
-#  环境变量覆盖为随机 key——固定 key 仅供本地开发！）
+# 生成 demo 数据（运营大业务下 2 文档 × 4 模块，全部发布 1.0.0）
 .venv/Scripts/python.exe -m speclock.seed
 
 # 启动服务
 .venv/Scripts/python.exe -m uvicorn speclock.main:app
-
-# 管理 UI（开发态固定 key）
-#   http://127.0.0.1:8000/ui?key=human-dev-0000000000000000000000000001
-
-# 跑测试
-.venv/Scripts/python.exe -m pytest -v
 ```
 
-## Agent 侧用法（REST）
+管理 UI（开发态固定 key）：
+
+```
+http://127.0.0.1:8000/ui?key=human-dev-0000000000000000000000000001
+```
+
+> **安全提示**：固定 key（`human-dev-…1` / `agent-dev-…1`）仅供本地开发。
+> 生产部署必须用环境变量 `SPECLOCK_HUMAN_KEY` / `SPECLOCK_AGENT_KEY` 覆盖为随机 key。
+
+## Agent 接入
+
+### REST API（只读 + 提案）
 
 ```bash
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/index             # 模块索引先行（大业务→小业务→模块 三层树）
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents         # 文档列表 + 文档版本
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents/1@1.2.0 # 文档 manifest（pin）
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0    # 模块版本 pin
-curl -H "X-API-Key: agent-xxx" "http://127.0.0.1:8000/api/v1/blocks/1/diff?from=1.0.0&to=1.1.0"
-curl -X POST -H "X-API-Key: agent-xxx" -d '{"version":"1.1.0","task_desc":"..."}' http://127.0.0.1:8000/api/v1/blocks/1/ack
-curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","suggestion":"..."}' http://127.0.0.1:8000/api/v1/proposals
+KEY="agent-xxx"
+curl -H "X-API-Key: $KEY" http://127.0.0.1:8000/api/v1/index             # 三层索引树（大业务→小业务→模块，一次拿全图）
+curl -H "X-API-Key: $KEY" "http://127.0.0.1:8000/api/v1/index?incomplete=true"  # 只看未完成模块（可叠加 domain=）
+curl -H "X-API-Key: $KEY" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0    # 精读模块（版本 pin）
+curl -H "X-API-Key: $KEY" http://127.0.0.1:8000/api/v1/documents/1@1.2.0 # 文档 manifest（pin 历史快照）
+curl -H "X-API-Key: $KEY" "http://127.0.0.1:8000/api/v1/blocks/1/diff?from=1.0.0&to=1.1.0"
+curl -X POST -H "X-API-Key: $KEY" -d '{"version":"1.1.0","task_desc":"..."}' http://127.0.0.1:8000/api/v1/blocks/1/ack
+curl -X POST -H "X-API-Key: $KEY" -d '{"block_id":1,"description":"...","suggestion":"..."}' http://127.0.0.1:8000/api/v1/proposals
 ```
 
-## Claude Code MCP 配置
+### MCP（Claude Code 等）
 
 `.mcp.json`（或 `claude mcp add` 等价配置）：
 
@@ -76,7 +90,7 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
 {
   "mcpServers": {
     "speclock": {
-      "command": "D:/Project2/code-260911-docsystem/speclock/.venv/Scripts/python.exe",
+      "command": "<项目路径>/.venv/Scripts/python.exe",
       "args": ["-m", "speclock.mcp_server"],
       "env": {
         "SPECLOCK_URL": "http://127.0.0.1:8000",
@@ -87,130 +101,55 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
 }
 ```
 
-MCP server 恰好暴露 7 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
-`submit_proposal` / `get_proposal` / `get_document`。
-没有任何写文档的工具。可选参数：`get_index(domain, incomplete_only)`、
-`get_diff(block_id, from_version?, to_version?)`（缺省取最近两版）。
-为控制 AI 上下文占用，工具数保持精简（当前 7 个），不加新工具。
-（文档列表导航由 `get_index` 树覆盖，故不提供 `get_documents` 工具；
-REST 的 `/api/v1/documents` 端点保留供 UI/调试使用。）
+MCP server 暴露 **7 个工具**：
 
-## 模块完成状态（completed）
-
-- 语义：「当前已发布版本已被实现完成」。`POST /blocks/{id}/complete` / `uncomplete`
-  由人手动管理（查看页有按钮，文档树模块行显示 ✓已完成@版本 / 未完成徽章）。
-- **发布新版本时 completed 自动重置为 False**（新版本的实现必然滞后）；
-  `completed_version` 保留为「上次完成对应的版本号」。
-- AI 可见：`/index` 树的每个模块节点、`get_block` 响应、文档 manifest 每个模块都带
-  `completed` / `completed_version`；`/index?incomplete=true` 只返回未完成模块
-  （可与 `domain` 组合）——后端 AI 据此只做/只改未完成的小业务。
-- **与 ack 的区别**：ack 是 AI 的单次回执（"我按某版本实现过"），completed 是权威
-  完成状态，由人或后续规则驱动；MVP 阶段两者不自动联动（ack 不自动置 completed）。
-
-## Web UI
-
-- 文档树：大业务 → 文档（含文档版本徽章）→ 模块；三层都有「新建 / 重命名 / 删除」入口
-  （prompt/confirm 级交互）；有两个以上版本的模块行带「最近 diff」一键链接
-- 全站顶部有统一的「← 返回上一页」按钮（history.back()，登录页除外）
-- **模块查看页**（只读，看已发布版本，可切换版本）：业务描述 + API **列表**（序号/名称/
-  API 名/方法徽章）→ 点进单条 API **详情视图**（请求体/响应体字段树，缩进树形展示嵌套
-  结构，面包屑返回）；显著按钮「⚡ 最近一次变更」一键跳最近两版 diff（只有一个版本时置灰
-  并提示"暂无历史版本"）；版本历史区每个版本带「与上一版对比」；全程无 YAML
-- 模块编辑页：业务描述 textarea + **API 填表区**（API 条目默认折叠为一行摘要——序号/
-  名称/API 名/方法徽章/字段数统计，点「展开」才显示字段树填表区；新增 API 默认展开；
-  object/array 字段可「+子字段」无限层级下钻，删父级联删子；全程表单控件，无 YAML）
-  + 非功能性需求 textarea + 保存草稿 / 秒批发布按钮
-- 文档页：文档版本历史 + 每个版本的模块版本清单（manifest）
-- diff 页（结构化优先）：顶部摘要条（版本 from→to、破坏性红/绿徽章、新增/修改/删除计数、
-  change_note，默认对比上一版→当前版，可任选两版；只有一个版本时友好提示而非报错）→
-  按 API 分组的 delta 表格（点号路径、类型、必填、说明；删除行红色删除线、新增绿色、修改橙色）→
-  业务描述/非功能性需求文本 diff（+绿/-红，可折叠区块）。不再展示整段 YAML 文本 diff
-- 提案收件箱（一键批准并发布 / 拒绝）、「已完成」回执看板
-- **AI 接入（MCP）页**（导航栏「AI 接入」）：MCP 说明、可直接复制的 Claude Code 配置
-  （command 用当前环境真实解释器路径，env 里 `SPECLOCK_URL` 取当前服务地址、
-  `SPECLOCK_KEY` 取固定 agent dev key，附复制按钮）、8 个 MCP 工具清单、
-  「AI 最近活动」表格（最近 50 条 agent 拉取/提案/ack 审计记录：时间/动作/目标/key 前缀）
-
-> 破坏性判定细化：**删除可选字段（required=false）视为非破坏性**，可 fastTrack；删除必填
-> 字段、删除整个 API、任何类型/必填标志变更仍为破坏性，必须 confirm=true。
-
-## 删除语义（已发布内容不可消失）
-
-| 对象 | 删除行为 |
+| 工具 | 用途 |
 |---|---|
-| 草稿态模块 | 直接删除 |
-| 已发布模块 | 删除 = 归档（agent 读 404、index 排除，历史版本保留可查）。**归档/恢复都是模块集合结构变更，立即派生所属文档新版本（MINOR）**：新 manifest 随之增删该模块；pin 旧文档版本仍能看到历史快照（含归档前模块），语义自洽 |
-| 文档 / 大业务 | 仅当其下无已发布模块时允许删除，否则 409 并列出已发布模块，提示先归档 |
-| 已归档模块 | `DELETE /blocks/{id}/purge` 彻底删除（含全部版本历史，不可恢复；仅归档管理页提供，红色按钮 + 确认警告） |
+| `get_index` | 三层索引树（导航入口；模块节点带 `completed` 完成标记） |
+| `get_block` | 读取模块已发布版本，可 pin 版本号 |
+| `get_document` | 文档 manifest（模块→版本清单），可 pin 历史文档版本 |
+| `get_diff` | 两个已发布版本之间的结构化 + 文本 diff |
+| `ack_block` | 回执：声明「已按 模块@版本 实现」 |
+| `submit_proposal` | 提交变更提案——AI 唯一的写出口 |
+| `get_proposal` | 轮询提案状态 |
 
-归档管理页 `/ui/archive`（导航栏「归档」）：列出全部归档模块（大业务/文档/模块名/
-归档时版本/归档时间 `archived_at`），每行提供恢复与彻底删除操作；文档树 archived
-徽章旁的「归档管理 →」链接直达。
+没有任何写文档的工具；为控制 AI 上下文占用，工具数保持精简，不加新工具。
+管理 UI 的「AI 接入」页（`/ui/mcp`）提供可直接复制的配置与给 agent 的完整接入说明。
 
-## Demo 数据结构
+## 规则摘要
 
-```
-Demo 电商系统
- └── 运营
-      ├── 经营日报（文档 @1.3.0）
-      │    ├── 数据采集模块 @1.0.0        3 个 API：GET collect-status（items[] 嵌套）/ GET collect-items / POST recollect（item_ids[]）
-      │    ├── 异常数据展示模块 @1.0.0    GET  /api/daily-report/anomalies
-      │    ├── 历史记录模块 @1.0.0        GET  /api/daily-report/history
-      │    └── 异常规则配置模块 @1.0.0    POST /api/daily-report/anomaly-rules（rule/scope 两层 object 嵌套）
-      └── 售罄率报表（文档 @1.3.0）
-           ├── 数据采集模块 @1.0.0        GET  /api/sellout-report/collect-status
-           ├── 异常数据展示模块 @1.0.0    GET  /api/sellout-report/anomalies
-           ├── 历史版本记录模块 @1.0.0    GET  /api/sellout-report/history（snapshots→stores→skus 三层 array 嵌套）
-           └── 异常规则配置模块 @1.0.0    POST /api/sellout-report/anomaly-rules（condition/scope 嵌套）
-```
+- **删除语义**：已发布内容不可消失。已发布模块的删除 = 归档（agent 读 404、索引排除、历史版本保留，并立即派生文档新版本）；归档模块可在归档管理页恢复或彻底删除（purge，不可恢复）；文档 / 大业务仅当其下无已发布模块时可删
+- **完成状态**：发布新版本时 `completed` 自动重置为 False，`completed_version` 保留上次完成版本；ack 是单次回执，`completed` 是权威状态，MVP 阶段两者不自动联动
+- **审计**：发布（模块 + 文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`，「AI 接入」页展示最近 50 条 agent 活动
 
-## 架构与红线
+## 项目结构
 
 ```
 speclock/
 ├── main.py        # FastAPI 装配：admin + agent + ui 三个 router
-├── api_admin.py   # 写路由：仅 human-* key（agent key 一律 403）；发布 + 文档版本派生
+├── api_admin.py   # 写路由：仅 human-* key；发布 + 文档版本派生
 ├── api_agent.py   # 只读路由：仅 agent-* key；不存在任何文档写端点
 ├── auth.py        # X-API-Key 双凭据 + 审计
-├── diffing.py     # 结构化 API 校验（递归嵌套）、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
-├── mcp_server.py  # stdio MCP，8 工具，经 HTTP 调本系统 REST
-└── seed.py        # demo 数据（2 文档 × 4 模块）+ 打印两个 key
+├── diffing.py     # 结构化 API 校验、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
+├── mcp_server.py  # stdio MCP，7 工具，经 HTTP 调本系统 REST
+├── ui.py          # 管理 UI（文档树 / 编辑 / diff / 提案收件箱 / 归档 / AI 接入页）
+├── seed.py        # demo 数据 + 打印两个开发 key
+└── templates/ static/
+tests/             # pytest：auth / 发布 / diff / 归档 / 完成状态 / UI / MCP 页等
+inject_ops.py      # 真实业务数据注入脚本（.inject_data/*.json → DB，先清空再注入，幂等）
 ```
 
-- **物理只读隔离**：写端点与读端点分属两个 router、两个 auth 依赖。生产形态应把 admin
-  与 agent 拆成两个服务、两套凭据分开部署；MVP 用代码结构保证这条边界可拆分。
-- **版本 pin**：`GET /api/v1/blocks/{id}@{version}`、`GET /api/v1/documents/{id}@{version}`
-  读不可变快照；草稿对 agent 永远不可见。
-- **发布两通道（方案 B：预览确认型）**：发布时服务端基于 `apis_json` 做字段级 diff。
-  - **不勾秒批（默认路径）**：点发布先 `dryRun` 预览——确认视图展示将发布的版本号、
-    delta 摘要（新增/修改/删除计数 + 按 API 分组明细）、是否破坏性；非破坏性点「确认发布」
-    落库；破坏性显示红色警告区，必须勾选「我已知晓破坏性影响」后按钮才可点
-    （真正发布带 `confirm=true`）。
-  - **勾秒批**：跳过预览直接发布，仅限非破坏性变更；含破坏性变更返回 409 并引导
-    「取消秒批以查看影响清单并确认」。
-  - `POST /blocks/{id}/publish {"dryRun": true}` 返回预览（版本号/breaking/delta/groups/
-    预测文档版本）但不落库、不写审计。
-- **delta**：每次发布自动生成 `{added, modified, removed}` 存入 `BlockVersion.delta_json`。
-- **审计**：发布（模块+文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`。
+## 开发
 
-## 验收标准对照（MVP 需求文档 §2.2）
+```bash
+.venv/Scripts/python.exe -m pytest -v          # 跑测试
+SPECLOCK_DB_URL=sqlite:///test.db .venv/Scripts/python.exe -m speclock.seed   # 用临时库 seed
+.venv/Scripts/python.exe inject_ops.py         # 注入真实业务文档数据（清空后重建，幂等）
+```
 
-| # | 标准 | 本仓库证据 |
-|---|---|---|
-| S1 | agent 凭据对所有写接口 100% 被拒 | `tests/test_auth.py` 枚举全部写端点断言 403；冒烟实测写端点 403 |
-| S2 | 单任务拉取 ≤3 块，索引分层导航 | `GET /index` 一次返回 大业务→小业务→模块 三层树（模块节点 summary ≤50 字）；`test_index_is_tree_grouped_by_domain_and_document` 断言树结构 |
-| S3 | 小变更提出到发布 ≤2 分钟 | 提案 → 收件箱一键「批准并发布」；无破坏性变更支持 `fastTrack` 秒批 |
-| S4 | 版本可钉住、历史可重放 | 模块与文档两级 pin；`test_version_pin_reads_exact_snapshot`、文档 manifest pin 测试；ack 回执记录 `模块@版本` |
-| S5 | 端到端：建块→发布→AI 读→提案→审批→再发布→AI 读新版 | `test_full_proposal_lifecycle` + 冒烟实测 |
-
-冒烟实测记录（uvicorn + curl，demo 数据）：seed 后 2 文档 × 4 模块各 @1.0.0、文档版本各派生至 1.3.0 →
-嵌套字段经 UI 提交接口（PUT apis，object/array 多层 children）保存与读取一致 →
-fastTrack 发布嵌套子字段新增 → delta 为点号路径
-`request:POST ...:rule.scope.channels.channel_id`，模块 1.1.0、文档 1.4.0 →
-新建大业务→文档→模块→发布→agent 可读（200）→ 归档已发布模块：agent 404、index 排除、
-下一文档 manifest 移除 → 删除含已发布模块的文档 409 并列出已发布模块 → restore 恢复后 agent 200 →
-agent key 对全部写端点（含三层 CRUD 新端点）403。
+- 生产形态应把 admin 与 agent 拆成两个服务、两套凭据分开部署；当前用代码结构（双 router + 双 auth 依赖）保证这条边界可拆分
+- 数据库默认 `./speclock.db`（SQLite），可用 `SPECLOCK_DB_URL` 覆盖
 
 ## License
 
-MIT
+[MIT](LICENSE)
