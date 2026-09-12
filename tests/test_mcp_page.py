@@ -1,4 +1,4 @@
-"""AI 接入（MCP）页：配置片段、8 工具清单、AI 最近活动表格。"""
+"""AI 接入（MCP）页：配置片段、7 工具清单、AI 最近活动表格。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from tests.conftest import publish_v1
 
 ALL_TOOLS = [
-    "get_documents", "get_document", "get_index", "get_block",
+    "get_document", "get_index", "get_block",
     "get_diff", "ack_block", "submit_proposal", "get_proposal",
 ]
 
@@ -26,12 +26,13 @@ def test_mcp_page_contains_config_snippet(env):
     assert "复制" in body
 
 
-def test_mcp_page_lists_all_8_tools(env):
+def test_mcp_page_lists_all_7_tools(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     body = env["client"].get(f"/ui/mcp?key={env['human']['X-API-Key']}").text
     for tool in ALL_TOOLS:
         assert tool in body, tool
-    assert "AI 可用工具清单（8 个）" in body
+    assert "AI 可用工具清单（7 个）" in body
+    assert "get_documents" not in body  # 已从 MCP 工具移除（导航由 get_index 树覆盖）
 
 
 def test_mcp_page_shows_recent_agent_activity(env):

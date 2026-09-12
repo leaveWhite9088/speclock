@@ -1,18 +1,23 @@
-"""Agent read API: index size contract, version pin semantics, ack receipts."""
+"""Agent read API: index shape, version pin semantics, ack receipts."""
 
 from __future__ import annotations
 
 from tests.conftest import APIS_V2_MINOR, publish_v1
 
 
-def test_index_is_one_line_per_block_and_small(env):
+def test_index_is_tree_grouped_by_domain_and_document(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     r = env["client"].get("/api/v1/index", headers=env["agent"])
     assert r.status_code == 200
-    # NF-1: index body must stay <= 8KB
-    assert len(r.content) <= 8192
-    entry = r.json()[0]
-    assert set(entry) == {"block_id", "title", "domain", "document", "version", "summary",
+    tree = r.json()
+    assert len(tree) == 1
+    assert set(tree[0]) == {"domain", "documents"}
+    assert tree[0]["domain"] == "运营"
+    doc = tree[0]["documents"][0]
+    assert set(doc) == {"document_id", "title", "version", "blocks"}
+    assert doc["title"] == "经营日报" and doc["version"] == "1.0.0"
+    entry = doc["blocks"][0]
+    assert set(entry) == {"block_id", "title", "version", "summary",
                           "completed", "completed_version"}
     assert len(entry["summary"]) <= 50
     assert entry["version"] == "1.0.0"

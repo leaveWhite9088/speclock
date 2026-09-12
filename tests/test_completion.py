@@ -6,6 +6,10 @@ from __future__ import annotations
 from tests.conftest import APIS_V2_MINOR, create_module, publish_v1
 
 
+def flatten_blocks(tree):
+    return [b for d in tree for doc in d["documents"] for b in doc["blocks"]]
+
+
 def test_complete_and_uncomplete(env):
     c, h, bid = env["client"], env["human"], env["block_id"]
     publish_v1(c, h, bid)
@@ -31,7 +35,7 @@ def test_publish_resets_completed(env):
     c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
     c.post(f"/api/v1/blocks/{bid}/publish",
            json={"change_note": "v2", "fastTrack": True}, headers=h)
-    entry = c.get("/api/v1/index", headers=env["agent"]).json()[0]
+    entry = flatten_blocks(c.get("/api/v1/index", headers=env["agent"]).json())[0]
     assert entry["completed"] is False  # 自动重置
     assert entry["completed_version"] == "1.0.0"  # 上次完成版本保留为历史信息
     assert entry["version"] == "1.1.0"
@@ -40,11 +44,11 @@ def test_publish_resets_completed(env):
 def test_index_carries_completion_fields(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    entry = c.get("/api/v1/index", headers=a).json()[0]
+    entry = flatten_blocks(c.get("/api/v1/index", headers=a).json())[0]
     assert entry["completed"] is False
     assert entry["completed_version"] is None
     c.post(f"/api/v1/blocks/{bid}/complete", headers=h)
-    entry = c.get("/api/v1/index", headers=a).json()[0]
+    entry = flatten_blocks(c.get("/api/v1/index", headers=a).json())[0]
     assert entry["completed"] is True
     assert entry["completed_version"] == "1.0.0"
 
@@ -56,9 +60,9 @@ def test_index_incomplete_filter(env):
     publish_v1(c, h, bid2)
     c.post(f"/api/v1/blocks/{bid}/complete", headers=h)
     r = c.get("/api/v1/index", params={"incomplete": "true"}, headers=a).json()
-    assert [e["block_id"] for e in r] == [bid2]
+    assert [e["block_id"] for e in flatten_blocks(r)] == [bid2]
     # 不过滤时两个都在
-    assert len(c.get("/api/v1/index", headers=a).json()) == 2
+    assert len(flatten_blocks(c.get("/api/v1/index", headers=a).json())) == 2
 
 
 def test_index_domain_filter(env):
@@ -74,7 +78,7 @@ def test_index_domain_filter(env):
     publish_v1(c, h, blk["id"])
 
     r = c.get("/api/v1/index", params={"domain": "运营"}, headers=a).json()
-    assert [e["block_id"] for e in r] == [env["block_id"]]
+    assert [e["block_id"] for e in flatten_blocks(r)] == [env["block_id"]]
     assert c.get("/api/v1/index", params={"domain": "不存在"}, headers=a).json() == []
     # documents 同样支持 domain 过滤
     docs = c.get("/api/v1/documents", params={"domain": "商品"}, headers=a).json()

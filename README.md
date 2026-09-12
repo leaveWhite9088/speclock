@@ -59,7 +59,7 @@ python -m venv .venv
 ## Agent 侧用法（REST）
 
 ```bash
-curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/index             # 模块索引先行（≤8KB）
+curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/index             # 模块索引先行（大业务→小业务→模块 三层树）
 curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents         # 文档列表 + 文档版本
 curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/documents/1@1.2.0 # 文档 manifest（pin）
 curl -H "X-API-Key: agent-xxx" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0    # 模块版本 pin
@@ -87,11 +87,13 @@ curl -X POST -H "X-API-Key: agent-xxx" -d '{"block_id":1,"description":"...","su
 }
 ```
 
-MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
-`submit_proposal` / `get_proposal` / `get_documents` / `get_document`。
+MCP server 恰好暴露 7 个工具：`get_index` / `get_block` / `get_diff` / `ack_block` /
+`submit_proposal` / `get_proposal` / `get_document`。
 没有任何写文档的工具。可选参数：`get_index(domain, incomplete_only)`、
-`get_documents(domain)`、`get_diff(block_id, from_version?, to_version?)`（缺省取最近两版）。
-为控制 AI 上下文占用，工具数保持 8 个，不加新工具。
+`get_diff(block_id, from_version?, to_version?)`（缺省取最近两版）。
+为控制 AI 上下文占用，工具数保持精简（当前 7 个），不加新工具。
+（文档列表导航由 `get_index` 树覆盖，故不提供 `get_documents` 工具；
+REST 的 `/api/v1/documents` 端点保留供 UI/调试使用。）
 
 ## 模块完成状态（completed）
 
@@ -99,7 +101,7 @@ MCP server 恰好暴露 8 个工具：`get_index` / `get_block` / `get_diff` / `
   由人手动管理（查看页有按钮，文档树模块行显示 ✓已完成@版本 / 未完成徽章）。
 - **发布新版本时 completed 自动重置为 False**（新版本的实现必然滞后）；
   `completed_version` 保留为「上次完成对应的版本号」。
-- AI 可见：`/index` 每行、`get_block` 响应、文档 manifest 每个模块都带
+- AI 可见：`/index` 树的每个模块节点、`get_block` 响应、文档 manifest 每个模块都带
   `completed` / `completed_version`；`/index?incomplete=true` 只返回未完成模块
   （可与 `domain` 组合）——后端 AI 据此只做/只改未完成的小业务。
 - **与 ack 的区别**：ack 是 AI 的单次回执（"我按某版本实现过"），completed 是权威
@@ -196,7 +198,7 @@ speclock/
 | # | 标准 | 本仓库证据 |
 |---|---|---|
 | S1 | agent 凭据对所有写接口 100% 被拒 | `tests/test_auth.py` 枚举全部写端点断言 403；冒烟实测写端点 403 |
-| S2 | 单任务拉取 ≤3 块，索引 ≤8KB | `GET /index` 一行摘要/模块；`test_index_is_one_line_per_block_and_small` 断言 ≤8KB |
+| S2 | 单任务拉取 ≤3 块，索引分层导航 | `GET /index` 一次返回 大业务→小业务→模块 三层树（模块节点 summary ≤50 字）；`test_index_is_tree_grouped_by_domain_and_document` 断言树结构 |
 | S3 | 小变更提出到发布 ≤2 分钟 | 提案 → 收件箱一键「批准并发布」；无破坏性变更支持 `fastTrack` 秒批 |
 | S4 | 版本可钉住、历史可重放 | 模块与文档两级 pin；`test_version_pin_reads_exact_snapshot`、文档 manifest pin 测试；ack 回执记录 `模块@版本` |
 | S5 | 端到端：建块→发布→AI 读→提案→审批→再发布→AI 读新版 | `test_full_proposal_lifecycle` + 冒烟实测 |

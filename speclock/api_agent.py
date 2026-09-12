@@ -31,7 +31,9 @@ from speclock.schemas import (
     BlockOut,
     DocumentIndexEntry,
     DocumentOut,
-    IndexEntry,
+    IndexBlock,
+    IndexDocument,
+    IndexDomain,
     ProposalCreate,
     ProposalOut,
 )
@@ -74,39 +76,56 @@ def _block_out(bv: BlockVersion) -> BlockOut:
     )
 
 
-@router.get("/index", response_model=list[IndexEntry])
+@router.get("/index", response_model=list[IndexDomain])
 def get_index(
     domain: str | None = None,
     incomplete: bool = False,
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_agent),
 ):
-    """One-line summary per published module. Contract: response body <= 8KB.
-    可选过滤：domain（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
-    每行带 completed/completed_version——后端 AI 据此只做未完成的小业务。"""
-    entries = []
+    """三层嵌套索引：大业务 → 小业务（文档）→ 模块。一次调用拿全图后在树里选模块。
+    只含已发布模块；可选过滤：domain（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
+    模块节点带 completed/completed_version——后端 AI 据此只做未完成的小业务。"""
+    tree: dict[str, dict[int, dict]] = {}
+    count = 0
     for block in db.query(Block).filter(Block.status == "published").all():
         doc = block.document
         if domain is not None and doc.domain.name != domain:
             continue
         if incomplete and block.completed:
             continue
-        entries.append(
-            IndexEntry(
+        docs = tree.setdefault(doc.domain.name, {})
+        slot = docs.setdefault(doc.id, {"doc": doc, "blocks": []})
+        slot["blocks"].append(
+            IndexBlock(
                 block_id=block.id,
                 title=block.title,
-                domain=doc.domain.name,
-                document=doc.title,
                 version=block.current_published_version,
                 summary=(block.summary or block.draft_content_md.strip())[:50],
                 completed=block.completed,
                 completed_version=block.completed_version,
             )
         )
-    audit(db, key.key, "pull", "index", {"entries": len(entries),
+        count += 1
+    result = [
+        IndexDomain(
+            domain=dom_name,
+            documents=[
+                IndexDocument(
+                    document_id=doc_id,
+                    title=slot["doc"].title,
+                    version=slot["doc"].current_version,
+                    blocks=slot["blocks"],
+                )
+                for doc_id, slot in docs.items()
+            ],
+        )
+        for dom_name, docs in tree.items()
+    ]
+    audit(db, key.key, "pull", "index", {"entries": count,
                                          "domain": domain, "incomplete": incomplete})
     db.commit()
-    return entries
+    return result
 
 
 @router.get("/blocks/{ref}", response_model=BlockOut)

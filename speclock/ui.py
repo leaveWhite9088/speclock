@@ -257,10 +257,9 @@ def mcp_page(request: Request, db: Session = Depends(get_db)):
 
 
 MCP_TOOLS = [
-    ("get_documents", "列出全部文档及其当前文档级版本"),
-    ("get_document", "读取文档 manifest（模块→版本清单），可 pin 文档版本"),
-    ("get_index", "全部已发布模块的一行摘要索引（AI 先取索引再按需拉块）"),
+    ("get_index", "大业务→小业务→模块 三层索引树，模块节点带 completed 完成标记（AI 先取索引树选块，再按需拉块；迭代时只做 completed=false 的模块）"),
     ("get_block", "读取一个模块的已发布版本，可 pin 版本号锁定快照"),
+    ("get_document", "读取文档 manifest（模块→版本清单），可 pin 历史文档版本回放快照"),
     ("get_diff", "两个已发布版本之间的结构化 + 文本 diff"),
     ("ack_block", "回执：声明「已按 模块@版本 实现」"),
     ("submit_proposal", "提交变更提案——AI 唯一的写出口，需人审批发布后才生效"),

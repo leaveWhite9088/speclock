@@ -1,6 +1,6 @@
 """SpecLock MCP server (stdio).
 
-Exactly 8 tools — the full agent surface. Every tool is a thin HTTP client
+Exactly 7 tools — the full agent surface. Every tool is a thin HTTP client
 of the SpecLock read-only REST API; there is intentionally no write tool
 (proposals are the only mutation, and they land in the review queue, never
 in the published store).
@@ -50,11 +50,11 @@ def _call(method: str, path: str, **kwargs) -> str:
 
 
 @mcp.tool(description=(
-    "List one-line summaries of all published modules, each with completion "
-    "status (completed / completed_version) — only work on incomplete modules. "
-    "Call this FIRST to decide which modules are relevant, then fetch only "
-    "those with get_block. Optionally filter by domain (exact 大业务 name) "
-    "and/or incomplete_only."
+    "Navigation tree of all published modules: 大业务 → 小业务（文档）→ 模块, "
+    "each module with a one-line summary and completion status (completed / "
+    "completed_version) — only work on incomplete modules. Call this FIRST to "
+    "pick relevant modules from the tree, then fetch only those with get_block. "
+    "Optionally filter by domain (exact 大业务 name) and/or incomplete_only."
 ))
 def get_index(domain: str = "", incomplete_only: bool = False) -> str:
     params: dict = {}
@@ -123,17 +123,6 @@ def submit_proposal(
 @mcp.tool(description="Poll the status of a proposal (submitted / published / rejected).")
 def get_proposal(proposal_id: int) -> str:
     return _call("GET", f"/api/v1/proposals/{proposal_id}")
-
-
-@mcp.tool(description=(
-    "List documents with their current document-level version. Documents are "
-    "groups of modules (blocks); every module publish derives a new document "
-    "version (manifest of module -> version). Optionally filter by domain "
-    "(exact 大业务 name)."
-))
-def get_documents(domain: str = "") -> str:
-    params = {"domain": domain} if domain else {}
-    return _call("GET", "/api/v1/documents", params=params)
 
 
 @mcp.tool(description=(
