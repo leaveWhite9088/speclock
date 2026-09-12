@@ -9,8 +9,8 @@
   {% for domain in domains if domain.project_id == project.id %}
     <div class="domain">
       <h3>{{ domain.name }}
-        <button type="button" onclick="renameDomain({{ domain.id }}, {{ domain.name | tojson }})">重命名</button>
-        <button type="button" onclick="delDomain({{ domain.id }}, {{ domain.name | tojson }})">删除</button>
+        <button type="button" onclick='renameDomain({{ domain.id }}, {{ domain.name | tojson }})'>重命名</button>
+        <button type="button" onclick='delDomain({{ domain.id }}, {{ domain.name | tojson }})'>删除</button>
         <button type="button" onclick="newDocument({{ domain.id }})">+ 新建文档</button>
       </h3>
       <ul>
@@ -18,8 +18,8 @@
         <li><a href="/ui/documents/{{ doc.id }}?key={{ key }}">{{ doc.title }}</a>
           <span class="muted">({{ doc.doc_type }})</span>
           {% if doc.current_version %}<span class="badge published">@{{ doc.current_version }}</span>{% endif %}
-          <button type="button" onclick="renameDocument({{ doc.id }}, {{ doc.title | tojson }})">重命名</button>
-          <button type="button" onclick="delDocument({{ doc.id }}, {{ doc.title | tojson }})">删除</button>
+          <button type="button" onclick='renameDocument({{ doc.id }}, {{ doc.title | tojson }})'>重命名</button>
+          <button type="button" onclick='delDocument({{ doc.id }}, {{ doc.title | tojson }})'>删除</button>
           <button type="button" onclick="newBlock({{ doc.id }})">+ 新建模块</button>
           <ul>
           {% for block in doc.blocks %}
@@ -44,10 +44,10 @@
               <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}" class="muted">最近 diff</a>
               {% endif %}
               {% endif %}
-              <button type="button" onclick="delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})">
+              <button type="button" onclick='delBlock({{ block.id }}, {{ block.title | tojson }}, {{ (block.status == 'draft') | tojson }})'>
                 {% if block.status == 'draft' %}删除{% else %}归档{% endif %}</button>
               {% if block.status == 'archived' %}
-              <button type="button" onclick="restoreBlock({{ block.id }}, {{ block.title | tojson }})">恢复</button>
+              <button type="button" onclick='restoreBlock({{ block.id }}, {{ block.title | tojson }})'>恢复</button>
               {% endif %}
             </li>
           {% endfor %}
