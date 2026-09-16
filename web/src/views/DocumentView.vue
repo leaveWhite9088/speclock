@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client.js'
 import VersionChip from '../components/VersionChip.vue'
+import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
 const route = useRoute()
 const docId = computed(() => Number(route.params.id))
@@ -96,7 +97,7 @@ watch(docId, load, { immediate: true })
     </div>
 
     <template v-else-if="doc">
-      <p class="page-eyebrow">{{ doc.projectName }} / {{ doc.domainName }}</p>
+      <AppBreadcrumb :document-id="docId" />
       <h1 class="page-title">
         {{ doc.title }}
         <VersionChip v-if="doc.current_version" :version="doc.current_version" />

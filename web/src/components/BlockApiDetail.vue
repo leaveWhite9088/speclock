@@ -86,7 +86,13 @@ defineProps({
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-2);
-  padding: 0 var(--sp-2) var(--sp-1) 0;
+  padding: 0 var(--sp-3) var(--sp-1) 0;
   border-bottom: 1px solid var(--hairline);
+}
+
+.field-table th:nth-child(2),
+.field-table th:nth-child(3) {
+  width: 1%;
+  white-space: nowrap;
 }
 </style>

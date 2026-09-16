@@ -31,9 +31,16 @@ defineProps({
 
 <style scoped>
 td {
-  padding: var(--sp-1) var(--sp-2) var(--sp-1) 0;
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) 0;
   font-size: var(--text-sm);
   vertical-align: top;
+}
+
+/* 类型/必填列收缩到内容宽、不换行；说明列吃剩余宽度 */
+td:nth-child(2),
+td:nth-child(3) {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .ftype {

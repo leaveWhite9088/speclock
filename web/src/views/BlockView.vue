@@ -11,6 +11,7 @@ import BlockStatusBadge from '../components/BlockStatusBadge.vue'
 import BlockMethodBadge from '../components/BlockMethodBadge.vue'
 import BlockApiDetail from '../components/BlockApiDetail.vue'
 import BlockMd from '../components/BlockMd.vue'
+import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -122,11 +123,7 @@ async function toggleComplete() {
     </div>
 
     <template v-else-if="meta">
-      <p class="crumb muted">
-        <RouterLink to="/">文档树</RouterLink> ›
-        <RouterLink :to="`/documents/${meta.document_id}`">所属文档</RouterLink> ›
-        {{ meta.title }}
-      </p>
+      <AppBreadcrumb :block-id="bid" />
 
       <!-- 尚未发布：引导空状态 -->
       <div v-if="!versions.length" class="card empty">
@@ -289,11 +286,6 @@ async function toggleComplete() {
 </template>
 
 <style scoped>
-.crumb {
-  font-size: var(--text-sm);
-  margin-bottom: var(--sp-2);
-}
-
 .load-fail {
   margin-top: var(--sp-5);
   padding: var(--sp-5);

@@ -12,6 +12,7 @@ import BlockStatusBadge from '../components/BlockStatusBadge.vue'
 import BlockApiCard from '../components/BlockApiCard.vue'
 import BlockDeltaGroups from '../components/BlockDeltaGroups.vue'
 import BlockMd from '../components/BlockMd.vue'
+import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -214,12 +215,7 @@ const previewRulesDelta = computed(() =>
     </div>
 
     <template v-else-if="block && form">
-      <p class="page-eyebrow">接口块 · 草稿编辑</p>
-      <p class="crumb muted">
-        <RouterLink to="/">文档树</RouterLink> ›
-        <RouterLink :to="`/documents/${block.document_id}`">所属文档</RouterLink> ›
-        {{ block.title }}
-      </p>
+      <AppBreadcrumb :block-id="bid" append="编辑" />
 
       <div class="edit-head">
         <h1 class="page-title">{{ block.title }}</h1>
@@ -482,11 +478,6 @@ const previewRulesDelta = computed(() =>
 </template>
 
 <style scoped>
-.crumb {
-  font-size: var(--text-sm);
-  margin-bottom: var(--sp-2);
-}
-
 .edit-head {
   display: flex;
   align-items: center;
@@ -615,8 +606,11 @@ const previewRulesDelta = computed(() =>
 .api-list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
   margin-bottom: var(--sp-3);
+}
+
+.api-list > * + * {
+  border-top: 1px solid var(--hairline);
 }
 
 .api-list + .muted {

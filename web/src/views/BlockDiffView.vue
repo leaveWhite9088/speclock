@@ -10,6 +10,7 @@ import { api } from '../api/client.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockDeltaGroups from '../components/BlockDeltaGroups.vue'
 import BlockTextDiff from '../components/BlockTextDiff.vue'
+import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -161,10 +162,7 @@ const groups = computed(() => {
     </div>
 
     <template v-else>
-      <p class="crumb muted">
-        <RouterLink to="/">文档树</RouterLink> ›
-        <RouterLink :to="`/blocks/${bid}`">{{ title }}</RouterLink> › 版本对比
-      </p>
+      <AppBreadcrumb :block-id="bid" append="版本对比" />
       <h1 class="page-title">版本对比 · {{ title }}</h1>
 
       <div class="selector-bar card">
@@ -243,11 +241,6 @@ const groups = computed(() => {
 </template>
 
 <style scoped>
-.crumb {
-  font-size: var(--text-sm);
-  margin-bottom: var(--sp-2);
-}
-
 .load-fail {
   margin-top: var(--sp-5);
   padding: var(--sp-5);

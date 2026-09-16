@@ -36,7 +36,7 @@ function addRow(kind) {
 </script>
 
 <template>
-  <div class="card api-card">
+  <div class="api-card">
     <div class="api-head">
       <span class="idx mono">#{{ index + 1 }}</span>
       <template v-if="collapsed">
@@ -122,12 +122,7 @@ function addRow(kind) {
 
 <style scoped>
 .api-card {
-  padding: var(--sp-4) var(--sp-5);
-  background: var(--paper);
-  border: 1px solid #d8dde6;
-  border-left: 3px solid var(--contract);
-  border-radius: var(--radius);
-  box-shadow: 0 1px 2px rgba(28, 35, 51, 0.06);
+  padding: var(--sp-4) 0;
 }
 
 .api-head {
