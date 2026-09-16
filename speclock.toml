@@ -1,0 +1,18 @@
+# SpecLock 环境配置：改上面的 active 一键切换环境；
+# 也可用环境变量 SPECLOCK_ENV=server 覆盖（服务器 systemd 里推荐这种方式，文件不用动）。
+active = "local"
+
+# 本地开发：只监听本机回环，数据库在当前目录
+[local]
+db_url = "sqlite:///speclock.db"
+host = "127.0.0.1"
+port = 8000
+public_url = ""  # 留空 = MCP 页面按访问地址自动生成 SPECLOCK_URL
+
+# 官网服务器（ubuntu @ 81.70.39.239）：监听所有网卡，对外地址写死
+# 注意：db_url 用相对路径时相对的是启动时的工作目录，服务器上建议改成绝对路径
+[server]
+db_url = "sqlite:///speclock.db"
+host = "0.0.0.0"
+port = 8000
+public_url = "https://speclock.easyzai.top"

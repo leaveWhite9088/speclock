@@ -31,3 +31,17 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+def run() -> None:
+    """按 speclock.toml 当前环境（active / SPECLOCK_ENV）启动服务。"""
+    import uvicorn
+
+    from speclock.settings import load_settings
+
+    s = load_settings()
+    uvicorn.run("speclock.main:app", host=s.host, port=s.port)
+
+
+if __name__ == "__main__":
+    run()
