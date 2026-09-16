@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from speclock.api_admin import publish_block
+from speclock.auth import hash_key, key_hint, new_key
 from speclock.db import SessionLocal, get_engine, init_db
 from speclock.models import (
     Ack,
@@ -30,19 +31,33 @@ from speclock.models import (
 
 DATA_DIR = Path(__file__).parent / ".inject_data"
 
-DEFAULT_HUMAN_KEY = "human-dev-0000000000000000000000000001"
-DEFAULT_AGENT_KEY = "agent-dev-0000000000000000000000000001"
-
 PROJECT_NAME = "重庆尚诚购·线上零售（运营工作区）"
 
 
 def clear_all(db) -> None:
+    # 注意：api_keys 不清空——密钥由人管理，重跑注入不吊销任何 key
     for model in (
         Ack, Proposal, AuditLog, BlockVersion, DocumentVersion,
-        Block, Document, Domain, ApiKey, Project,
+        Block, Document, Domain, Project,
     ):
         db.query(model).delete()
     db.flush()
+
+
+def ensure_keys(db, project_id: int) -> tuple[str, str]:
+    """无 key 时生成一对随机 key（明文仅此一次打印）；已有则原样保留。"""
+    existing = db.query(ApiKey).all()
+    if existing:
+        hints = ", ".join(f"{k.prefix}:{k.hint}" for k in existing)
+        print(f"保留现有密钥（明文不可见）：{hints}")
+        return "", ""
+    human_plain, agent_plain = new_key("human"), new_key("agent")
+    db.add(ApiKey(key=hash_key(human_plain), hint=key_hint(human_plain),
+                  prefix="human", project_id=project_id, label="inject human"))
+    db.add(ApiKey(key=hash_key(agent_plain), hint=key_hint(agent_plain),
+                  prefix="agent", project_id=project_id, label="inject agent"))
+    db.flush()
+    return human_plain, agent_plain
 
 
 def main() -> None:
@@ -56,11 +71,7 @@ def main() -> None:
     db.add(project)
     db.flush()
 
-    human_key = os_environ_key("SPECLOCK_HUMAN_KEY", DEFAULT_HUMAN_KEY)
-    agent_key = os_environ_key("SPECLOCK_AGENT_KEY", DEFAULT_AGENT_KEY)
-    db.add(ApiKey(key=human_key, prefix="human", project_id=project.id, label="ops human"))
-    db.add(ApiKey(key=agent_key, prefix="agent", project_id=project.id, label="ops agent"))
-    db.flush()
+    human_plain, agent_plain = ensure_keys(db, project.id)
 
     domains: dict[str, Domain] = {}
     created = []
@@ -93,7 +104,7 @@ def main() -> None:
             )
             db.add(block)
             db.flush()
-            result = publish_block(db, block, actor=human_key, change_note="初始发布",
+            result = publish_block(db, block, actor="inject_ops", change_note="初始发布",
                                    fast_track=True, confirm=False)
             created.append((domain_name, document.title, block.title, result.version,
                             result.document_version, len(mod.get("apis", []))))
@@ -104,15 +115,12 @@ def main() -> None:
     for domain_name, doc_title, block_title, ver, doc_ver, api_count in created:
         print(f"  [{domain_name}] {doc_title} / {block_title} @{ver}"
               f"（{api_count} API，文档版本 @{doc_ver}）")
-    print()
-    print(f"  human key (读写/UI): {human_key}")
-    print(f"  agent key (只读+提案): {agent_key}")
+    if human_plain:
+        print()
+        print("  已生成新密钥（明文仅此一次显示，系统只存哈希，请立即保存）：")
+        print(f"  human key (读写/UI): {human_plain}")
+        print(f"  agent key (只读+提案): {agent_plain}")
     db.close()
-
-
-def os_environ_key(env_name: str, default: str) -> str:
-    import os
-    return os.environ.get(env_name, default)
 
 
 if __name__ == "__main__":

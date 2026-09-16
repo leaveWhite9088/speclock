@@ -24,6 +24,8 @@
   （若已有 <span class="mono">mcpServers</span> 字段，只合并其中 <span class="mono">speclock</span> 一项），
   然后重启你的客户端。MCP server 以 stdio 启动：
   <span class="mono">{{ config.mcpServers.speclock.command }} -m speclock.mcp_server</span></p>
+  <p>把 <span class="mono">SPECLOCK_KEY</span> 替换为你的 agent key——到
+  <a href="/ui/keys?key={{ key }}">密钥管理</a>页新建（<b>仅此一次可见</b>，系统只存哈希，丢失只能重新生成）{% if agent_hint %}；当前已有一把 agent key：<span class="mono">{{ agent_hint }}</span>{% endif %}。</p>
   <pre class="mono config-json" id="mcp-config">{{ config | tojson(indent=2) }}</pre>
   <button type="button" onclick="copyConfig()">复制配置</button>
   <span id="copy-result" class="muted"></span>

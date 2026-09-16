@@ -10,6 +10,7 @@ unknown key is 401. There is no endpoint that accepts both.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 
@@ -25,10 +26,20 @@ def new_key(prefix: str) -> str:
     return f"{prefix}-{secrets.token_hex(16)}"
 
 
+def hash_key(key: str) -> str:
+    """密钥明文 → SHA-256 hex。数据库只存这个值，明文永不落库。"""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def key_hint(key: str) -> str:
+    """展示用脱敏形式，如 human-…1a2b（用于列表/审计/回执，可安全落库）。"""
+    return f"{key.split('-', 1)[0]}-…{key[-4:]}"
+
+
 def _lookup(x_api_key: str | None, db: Session) -> ApiKey:
     if not x_api_key:
         raise HTTPException(status_code=401, detail="missing X-API-Key header")
-    rec = db.query(ApiKey).filter(ApiKey.key == x_api_key).first()
+    rec = db.query(ApiKey).filter(ApiKey.key == hash_key(x_api_key)).first()
     if rec is None:
         raise HTTPException(status_code=401, detail="unknown API key")
     return rec

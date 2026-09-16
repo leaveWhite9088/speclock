@@ -21,7 +21,8 @@ def test_mcp_page_contains_config_snippet(env):
     assert "speclock.mcp_server" in body
     assert sys.executable in body  # command 用当前环境真实解释器路径
     assert "SPECLOCK_URL" in body and "SPECLOCK_KEY" in body
-    assert env["agent"]["X-API-Key"] in body  # 配置里直接给出可用的 agent key
+    assert env["agent"]["X-API-Key"] not in body  # 密钥哈希化：配置只给占位符，不再嵌明文
+    assert "仅此一次可见" in body
     assert "stdio" in body
     assert "复制" in body
 
@@ -69,6 +70,6 @@ def test_mcp_page_brief_for_agent(env):
     assert "const BRIEF = " in body
     # brief 内含配置 JSON、工具清单与使用规则（中文经 tojson 转义，断言 ASCII 部分）
     assert "```json" in body and ".mcp.json" in body
-    assert env["agent"]["X-API-Key"] in body
+    assert env["agent"]["X-API-Key"] not in body  # brief 同样不泄露明文 key
     for tool in ALL_TOOLS:
         assert f"`{tool}`" in body, tool

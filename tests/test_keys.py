@@ -9,10 +9,13 @@ def test_create_list_delete_key(env):
     assert r.status_code == 201
     new = r.json()
     assert new["key"].startswith("agent-") and new["label"] == "claude"
+    assert new["hint"].startswith("agent-…") and "仅此一次" in new["notice"]
 
     keys = c.get("/api/v1/keys", headers=h).json()
     assert len(keys) == 3  # 初始 human + agent + 新建
-    assert any(k["key"] == new["key"] for k in keys)
+    # 列表只给 hint，绝不泄露明文或哈希
+    assert any(k["hint"] == new["hint"] for k in keys)
+    assert all("key" not in k for k in keys)
 
     # 新 key 立即可用
     assert c.get("/api/v1/index", headers={"X-API-Key": new["key"]}).status_code == 200
@@ -53,6 +56,8 @@ def test_keys_page_renders(env):
     body = c.get(f"/ui/keys?key={h['X-API-Key']}").text
     assert "密钥管理" in body
     assert "test human" in body and "test agent" in body
-    assert h["X-API-Key"] in body  # 当前 key 完整显示可复制
+    # 其他 key 的明文绝不出现（当前 key 作为会话凭据含在页面 JS 中，属正常）
+    assert env["agent"]["X-API-Key"] not in body
+    assert "human-…" in body  # 列表只显示 hint
     assert "当前正在使用" in body
     assert "delKey" in body and "createKey" in body
