@@ -1,5 +1,5 @@
 """业务描述结构化拆分：发布关口的结构完备性校验、规则清单 delta、
-agent 读面新字段、编辑器/UI 新区块、存量库增量迁移幂等。"""
+agent 读面新字段、结构化区块的 API 读取、存量库增量迁移幂等。"""
 
 from __future__ import annotations
 
@@ -139,35 +139,34 @@ def test_rules_delta_in_publish_and_diff(env):
     assert r.json()["breaking"] is False
 
 
-# ---------- UI 新区块 ----------
+# ---------- 结构化区块的 API 读取（原 UI 页面断言，SPA 化后改测数据源） ----------
 
-def test_editor_page_has_structured_sections(env):
+def test_draft_api_returns_structured_sections(env):
+    """对应 SPA 编辑页：草稿带背景叙述 / 规则清单 / NFR / 含端点语义的 API。"""
     publish_v1(env["client"], env["human"], env["block_id"])
-    body = env["client"].get(
-        f"/ui/blocks/{env['block_id']}?key={env['human']['X-API-Key']}"
-    ).text
-    assert "业务背景与流程" in body
-    assert "业务规则清单" in body
-    assert "非功能性需求" in body
-    assert "边界与异常" not in body
-    assert 'id="rule-list"' in body
-    assert 'id="rules-data"' in body
-    assert 'id="nfr_md"' in body
-    assert body.count('class="card doc-card"') == 2  # 两张可整体收起的大卡片
-    assert "端点语义" in body  # API 卡片里的 desc 输入
+    d = env["client"].get(
+        f"/api/v1/blocks/{env['block_id']}/draft", headers=env["human"]
+    ).json()
+    assert d["content_md"].startswith("# 数据采集模块")
+    assert d["rules"] == RULES_V1
+    assert d["nfr_md"] == "- 采集状态查询 P95 ≤ 300ms"
+    assert d["apis"][0]["desc"]  # 端点语义
 
 
-def test_view_page_shows_rules_and_sections(env):
+def test_version_api_returns_rules_and_sections(env):
+    """对应 SPA 只读视图：已发布版本快照含规则清单与端点语义。"""
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
-    body = c.get(f"/ui/blocks/{env['block_id']}/view?key={h['X-API-Key']}").text
-    assert "业务背景与流程" in body
-    assert "业务规则清单" in body
-    assert "销售额口径" in body  # RULES_V1 的规则名出现在只读视图
-    assert "端点语义" in body
+    v = c.get(
+        f"/api/v1/blocks/{env['block_id']}/versions/1.0.0", headers=h
+    ).json()
+    assert v["content_md"].startswith("# 数据采集模块")
+    assert any(r["name"] == "销售额口径" for r in v["rules"])
+    assert v["apis"][0]["desc"]
 
 
-def test_diff_page_shows_rules_changes(env):
+def test_diff_api_returns_rules_changes(env):
+    """对应 SPA diff 视图：diff 端点（人机双鉴权）的规则 delta。"""
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
     c.put(f"/api/v1/blocks/{env['block_id']}",
@@ -175,9 +174,10 @@ def test_diff_page_shows_rules_changes(env):
           headers=h)
     c.post(f"/api/v1/blocks/{env['block_id']}/publish",
            json={"change_note": "加规则", "fastTrack": True}, headers=h)
-    body = c.get(f"/ui/blocks/{env['block_id']}/diff?key={h['X-API-Key']}").text
-    assert "业务规则变更" in body
-    assert "采集时限" in body
+    d = c.get(f"/api/v1/blocks/{env['block_id']}/diff", headers=h).json()
+    assert (d["from"], d["to"]) == ("1.0.0", "1.0.1")  # 规则新增非破坏 → PATCH
+    assert d["delta"]["rules_added"] == ["采集时限"]
+    assert d["breaking"] is False
 
 
 # ---------- 存量库增量迁移（幂等） ----------

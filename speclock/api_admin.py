@@ -744,6 +744,10 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
             "description": p.description,
             "suggestion": p.suggestion,
             "scenario": p.scenario,
+            "proposed_content_md": p.proposed_content_md,
+            "proposed_apis": json.loads(p.proposed_apis_json)
+            if p.proposed_apis_json
+            else None,
             "status": p.status,
             "resolution_note": p.resolution_note,
             "published_version": p.published_version,

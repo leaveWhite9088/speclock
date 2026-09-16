@@ -403,4 +403,18 @@ def get_proposal(
     block = db.get(Block, p.block_id)
     if block is not None:
         _check_project_scope(key, _block_project_id(block))
-    return p
+    return ProposalOut(
+        id=p.id,
+        block_id=p.block_id,
+        author_type=p.author_type,
+        description=p.description,
+        suggestion=p.suggestion,
+        scenario=p.scenario,
+        proposed_content_md=p.proposed_content_md,
+        proposed_apis=json.loads(p.proposed_apis_json) if p.proposed_apis_json else None,
+        status=p.status,
+        resolution_note=p.resolution_note,
+        published_version=p.published_version,
+        created_at=p.created_at,
+        resolved_at=p.resolved_at,
+    )

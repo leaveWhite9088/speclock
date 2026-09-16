@@ -1,139 +1,69 @@
-"""UI 页面级 key 校验：非法/缺失 key 一律重定向登录页，登录页带提示。"""
+"""SPA 托管：web/dist 存在时 / 与前端路由 fallback 到 index.html；
+/api/ 下未注册的路径仍返回 JSON 404，不会被 fallback 吃掉。"""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from tests.conftest import publish_v1
+DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
-UI_PAGES = [
-    "/ui",
-    "/ui/blocks/1",
-    "/ui/blocks/1/view",
-    "/ui/blocks/1/diff",
-    "/ui/documents/1",
-    "/ui/proposals",
-    "/ui/acks",
-    "/ui/mcp",
-    "/ui/archive",
-]
+needs_dist = pytest.mark.skipif(not DIST.is_dir(), reason="web/dist 未构建")
+needs_no_dist = pytest.mark.skipif(DIST.is_dir(), reason="web/dist 已构建，fallback 生效")
 
 
-@pytest.mark.parametrize("page", UI_PAGES)
-def test_ui_pages_redirect_without_key(env, page):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    r = env["client"].get(page, follow_redirects=False)
-    assert r.status_code in (302, 307)
-    assert r.headers["location"].startswith("/ui/login")
-
-
-@pytest.mark.parametrize("page", UI_PAGES)
-def test_ui_pages_redirect_with_unknown_or_agent_key(env, page):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    for bad in ("human-deadbeefdeadbeef", env["agent"]["X-API-Key"]):
-        r = env["client"].get(f"{page}?key={bad}", follow_redirects=False)
-        assert r.status_code in (302, 307), f"{page} accepted {bad}"
-        assert "/ui/login" in r.headers["location"]
-
-
-@pytest.mark.parametrize("page", UI_PAGES)
-def test_ui_pages_ok_with_valid_human_key(env, page):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    r = env["client"].get(f"{page}?key={env['human']['X-API-Key']}")
-    assert r.status_code == 200, f"{page}: {r.status_code}"
-
-
-def test_login_page_shows_error_hint(env):
-    r = env["client"].get("/ui/login?error=1")
+@needs_dist
+def test_root_serves_spa_index(env):
+    r = env["client"].get("/")
     assert r.status_code == 200
-    assert "无效" in r.text
-    r = env["client"].get("/ui/login")
-    assert "无效" not in r.text
+    assert r.headers["content-type"].startswith("text/html")
+    assert 'id="app"' in r.text  # Vue 挂载点
 
 
-# ---------- 全站返回按钮 / 最近一次变更 / 单版本友好提示 ----------
-
-
-@pytest.mark.parametrize("page", UI_PAGES)
-def test_every_page_has_back_button(env, page):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    r = env["client"].get(f"{page}?key={env['human']['X-API-Key']}")
+@needs_dist
+@pytest.mark.parametrize("path", ["/proposals", "/blocks/1", "/documents/1/edit"])
+def test_deep_links_fall_back_to_index(env, path):
+    r = env["client"].get(path)
     assert r.status_code == 200
-    assert "← 返回上一页" in r.text and "history.back()" in r.text
+    assert 'id="app"' in r.text
 
 
-def test_login_page_has_no_back_button(env):
-    r = env["client"].get("/ui/login")
-    assert "history.back()" not in r.text
-
-
-def test_view_page_latest_diff_button(env):
-    c, h = env["client"], env["human"]
-    hk = h["X-API-Key"]
-    publish_v1(c, h, env["block_id"])
-    # 只有一个版本：按钮置灰并提示
-    r = c.get(f"/ui/blocks/{env['block_id']}/view?key={hk}")
-    assert "最近一次变更" in r.text
-    assert "暂无历史版本" in r.text
-    assert "btn-latest-diff\" disabled" in r.text or "disabled" in r.text
-    # 发布第二版后：按钮跳到 1.0.0 → 1.1.0
-    from tests.conftest import APIS_V2_MINOR
-
-    c.put(f"/api/v1/blocks/{env['block_id']}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{env['block_id']}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
-    r = c.get(f"/ui/blocks/{env['block_id']}/view?key={hk}")
-    assert "from=1.0.0&to=1.1.0" in r.text
-    assert "暂无历史版本" not in r.text
-
-
-def test_tree_page_latest_diff_link(env):
-    c, h = env["client"], env["human"]
-    hk = h["X-API-Key"]
-    publish_v1(c, h, env["block_id"])
-    # 单版本模块没有「最近 diff」链接
-    assert "最近 diff" not in c.get(f"/ui?key={hk}").text
-    from tests.conftest import APIS_V2_MINOR
-
-    c.put(f"/api/v1/blocks/{env['block_id']}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{env['block_id']}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
-    r = c.get(f"/ui?key={hk}")
-    assert "最近 diff" in r.text
-    assert f"/ui/blocks/{env['block_id']}/diff" in r.text
-
-
-def test_diff_page_single_version_friendly_message(env):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    r = env["client"].get(
-        f"/ui/blocks/{env['block_id']}/diff?key={env['human']['X-API-Key']}"
-    )
+@needs_dist
+def test_built_assets_are_served(env):
+    asset = next((DIST / "assets").iterdir())
+    r = env["client"].get(f"/assets/{asset.name}")
     assert r.status_code == 200
-    assert "暂无可对比的历史版本" in r.text
 
 
-def test_diff_page_defaults_to_last_two_versions(env):
-    c, h = env["client"], env["human"]
-    hk = h["X-API-Key"]
-    publish_v1(c, h, env["block_id"])
-    from tests.conftest import APIS_V2_MINOR
-
-    c.put(f"/api/v1/blocks/{env['block_id']}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{env['block_id']}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
-    r = c.get(f"/ui/blocks/{env['block_id']}/diff?key={hk}")
+@needs_dist
+@pytest.mark.parametrize("path", ["/ui", "/ui/login", "/ui/mcp"])
+def test_legacy_ui_paths_fall_back_to_spa(env, path):
+    """旧 Jinja 页面路由已删除；带 dist 时这些路径由 SPA 接管（Vue router 处理）。"""
+    r = env["client"].get(path)
     assert r.status_code == 200
-    assert "@1.0.0 → @1.1.0" in r.text
+    assert 'id="app"' in r.text
 
 
-def test_editor_contains_confirm_view_markup(env):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    body = env["client"].get(
-        f"/ui/blocks/{env['block_id']}?key={env['human']['X-API-Key']}"
-    ).text
-    assert 'id="confirm-view"' in body
-    assert "dryRun" in body
-    assert "renderConfirm" in body
-    assert "我已知晓破坏性影响" in body
-    assert "确认发布" in body
-    assert "秒批（跳过预览，仅限非破坏性变更）" in body
+@needs_no_dist
+@pytest.mark.parametrize("path", ["/", "/ui", "/ui/login"])
+def test_no_dist_is_pure_json_api(env, path):
+    """dist 未构建（纯 API 部署 / 测试环境）：无 SPA 可服务，一律 JSON 404。"""
+    r = env["client"].get(path)
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+
+
+def test_unknown_api_path_returns_json_404(env):
+    """catch-all 不得吞掉 API 的 404。"""
+    r = env["client"].get("/api/v1/nonexistent")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.json() == {"detail": "Not Found"}
+
+
+def test_registered_api_routes_unaffected_by_fallback(env):
+    """已注册的 API 路由优先于 catch-all：无 key 时仍是 JSON 401 而非 index.html。"""
+    r = env["client"].get("/api/v1/tree")
+    assert r.status_code == 401
+    assert r.headers["content-type"].startswith("application/json")

@@ -24,7 +24,7 @@ class Settings:
     db_url: str  # 数据库 URL（SPECLOCK_DB_URL 环境变量优先，测试用它隔离）
     host: str  # uvicorn 监听地址
     port: int  # uvicorn 监听端口
-    public_url: str  # MCP 页面展示的对外地址；空 = 按访问地址动态生成
+    public_url: str  # 保留字段，当前未被服务端使用（SPA 按 window.location.origin 生成接入配置）
 
 
 def load_settings() -> Settings:

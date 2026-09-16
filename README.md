@@ -14,6 +14,8 @@ SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**
 
 约束是物理的（权限隔离），不是提示词约定。
 
+架构：**FastAPI 纯 JSON API + Vue 3 SPA（`web/`）**。后端只出 JSON；管理界面是独立前端，构建产物（`web/dist/`）由同一 FastAPI 进程托管（`/assets` 静态资源 + 非 API 路径 fallback 到 `index.html`），未构建时后端即为纯 API 服务。
+
 ## 目录
 
 - [为什么需要它](#为什么需要它)
@@ -111,11 +113,20 @@ python3 -m venv .venv
 .venv/bin/python -m speclock.main
 ```
 
-管理 UI（开发态固定 key）：
+管理界面是 Vue 3 SPA。生产模式（后端托管构建产物）：
 
+```bash
+cd web && npm install && npm run build   # 产出 web/dist/（已 gitignore）
+# 启动后端后访问 http://127.0.0.1:8000/ ，登录页粘贴 human key 进入
 ```
-http://127.0.0.1:8000/ui?key=human-dev-0000000000000000000000000001
+
+前端开发模式（热更新，vite 把 `/api` 代理到 8000 端口的后端）：
+
+```bash
+cd web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
 ```
+
+开发态固定 key（登录页粘贴使用）：`human-dev-0000000000000000000000000001` / `agent-dev-0000000000000000000000000001`。管理端 SPA 把 key 存在浏览器 localStorage，之后所有 API 请求带 `X-API-Key` 头。
 
 > **安全提示**：固定 key（`human-dev-…1` / `agent-dev-…1`）仅供本地开发。
 > 生产部署必须用环境变量 `SPECLOCK_HUMAN_KEY` / `SPECLOCK_AGENT_KEY` 覆盖为随机 key。
@@ -131,7 +142,7 @@ active = "local"
 db_url = "sqlite:///speclock.db"   # 数据库（SPECLOCK_DB_URL 环境变量优先）
 host = "127.0.0.1"                 # 监听地址
 port = 8000                        # 监听端口
-public_url = ""                    # MCP 页面对外地址；空 = 按访问地址动态生成
+public_url = ""                    # 保留字段，当前未被服务端使用（SPA 按访问地址自动生成接入配置）
 
 [server]
 db_url = "sqlite:////opt/speclock/speclock.db"
@@ -145,7 +156,7 @@ public_url = "https://docs.example.com"
 ## 密钥管理
 
 - 密钥**仅在创建时可见一次**：`POST /api/v1/keys` 的响应是唯一能看到明文的地方；数据库只存 SHA-256 哈希与脱敏 hint（如 `human-…26c7`），丢失只能重新生成
-- 管理入口：UI「密钥管理」页（`/ui/keys`）——新建（human/agent + 标签 + 可选项目绑定）、列表（只显示 hint）、吊销（删除即生效，下次请求 401；最后一把 human key 拒绝删除）
+- 管理入口：SPA「密钥管理」页——新建（human/agent + 标签 + 可选项目绑定）、列表（只显示 hint）、吊销（删除即生效，下次请求 401；最后一把 human key 拒绝删除）
 - 项目绑定仅对 agent key 生效：绑定后该 key 只能读取所选项目的文档；human key 是管理端，始终全局
 - 审计与 ack 回执只记录 hint，不记录明文
 
@@ -195,29 +206,28 @@ MCP server 暴露 **7 个工具**：
 | `submit_proposal` | 提交变更提案——AI 唯一的写出口 |
 | `get_proposal` | 轮询提案状态 |
 
-没有任何写文档的工具；为控制 AI 上下文占用，工具数保持精简。管理 UI 的「AI 接入」页（`/ui/mcp`）提供可直接复制的配置与给 agent 的完整接入说明，`SPECLOCK_URL` 按当前环境自动生成。
+没有任何写文档的工具；为控制 AI 上下文占用，工具数保持精简。管理 SPA 的「AI 接入」页提供可直接复制的配置与给 agent 的完整接入说明，`SPECLOCK_URL` 按浏览器当前访问地址（`window.location.origin`）自动生成。
 
 ## 规则摘要
 
-- **删除语义**：已发布内容不可消失。已发布模块的删除 = 归档（agent 读 404、索引排除、历史版本保留，并立即派生文档新版本）；归档模块可在归档管理页恢复或彻底删除（purge，不可恢复）；文档 / 大业务 / 项目仅当其下无已发布模块时可删
+- **删除语义**：已发布内容不可消失。已发布模块的删除 = 归档（agent 读 404、索引排除、历史版本保留，并立即派生文档新版本）；归档模块可在 SPA 归档管理页恢复或彻底删除（purge，不可恢复）；文档 / 大业务 / 项目仅当其下无已发布模块时可删
 - **完成状态**：发布新版本时 `completed` 自动重置为 False，`completed_version` 保留上次完成版本；ack 是单次回执，`completed` 是权威状态，两者不自动联动
 - **审计**：发布（模块 + 文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`，「AI 接入」页展示最近 50 条 agent 活动
 
 ## 项目结构
 
 ```
-speclock/
-├── main.py        # FastAPI 装配 + 按环境启动（python -m speclock.main）
+speclock/            # FastAPI 纯 JSON API
+├── main.py        # 应用装配 + SPA 托管（web/dist 存在时）+ 按环境启动
 ├── settings.py    # speclock.toml 多环境配置加载（active / SPECLOCK_ENV）
 ├── api_admin.py   # 写路由：仅 human-* key；发布 + 结构完备性校验 + 文档版本派生
 ├── api_agent.py   # 只读路由：仅 agent-* key；项目隔离；不存在任何文档写端点
 ├── auth.py        # X-API-Key 双凭据 + 审计
 ├── diffing.py     # 结构化 API/规则校验、字段级 delta、破坏性判定、OpenAPI 生成、两级 semver
 ├── mcp_server.py  # stdio MCP，7 工具，经 HTTP 调本系统 REST
-├── ui.py          # 管理 UI（文档树 / 编辑 / diff / 提案收件箱 / 归档 / 密钥 / AI 接入页）
-├── seed.py        # demo 数据 + 打印两个开发 key
-└── templates/ static/
-tests/             # pytest：auth / 发布 / diff / 归档 / 完成状态 / 项目隔离 / 环境配置 / UI 等
+└── seed.py        # demo 数据 + 打印两个开发 key
+web/               # Vue 3 + Vite 管理 SPA（10 个视图；npm run build 产出 dist/，已 gitignore）
+tests/             # pytest：auth / 发布 / diff / 归档 / 完成状态 / 项目隔离 / 环境配置 / SPA 托管等
 inject_ops.py      # 真实业务数据注入脚本（.inject_data/*.json → DB，先清空再注入，幂等）
 ```
 
@@ -225,6 +235,8 @@ inject_ops.py      # 真实业务数据注入脚本（.inject_data/*.json → DB
 
 ```bash
 .venv/Scripts/python.exe -m pytest -v          # 跑测试
+cd web && npm install && npm run dev           # 前端热更新开发（vite 代理 /api → 127.0.0.1:8000）
+cd web && npm run build                        # 构建 SPA 到 web/dist/，后端启动后即整站可用
 SPECLOCK_DB_URL=sqlite:///test.db .venv/Scripts/python.exe -m speclock.seed   # 用临时库 seed
 .venv/Scripts/python.exe inject_ops.py         # 注入真实业务文档数据（清空后重建，幂等）
 ```

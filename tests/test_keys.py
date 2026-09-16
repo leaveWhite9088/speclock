@@ -51,13 +51,13 @@ def test_agent_key_cannot_manage_keys(env):
     assert c.delete("/api/v1/keys/1", headers=a).status_code == 403
 
 
-def test_keys_page_renders(env):
+def test_keys_api_lists_hints_without_plaintext(env):
+    """对应 SPA 密钥管理页的数据源：GET /api/v1/keys 只给 hint，绝不返回明文。"""
     c, h = env["client"], env["human"]
-    body = c.get(f"/ui/keys?key={h['X-API-Key']}").text
-    assert "密钥管理" in body
-    assert "test human" in body and "test agent" in body
-    # 其他 key 的明文绝不出现（当前 key 作为会话凭据含在页面 JS 中，属正常）
-    assert env["agent"]["X-API-Key"] not in body
-    assert "human-…" in body  # 列表只显示 hint
-    assert "当前正在使用" in body
-    assert "delKey" in body and "createKey" in body
+    keys = c.get("/api/v1/keys", headers=h).json()
+    labels = {k["label"] for k in keys}
+    assert "test human" in labels and "test agent" in labels
+    for k in keys:
+        assert "…" in k["hint"]
+        assert k["hint"] != env["agent"]["X-API-Key"]
+    assert env["agent"]["X-API-Key"] not in [k.get("hint") for k in keys]

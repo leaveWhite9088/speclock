@@ -1,15 +1,25 @@
-"""FastAPI application assembly: admin (write) + agent (read) + UI routers."""
+"""FastAPI application assembly: admin (write) + agent (read) JSON APIs.
+
+When the Vue SPA has been built (``web/dist/`` next to the package), it is
+served from the same process: static bundles under ``/assets`` and every
+non-API GET falls back to ``index.html`` so client-side routes (deep links
+like ``/proposals``) work. Unknown ``/api/`` paths still get a JSON 404.
+Without a built SPA the app is a pure JSON API (tests, API-only deploys).
+"""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from speclock import api_admin, api_agent, ui
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from speclock import api_admin, api_agent
 from speclock.db import init_db
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).resolve().parent
+DIST_DIR = BASE_DIR.parent / "web" / "dist"
 
 
 def create_app() -> FastAPI:
@@ -25,8 +35,23 @@ def create_app() -> FastAPI:
     init_db()
     app.include_router(api_admin.router)
     app.include_router(api_agent.router)
-    app.include_router(ui.router)
-    app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+    if DIST_DIR.is_dir():
+        index_html = DIST_DIR / "index.html"
+        app.mount(
+            "/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets"
+        )
+
+        # Registered last, after every API route and /docs: FastAPI matches
+        # routes in registration order, so the catch-all only sees paths no
+        # real route claimed.
+        @app.get("/", include_in_schema=False)
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str = ""):
+            if full_path == "api" or full_path.startswith("api/"):
+                return JSONResponse({"detail": "Not Found"}, status_code=404)
+            return FileResponse(index_html)
+
     return app
 
 

@@ -1,4 +1,4 @@
-"""归档/恢复派生文档版本（MINOR）+ 归档管理页 + 彻底删除。"""
+"""归档/恢复派生文档版本（MINOR）+ 归档列表 API + 彻底删除。"""
 
 from __future__ import annotations
 
@@ -62,30 +62,33 @@ def test_purge_only_for_archived_and_hard_deletes(env):
     assert c.get(f"/api/v1/blocks/{bid}/versions", headers=h).status_code == 404
 
 
-def test_archive_page_renders_rows_and_actions(env):
+def test_archive_api_lists_archived_blocks(env):
+    """对应 SPA 归档管理页的数据源：GET /api/v1/archive。"""
     c, h, bid = env["client"], env["human"], env["block_id"]
     publish_v1(c, h, bid)
     c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    body = c.get(f"/ui/archive?key={h['X-API-Key']}").text
-    assert "归档管理" in body
-    assert "数据采集模块" in body
-    assert "@1.0.0" in body
-    assert "恢复" in body
-    assert "彻底删除" in body
-    assert "purgeBlock" in body and "不可恢复" in body
+    rows = c.get("/api/v1/archive", headers=h).json()
+    row = next(r for r in rows if r["id"] == bid)
+    assert row["title"] == "数据采集模块"
+    assert row["current_published_version"] == "1.0.0"
+    assert row["document_title"] == "经营日报"
+    assert row["archived_at"] is not None
     # 恢复后列表为空
     c.post(f"/api/v1/blocks/{bid}/restore", headers=h)
-    assert "没有已归档的模块" in c.get(f"/ui/archive?key={h['X-API-Key']}").text
+    assert c.get("/api/v1/archive", headers=h).json() == []
 
 
-def test_tree_hides_archived_blocks(env):
+def test_tree_marks_archived_blocks(env):
+    """GET /api/v1/tree 返回全部状态的模块，归档模块以 status 标记，由 SPA 过滤/展示。"""
     c, h, bid = env["client"], env["human"], env["block_id"]
     publish_v1(c, h, bid)
     c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    body = c.get(f"/ui?key={h['X-API-Key']}").text
-    # 归档模块不再出现在文档树；恢复/删除只在归档管理页操作
-    assert "数据采集模块" not in body
-    assert "restoreBlock" not in body
-    # 恢复后重新出现
+
+    def block_row():
+        tree = c.get("/api/v1/tree", headers=h).json()
+        blocks = tree[0]["domains"][0]["documents"][0]["blocks"]
+        return next(b for b in blocks if b["id"] == bid)
+
+    assert block_row()["status"] == "archived"
     c.post(f"/api/v1/blocks/{bid}/restore", headers=h)
-    assert "数据采集模块" in c.get(f"/ui?key={h['X-API-Key']}").text
+    assert block_row()["status"] == "published"

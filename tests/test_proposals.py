@@ -100,3 +100,40 @@ def test_proposals_are_audited(env):
     db.close()
     assert "proposal_submit" in actions
     assert "proposal_resolve" in actions
+
+
+def test_admin_proposal_list_includes_proposed_fields(env):
+    """SPA 审核队列（ProposalsView）依赖列表直接带改写内容，不再二次请求。"""
+    c, h = env["client"], env["human"]
+    publish_v1(c, h, env["block_id"])
+    pid = _submit(env, proposed_content_md="# 数据采集模块\n\n改写后的叙述。").json()["id"]
+
+    inbox = c.get("/api/v1/proposals", headers=h).json()
+    p = next(p for p in inbox if p["id"] == pid)
+    assert p["proposed_content_md"] == "# 数据采集模块\n\n改写后的叙述。"
+    # proposed_apis 经规范化（补齐 children 等），断言语义内容
+    assert [a["name"] for a in p["proposed_apis"]] == [a["name"] for a in APIS_V2_MINOR]
+    assert p["proposed_apis"][0]["response"][-1]["name"] == "extra_note"
+
+
+def test_admin_proposal_list_proposed_fields_nullable(env):
+    """只提建议不带改写的提案：两个 proposed 字段为 null 而不是缺失。"""
+    c, h = env["client"], env["human"]
+    publish_v1(c, h, env["block_id"])
+    pid = _submit(env, proposed_apis=None).json()["id"]
+
+    p = next(p for p in c.get("/api/v1/proposals", headers=h).json() if p["id"] == pid)
+    assert p["proposed_content_md"] is None
+    assert p["proposed_apis"] is None
+
+
+def test_agent_get_proposal_echoes_proposed_fields(env):
+    """agent 轮询单条提案时也能拿回自己提交的改写内容（与提交时一致）。"""
+    c, a = env["client"], env["agent"]
+    publish_v1(c, env["human"], env["block_id"])
+    pid = _submit(env, proposed_content_md="# 改写").json()["id"]
+
+    p = c.get(f"/api/v1/proposals/{pid}", headers=a).json()
+    assert p["proposed_content_md"] == "# 改写"
+    assert [a["name"] for a in p["proposed_apis"]] == [a["name"] for a in APIS_V2_MINOR]
+    assert p["proposed_apis"][0]["response"][-1]["name"] == "extra_note"

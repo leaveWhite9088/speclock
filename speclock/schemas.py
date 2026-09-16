@@ -197,6 +197,8 @@ class ProposalOut(BaseModel):
     description: str
     suggestion: str
     scenario: str
+    proposed_content_md: str | None
+    proposed_apis: list[dict] | None
     status: str
     resolution_note: str
     published_version: str | None

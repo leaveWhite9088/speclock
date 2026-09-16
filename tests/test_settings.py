@@ -1,9 +1,6 @@
-"""环境配置（speclock.toml 双环境一键切换）：加载、覆盖顺序与 MCP 页面对外地址。"""
+"""环境配置（speclock.toml 双环境一键切换）：加载与覆盖顺序。"""
 
 from __future__ import annotations
-
-import json
-import re
 
 
 def _write_config(tmp_path, body: str) -> str:
@@ -59,31 +56,5 @@ def test_load_settings_missing_file_defaults(tmp_path, monkeypatch):
     assert s.public_url == "" and s.db_url.startswith("sqlite:///")
 
 
-def _mcp_config(body: str) -> dict:
-    m = re.search(r'id="mcp-config">(.*?)</pre>', body, re.S)
-    return json.loads(m.group(1))
-
-
-def test_mcp_page_uses_public_url_when_configured(env, tmp_path, monkeypatch):
-    """server 环境配了 public_url：MCP 页生成的配置指向对外地址而非访问地址。"""
-    path = _write_config(
-        tmp_path,
-        'active = "server"\n'
-        '[server]\nhost = "0.0.0.0"\nport = 8000\npublic_url = "http://81.70.39.239:8000"\n',
-    )
-    monkeypatch.setenv("SPECLOCK_CONFIG", path)
-    monkeypatch.delenv("SPECLOCK_ENV", raising=False)
-
-    c, h = env["client"], env["human"]
-    body = c.get(f"/ui/mcp?key={h['X-API-Key']}").text
-    config = _mcp_config(body)
-    assert config["mcpServers"]["speclock"]["env"]["SPECLOCK_URL"] == "http://81.70.39.239:8000"
-
-
-def test_mcp_page_dynamic_url_without_public_url(env, monkeypatch):
-    """local 环境 public_url 留空：SPECLOCK_URL 按访问地址动态生成。"""
-    monkeypatch.setenv("SPECLOCK_ENV", "local")
-    c, h = env["client"], env["human"]
-    body = c.get(f"/ui/mcp?key={h['X-API-Key']}").text
-    config = _mcp_config(body)
-    assert config["mcpServers"]["speclock"]["env"]["SPECLOCK_URL"] == "http://testserver"
+# 注：public_url 字段仍保留在配置中，但 MCP 接入页已由 Vue SPA 在浏览器侧
+# 按 window.location.origin 生成配置（web/src/views/McpView.vue），服务端不再读取。

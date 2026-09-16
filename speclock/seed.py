@@ -490,11 +490,11 @@ def main() -> None:
         print(f"  文档「{document.title}」模块 #{block.id}「{block.title}」@{result.version}"
               f"（文档版本 @{result.document_version}）")
     print()
-    print(f"  human key (读写/UI): {human_key}")
+    print(f"  human key (读写/管理端): {human_key}")
     print(f"  agent key (只读+提案): {agent_key}")
     print()
     print("启动服务:  .venv/Scripts/python.exe -m uvicorn speclock.main:app")
-    print(f"管理 UI:   http://127.0.0.1:8000/ui?key={human_key}")
+    print("管理界面:  http://127.0.0.1:8000/  （需先 cd web && npm run build；登录页粘贴 human key）")
     db.close()
 
 
