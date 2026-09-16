@@ -4,6 +4,7 @@ The source of truth for a module's API section is a structured list
 (``apis_json``) with a RECURSIVE field model::
 
     [{"name": "拉取日报主表", "api": "GET /api/daily-report",
+      "desc": "前端日报页调用，只读无副作用",  # 端点语义，写入口径必填
       "request":  [{"name": "date", "type": "string", "required": true,
                     "description": "查询日期", "children": []}],
       "response": [{"name": "data", "type": "object", "required": true,
@@ -85,8 +86,13 @@ def _validate_field(field: object, where: str) -> dict:
     }
 
 
-def validate_apis(apis: object) -> list[dict]:
-    """Validate and normalize a structured API list. Returns normalized list."""
+def validate_apis(apis: object, require_desc: bool = True) -> list[dict]:
+    """Validate and normalize a structured API list. Returns normalized list.
+
+    ``require_desc=True``（写入口径：保存/发布/提案）要求每条 API 带非空
+    ``desc``（端点语义）；diff/OpenAPI 生成等读取存量快照的场景传 False，
+    兼容历史版本里还没有 desc 的数据。
+    """
     if apis is None:
         return []
     if not isinstance(apis, list):
@@ -99,11 +105,18 @@ def validate_apis(apis: object) -> list[dict]:
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():
             raise ApisValidationError(f"{where} 缺少名称（中文显示名）")
+        desc = str(entry.get("desc", "") or "")
+        if require_desc and not desc.strip():
+            raise ApisValidationError(
+                f"{where}（{name.strip()}）缺少端点语义描述 desc"
+                f"（谁调用、为什么、副作用/幂等等字段表看不出来的信息）"
+            )
         method, path = parse_api_name(entry.get("api", ""))
         normalized.append(
             {
                 "name": name.strip(),
                 "api": f"{method} {path}",
+                "desc": desc.strip(),
                 "request": [
                     _validate_field(f, f"{where} 请求体") for f in entry.get("request") or []
                 ],
@@ -113,6 +126,41 @@ def validate_apis(apis: object) -> list[dict]:
             }
         )
     return normalized
+
+
+def validate_rules(rules: object) -> list[dict]:
+    """Validate and normalize a structured rule list. Returns normalized list."""
+    if rules is None:
+        return []
+    if not isinstance(rules, list):
+        raise ApisValidationError("业务规则清单必须是数组")
+    normalized = []
+    for i, entry in enumerate(rules):
+        where = f"第 {i + 1} 条规则"
+        if not isinstance(entry, dict):
+            raise ApisValidationError(f"{where} 必须是对象")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ApisValidationError(f"{where} 缺少规则名 name")
+        detail = entry.get("detail")
+        if not isinstance(detail, str) or not detail.strip():
+            raise ApisValidationError(f"{where}（{name.strip()}）缺少规则详述 detail")
+        normalized.append({"name": name.strip(), "detail": detail.strip()})
+    return normalized
+
+
+def rules_delta(old_rules: list, new_rules: list) -> dict[str, list[str]]:
+    """规则清单 delta：按 rule name 匹配，detail 变了算 modified。
+    rules 变化不算破坏性（is_breaking 只看 apis 侧的 added/modified/removed）。"""
+    old = {r["name"]: r.get("detail", "") for r in validate_rules(old_rules)}
+    new = {r["name"]: r.get("detail", "") for r in validate_rules(new_rules)}
+    return {
+        "rules_added": sorted(new.keys() - old.keys()),
+        "rules_removed": sorted(old.keys() - new.keys()),
+        "rules_modified": sorted(
+            name for name in old.keys() & new.keys() if old[name] != new[name]
+        ),
+    }
 
 
 def _flatten_fields(flat: dict[str, str], key: str, prefix: str, fields: list[dict]) -> None:
@@ -129,7 +177,7 @@ def flatten_apis(apis: list) -> dict[str, str]:
     Display names and descriptions are deliberately excluded (文案改动不算契约变更)。
     """
     flat: dict[str, str] = {}
-    for entry in validate_apis(apis):
+    for entry in validate_apis(apis, require_desc=False):
         method, path = parse_api_name(entry["api"])
         key_prefix = f"{method} {path}"
         flat[f"api:{key_prefix}"] = "operation"
@@ -211,7 +259,7 @@ def _fields_to_schema(fields: list[dict]) -> dict:
 def apis_to_openapi(apis: list) -> dict:
     """Generate an OpenAPI 3.x document from the structured API list."""
     paths: dict[str, dict] = {}
-    for entry in validate_apis(apis):
+    for entry in validate_apis(apis, require_desc=False):
         method, path = parse_api_name(entry["api"])
         operation: dict = {
             "summary": entry["name"],
@@ -254,7 +302,7 @@ def field_lookup(apis: list) -> dict[tuple[str, str, str], dict]:
                 walk(out, kind, api, path + ".", f["children"])
 
     out: dict = {}
-    for entry in validate_apis(apis):
+    for entry in validate_apis(apis, require_desc=False):
         for kind in ("request", "response"):
             walk(out, kind, entry["api"], "", entry[kind])
     return out

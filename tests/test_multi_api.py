@@ -10,6 +10,7 @@ THREE_APIS = [
     {
         "name": "查询每项采集状态",
         "api": "GET /api/daily-report/collect-status",
+        "desc": "运营日报页调用，逐项查看采集进度；只读",
         "request": [{"name": "date", "type": "string", "required": True,
                      "description": "查询日期", "children": []}],
         "response": [
@@ -24,6 +25,7 @@ THREE_APIS = [
     {
         "name": "查询采集项",
         "api": "GET /api/daily-report/collect-items",
+        "desc": "运营日报页调用，列出当日应采集项目；只读",
         "request": [{"name": "date", "type": "string", "required": True,
                      "description": "", "children": []}],
         "response": [{"name": "items", "type": "array", "required": True,
@@ -34,6 +36,7 @@ THREE_APIS = [
     {
         "name": "重新采集特定项",
         "api": "POST /api/daily-report/recollect",
+        "desc": "运营在日报页对失败项触发重采；幂等，重复提交返回同一任务",
         "request": [{"name": "item_ids", "type": "array", "required": True,
                      "description": "", "children": [
                          {"name": "item_id", "type": "string", "required": True,
@@ -70,7 +73,7 @@ def test_adding_one_api_is_minor(env):
     _set_apis_and_publish(env, THREE_APIS, "首发", fastTrack=True)
     four = copy.deepcopy(THREE_APIS)
     four.append({"name": "查询采集日志", "api": "GET /api/daily-report/collect-logs",
-                 "request": [], "response": []})
+                 "desc": "排查用，拉取采集任务日志；只读", "request": [], "response": []})
     r = _set_apis_and_publish(env, four, "加第四个 API", fastTrack=True)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -109,8 +112,8 @@ def test_field_change_scoped_to_its_api(env):
 def test_same_path_different_methods_are_distinct_apis(env):
     """同一路径不同方法应视为不同 API，互不影响。"""
     apis = [
-        {"name": "查", "api": "GET /api/x", "request": [], "response": []},
-        {"name": "增", "api": "POST /api/x", "request": [], "response": []},
+        {"name": "查", "api": "GET /api/x", "desc": "查询 x；只读", "request": [], "response": []},
+        {"name": "增", "api": "POST /api/x", "desc": "新建 x；幂等", "request": [], "response": []},
     ]
     _set_apis_and_publish(env, apis, "首发", fastTrack=True)
     rest = copy.deepcopy(apis)

@@ -38,6 +38,7 @@
 
 {% if not bv %}
 <p class="muted">该模块尚未发布，没有可查看的内容。</p>
+<p><a class="btn-page" href="/ui/blocks/{{ block.id }}?key={{ key }}">编辑</a></p>
 {% else %}
 
 <p>
@@ -47,8 +48,8 @@
       {% for v in versions %}<option {% if v == bv.version %}selected{% endif %}>{{ v }}</option>{% endfor %}
     </select>
   </form>
-  <a href="/ui/blocks/{{ block.id }}?key={{ key }}">编辑草稿</a> ·
-  <a href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">diff</a>
+  <a class="btn-page" href="/ui/blocks/{{ block.id }}?key={{ key }}">编辑</a>
+  <a class="btn-page" href="/ui/blocks/{{ block.id }}/diff?key={{ key }}">diff</a>
   {% if block.completed %}
   <span class="badge completed">✓ 已完成@{{ block.completed_version }}</span>
   <button type="button" onclick="toggleComplete(false)">取消完成</button>
@@ -68,25 +69,47 @@
 </p>
 
 {% if not detail %}
-<h2>业务描述</h2>
-<pre class="doc-md">{{ bv.content_md }}</pre>
+<h2>业务背景与流程</h2>
+<div class="doc-md">{{ bv.content_md | md | safe }}</div>
+
+<h2>业务规则清单（{{ rules | length }} 条）</h2>
+{% if rules %}
+<table>
+  <tr><th>#</th><th>规则名</th><th>规则详述</th></tr>
+  {% for r in rules %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td>{{ r.name }}</td>
+    <td>{{ r.detail }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">无规则（历史版本可能早于结构化拆分）。</p>
+{% endif %}
+
+{% if bv.edge_md %}
+<h2>边界与异常</h2>
+<div class="doc-md">{{ bv.edge_md | md | safe }}</div>
+{% endif %}
 
 <h2>API 列表（{{ apis | length }} 个）</h2>
 <table>
-  <tr><th>#</th><th>名称</th><th>API 名</th><th>方法</th><th></th></tr>
+  <tr><th>#</th><th>名称</th><th>API 名</th><th>方法</th><th>端点语义</th><th></th></tr>
   {% for a in apis %}
   <tr>
     <td>{{ loop.index }}</td>
     <td>{{ a.name }}</td>
     <td class="mono">{{ a.api.split(' ')[1] }}</td>
     <td>{{ method_badge(a.api) }}</td>
+    <td class="muted">{{ a.desc }}</td>
     <td><a href="/ui/blocks/{{ block.id }}/view?key={{ key }}&version={{ bv.version }}&api={{ loop.index0 }}">查看详情 →</a></td>
   </tr>
   {% endfor %}
 </table>
 
 <h2>非功能性需求</h2>
-<pre class="doc-md">{{ bv.nfr_md }}</pre>
+<div class="doc-md">{{ bv.nfr_md | md | safe }}</div>
 
 <h2>版本历史</h2>
 <table>
@@ -108,6 +131,7 @@
 {% set ai, a = detail %}
 <h2>API 详情 #{{ ai + 1 }}：{{ a.name }}</h2>
 <p>{{ method_badge(a.api) }} <span class="mono api-path">{{ a.api }}</span></p>
+{% if a.desc %}<p class="muted">端点语义：{{ a.desc }}</p>{% endif %}
 
 <h3>请求体</h3>
 {% if a.request %}{{ field_table(a.request) }}{% else %}<p class="muted">无请求体字段。</p>{% endif %}

@@ -23,8 +23,16 @@ class ApiField(BaseModel):
 class ApiEntry(BaseModel):
     name: str  # 中文显示名
     api: str  # 方法 + 路径，如 "GET /api/daily-report"
+    desc: str = ""  # 端点语义：谁调用、为什么、副作用/幂等等字段表看不出来的信息
     request: list[ApiField] = []
     response: list[ApiField] = []
+
+
+class RuleEntry(BaseModel):
+    """结构化业务规则：规则名 + 规则详述。"""
+
+    name: str
+    detail: str
 
 
 # ---------- admin (human) requests ----------
@@ -35,6 +43,8 @@ class BlockCreate(BaseModel):
     title: str
     summary: str = ""
     content_md: str = ""
+    rules: list[RuleEntry] = []
+    edge_md: str = ""
     apis: list[ApiEntry] = []
     nfr_md: str = ""
 
@@ -43,6 +53,8 @@ class BlockUpdate(BaseModel):
     title: str | None = None
     summary: str | None = None
     content_md: str | None = None
+    rules: list[RuleEntry] | None = None
+    edge_md: str | None = None
     apis: list[ApiEntry] | None = None
     nfr_md: str | None = None
 
@@ -81,6 +93,9 @@ class ProjectCreate(BaseModel):
 class KeyCreate(BaseModel):
     prefix: str = Field(pattern="^(human|agent)$")
     label: str = ""
+    # 项目隔离：绑定项目后 agent key 只能读该项目文档；None = 全局可见。
+    # 仅对 agent key 生效（human key 是管理端，始终全局）。
+    project_id: int | None = None
 
 
 # ---------- agent requests ----------
@@ -128,6 +143,10 @@ class Delta(BaseModel):
     added: list[str] = []
     modified: list[str] = []
     removed: list[str] = []
+    # 规则清单 delta（按 rule name 匹配；rules 变化不算破坏性）
+    rules_added: list[str] = []
+    rules_removed: list[str] = []
+    rules_modified: list[str] = []
 
 
 class BlockOut(BaseModel):
@@ -135,7 +154,9 @@ class BlockOut(BaseModel):
     title: str
     version: str
     content_md: str
-    apis: list[dict]  # 结构化 API 列表（真相源）
+    rules: list[dict]  # 结构化业务规则清单 [{name, detail}]
+    edge_md: str  # 边界与异常（可空）
+    apis: list[dict]  # 结构化 API 列表（真相源，条目带 desc 端点语义）
     openapi_yaml: str  # 发布时生成的 OpenAPI 3.x（机器消费）
     nfr_md: str
     change_note: str

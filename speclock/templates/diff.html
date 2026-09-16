@@ -46,6 +46,24 @@
 <p class="muted">API 无结构变更。</p>
 {% endif %}
 
+<h2>业务规则变更</h2>
+{% if rules_delta and (rules_delta.rules_added or rules_delta.rules_removed or rules_delta.rules_modified) %}
+<table class="delta-table">
+  <tr><th>变更</th><th>规则名</th></tr>
+  {% for name in rules_delta.rules_added %}
+  <tr class="chg-added"><td>新增</td><td>{{ name }}</td></tr>
+  {% endfor %}
+  {% for name in rules_delta.rules_modified %}
+  <tr class="chg-modified"><td>修改</td><td>{{ name }}</td></tr>
+  {% endfor %}
+  {% for name in rules_delta.rules_removed %}
+  <tr class="chg-removed"><td>删除</td><td>{{ name }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">业务规则无变更。</p>
+{% endif %}
+
 <details class="textdiff" open>
   <summary>业务描述文本 diff</summary>
   <pre class="mono diff">{% for line in content_lines %}<span class="{% if line.startswith('+') and not line.startswith('+++') %}line-add{% elif line.startswith('-') and not line.startswith('---') %}line-del{% endif %}">{{ line }}

@@ -7,8 +7,8 @@ Usage:
 Creates: 项目「Demo 电商系统」→ 大业务「运营」→
   文档「经营日报」: 数据采集模块 / 异常数据展示模块 / 历史记录模块 / 异常规则配置模块
   文档「售罄率报表」: 数据采集模块 / 异常数据展示模块 / 历史版本记录模块 / 异常规则配置模块
-每个模块 = 业务描述 + 结构化 API 列表（含 object/array 嵌套 children 演示）+
-非功能性需求，全部以 1.0.0 发布；文档版本随之派生。
+每个模块 = 业务背景叙述 + 结构化规则清单 + 结构化 API 列表（含 object/array
+嵌套 children 演示）+ 非功能性需求，全部以 1.0.0 发布；文档版本随之派生。
 """
 
 from __future__ import annotations
@@ -27,9 +27,11 @@ DEFAULT_AGENT_KEY = "agent-dev-0000000000000000000000000001"
 
 
 def _get_or_create_key(db, key: str, prefix: str, project_id: int, label: str) -> str:
-    rec = db.query(ApiKey).filter(ApiKey.key == key).first()
+    from speclock.auth import hash_key, key_hint
+    rec = db.query(ApiKey).filter(ApiKey.key == hash_key(key)).first()
     if rec is None:
-        db.add(ApiKey(key=key, prefix=prefix, project_id=project_id, label=label))
+        db.add(ApiKey(key=hash_key(key), hint=key_hint(key),
+                      prefix=prefix, project_id=project_id, label=label))
         db.flush()
     return key
 
@@ -68,6 +70,7 @@ DAILY_COLLECT_APIS = [
     {
         "name": "查询每项采集状态",
         "api": "GET /api/daily-report/collect-status",
+        "desc": "运营在日报页逐项查看采集进度与失败原因；只读无副作用",
         "request": [
             F("date", "string", True, "查询日期，YYYY-MM-DD"),
             F("region", "string", False, "大区，不传查全部"),
@@ -86,6 +89,7 @@ DAILY_COLLECT_APIS = [
     {
         "name": "查询采集项",
         "api": "GET /api/daily-report/collect-items",
+        "desc": "采集任务与日报页共用，列出当日应采集项目；只读",
         "request": [
             F("date", "string", True, "查询日期，YYYY-MM-DD"),
         ],
@@ -101,6 +105,7 @@ DAILY_COLLECT_APIS = [
     {
         "name": "重新采集特定项",
         "api": "POST /api/daily-report/recollect",
+        "desc": "运营对失败/缺失的采集项触发重采；幂等，重复提交返回同一 task_id",
         "request": [
             F("date", "string", True, "采集日期，YYYY-MM-DD"),
             F("item_ids", "array", True, "要重新采集的采集项 ID 列表", children=[
@@ -116,6 +121,12 @@ DAILY_COLLECT_APIS = [
 ]
 
 DAILY_COLLECT_NFR = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 06:30 前完成\n"
+
+DAILY_COLLECT_RULES = [
+    {"name": "销售额口径", "detail": "支付成功订单金额合计（不含退款）"},
+    {"name": "订单量口径", "detail": "支付成功订单数"},
+    {"name": "失败处理", "detail": "采集失败重试 3 次，仍失败则告警到运营群，对应门店行标记「数据缺失」"},
+]
 
 DAILY_ANOMALY_MD = """\
 # 异常数据展示模块（经营日报）
@@ -135,6 +146,7 @@ DAILY_ANOMALY_APIS = [
     {
         "name": "拉取异常行列表",
         "api": "GET /api/daily-report/anomalies",
+        "desc": "前端日报页拉取某日异常行并标红置顶；只读",
         "request": [F("date", "string", True, "查询日期")],
         "response": [
             F("store_name", "string", True, "门店名"),
@@ -145,6 +157,13 @@ DAILY_ANOMALY_APIS = [
 ]
 
 DAILY_ANOMALY_NFR = "- 异常行列表接口 P95 ≤ 500ms\n"
+
+DAILY_ANOMALY_RULES = [
+    {"name": "销售额环比骤降", "detail": "销售额环比下降超过 30%（对比前一同口径日期）即命中"},
+    {"name": "零订单营业中", "detail": "订单量为 0 但门店状态为「营业中」即命中"},
+    {"name": "客单价异常", "detail": "客单价超过该门店近 30 天均值 3 倍即命中"},
+    {"name": "命中展示", "detail": "命中任一规则即视为异常行，整行标红并置顶"},
+]
 
 DAILY_HISTORY_MD = """\
 # 历史记录模块（经营日报）
@@ -160,6 +179,7 @@ DAILY_HISTORY_APIS = [
     {
         "name": "查询历史日报",
         "api": "GET /api/daily-report/history",
+        "desc": "日报页回看或导出历史日期主表数据；只读",
         "request": [
             F("start_date", "string", True, "起始日期"),
             F("end_date", "string", True, "结束日期"),
@@ -178,6 +198,12 @@ DAILY_HISTORY_APIS = [
 
 DAILY_HISTORY_NFR = "- 历史查询接口 P95 ≤ 800ms（区间 ≤ 31 天）\n- 单页默认 50 行，最大 200 行\n"
 
+DAILY_HISTORY_RULES = [
+    {"name": "默认展示", "detail": "默认展示昨日数据，可切换日期或选择日期区间导出"},
+    {"name": "只读", "detail": "历史数据只读，不提供修改入口"},
+    {"name": "保留期", "detail": "数据保留 730 天"},
+]
+
 DAILY_RULE_MD = """\
 # 异常规则配置模块（经营日报）
 
@@ -193,6 +219,7 @@ DAILY_RULE_APIS = [
     {
         "name": "保存异常规则",
         "api": "POST /api/daily-report/anomaly-rules",
+        "desc": "运营保存异常规则；带 rule_id 为修改，幂等，次日生效",
         "request": [
             F("rule", "object", True, "规则对象（嵌套结构演示）", children=[
                 F("rule_id", "string", False, "规则 ID，新增时留空"),
@@ -215,6 +242,12 @@ DAILY_RULE_APIS = [
 
 DAILY_RULE_NFR = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
 
+DAILY_RULE_RULES = [
+    {"name": "生效时间", "detail": "规则保存后次日生效，不回溯历史数据"},
+    {"name": "唯一启用", "detail": "同一指标只允许一条启用中的规则"},
+    {"name": "生效范围", "detail": "rule.scope 可限定大区或门店，缺省为全量"},
+]
+
 # ================= 售罄率报表 =================
 
 SELLOUT_COLLECT_MD = """\
@@ -231,6 +264,7 @@ SELLOUT_COLLECT_APIS = [
     {
         "name": "查询售罄数据采集状态",
         "api": "GET /api/sellout-report/collect-status",
+        "desc": "售罄率报表页查看采集进度；只读",
         "request": [F("date", "string", True, "查询日期")],
         "response": [
             F("date", "string", True, "日期"),
@@ -242,6 +276,12 @@ SELLOUT_COLLECT_APIS = [
 ]
 
 SELLOUT_COLLECT_NFR = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 07:30 前完成\n"
+
+SELLOUT_COLLECT_RULES = [
+    {"name": "售罄率口径", "detail": "售罄率 = 累计销售量 / 累计到货量"},
+    {"name": "到货量口径", "detail": "到货量以仓库入库单为准"},
+    {"name": "销售量口径", "detail": "销售量以支付成功订单为准"},
+]
 
 SELLOUT_ANOMALY_MD = """\
 # 异常数据展示模块（售罄率报表）
@@ -260,6 +300,7 @@ SELLOUT_ANOMALY_APIS = [
     {
         "name": "拉取售罄异常行",
         "api": "GET /api/sellout-report/anomalies",
+        "desc": "售罄率报表页拉取异常行并标红置顶；只读",
         "request": [F("date", "string", True, "查询日期")],
         "response": [
             F("store_name", "string", True, "门店名"),
@@ -271,6 +312,12 @@ SELLOUT_ANOMALY_APIS = [
 ]
 
 SELLOUT_ANOMALY_NFR = "- 异常行列表接口 P95 ≤ 500ms\n"
+
+SELLOUT_ANOMALY_RULES = [
+    {"name": "售罄跳升", "detail": "售罄率 7 日内从低于 30% 跳升到 95% 以上（疑似超卖或数据错误）"},
+    {"name": "无到货有销售", "detail": "到货量为 0 但产生销售（库存数据缺失）"},
+    {"name": "滞销预警", "detail": "售罄率连续 14 天低于 5%"},
+]
 
 SELLOUT_HISTORY_MD = """\
 # 历史版本记录模块（售罄率报表）
@@ -287,6 +334,7 @@ SELLOUT_HISTORY_APIS = [
     {
         "name": "查询售罄率历史快照",
         "api": "GET /api/sellout-report/history",
+        "desc": "售罄率报表页回看历史快照并下钻门店/SKU 明细；只读",
         "request": [
             F("start_date", "string", True, "起始日期"),
             F("end_date", "string", True, "结束日期"),
@@ -311,6 +359,11 @@ SELLOUT_HISTORY_APIS = [
 
 SELLOUT_HISTORY_NFR = "- 历史快照接口 P95 ≤ 1s（区间 ≤ 31 天）\n- 快照保留 365 天\n"
 
+SELLOUT_HISTORY_RULES = [
+    {"name": "快照粒度", "detail": "按日快照保存，可下钻到「门店 → SKU」两级明细"},
+    {"name": "只读", "detail": "快照只读，保留 365 天"},
+]
+
 SELLOUT_RULE_MD = """\
 # 异常规则配置模块（售罄率报表）
 
@@ -325,6 +378,7 @@ SELLOUT_RULE_APIS = [
     {
         "name": "保存售罄异常规则",
         "api": "POST /api/sellout-report/anomaly-rules",
+        "desc": "运营保存售罄异常规则；带 rule_id 为修改，幂等，次日生效",
         "request": [
             F("rule", "object", True, "规则对象", children=[
                 F("rule_id", "string", False, "规则 ID，新增时留空"),
@@ -351,6 +405,11 @@ SELLOUT_RULE_APIS = [
 
 SELLOUT_RULE_NFR = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
 
+SELLOUT_RULE_RULES = [
+    {"name": "生效时间", "detail": "规则保存后次日生效"},
+    {"name": "生效范围", "detail": "rule.scope 限定生效的大区/门店/SKU，缺省为全量"},
+]
+
 
 def main() -> None:
     get_engine()
@@ -359,9 +418,9 @@ def main() -> None:
 
     existing = db.query(ApiKey).all()
     if existing:
-        print("数据库已有 key，跳过建库，直接打印：")
+        print("数据库已有 key，跳过建库（密钥哈希化存储，明文无法回显，只显示 hint）：")
         for k in existing:
-            print(f"  {k.prefix}: {k.key}")
+            print(f"  {k.prefix}: {k.hint}")
         db.close()
         return
 
@@ -382,23 +441,23 @@ def main() -> None:
     docs = [
         ("经营日报", [
             ("数据采集模块", "汇总前一日经营数据并落库，提供采集状态查询",
-             DAILY_COLLECT_MD, DAILY_COLLECT_APIS, DAILY_COLLECT_NFR),
+             DAILY_COLLECT_MD, DAILY_COLLECT_RULES, DAILY_COLLECT_APIS, DAILY_COLLECT_NFR),
             ("异常数据展示模块", "销售额环比骤降等三类异常行的标红置顶展示",
-             DAILY_ANOMALY_MD, DAILY_ANOMALY_APIS, DAILY_ANOMALY_NFR),
+             DAILY_ANOMALY_MD, DAILY_ANOMALY_RULES, DAILY_ANOMALY_APIS, DAILY_ANOMALY_NFR),
             ("历史记录模块", "按日期区间回看/导出历史日报数据",
-             DAILY_HISTORY_MD, DAILY_HISTORY_APIS, DAILY_HISTORY_NFR),
+             DAILY_HISTORY_MD, DAILY_HISTORY_RULES, DAILY_HISTORY_APIS, DAILY_HISTORY_NFR),
             ("异常规则配置模块", "异常值规则的阈值与生效范围配置（增改接口）",
-             DAILY_RULE_MD, DAILY_RULE_APIS, DAILY_RULE_NFR),
+             DAILY_RULE_MD, DAILY_RULE_RULES, DAILY_RULE_APIS, DAILY_RULE_NFR),
         ]),
         ("售罄率报表", [
             ("数据采集模块", "按大区/门店/SKU 三级粒度汇总售罄率数据",
-             SELLOUT_COLLECT_MD, SELLOUT_COLLECT_APIS, SELLOUT_COLLECT_NFR),
+             SELLOUT_COLLECT_MD, SELLOUT_COLLECT_RULES, SELLOUT_COLLECT_APIS, SELLOUT_COLLECT_NFR),
             ("异常数据展示模块", "超卖、库存缺失、滞销三类售罄异常行展示",
-             SELLOUT_ANOMALY_MD, SELLOUT_ANOMALY_APIS, SELLOUT_ANOMALY_NFR),
+             SELLOUT_ANOMALY_MD, SELLOUT_ANOMALY_RULES, SELLOUT_ANOMALY_APIS, SELLOUT_ANOMALY_NFR),
             ("历史版本记录模块", "按日快照回看售罄率报表，下钻门店/SKU 明细",
-             SELLOUT_HISTORY_MD, SELLOUT_HISTORY_APIS, SELLOUT_HISTORY_NFR),
+             SELLOUT_HISTORY_MD, SELLOUT_HISTORY_RULES, SELLOUT_HISTORY_APIS, SELLOUT_HISTORY_NFR),
             ("异常规则配置模块", "售罄率异常规则的阈值与生效范围配置",
-             SELLOUT_RULE_MD, SELLOUT_RULE_APIS, SELLOUT_RULE_NFR),
+             SELLOUT_RULE_MD, SELLOUT_RULE_RULES, SELLOUT_RULE_APIS, SELLOUT_RULE_NFR),
         ]),
     ]
 
@@ -407,18 +466,19 @@ def main() -> None:
         document = Document(domain_id=domain.id, title=doc_title, doc_type="business")
         db.add(document)
         db.flush()
-        for title, summary, md, apis, nfr in modules:
+        for title, summary, md, rules, apis, nfr in modules:
             block = Block(
                 document_id=document.id,
                 title=title,
                 summary=summary,
                 draft_content_md=md,
+                draft_rules_json=json.dumps(rules, ensure_ascii=False),
                 draft_apis_json=json.dumps(apis, ensure_ascii=False),
                 draft_nfr_md=nfr,
             )
             db.add(block)
             db.flush()
-            result = publish_block(db, block, actor=human_key, change_note="初始发布",
+            result = publish_block(db, block, actor="seed", change_note="初始发布",
                                    fast_track=True, confirm=False)
             created.append((document, block, result))
 

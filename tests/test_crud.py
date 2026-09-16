@@ -122,6 +122,8 @@ def test_full_create_chain_visible_to_agent(env):
                  json={"domain_id": dm["id"], "title": "商品主档"}, headers=h).json()
     blk = c.post("/api/v1/blocks",
                  json={"document_id": doc["id"], "title": "商品查询模块",
+                       "content_md": "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。",
+                       "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}],
                        "apis": APIS_V1}, headers=h).json()
     r = c.post(f"/api/v1/blocks/{blk['id']}/publish",
                json={"change_note": "首发", "fastTrack": True}, headers=h)

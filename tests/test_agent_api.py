@@ -28,7 +28,8 @@ def test_version_pin_reads_exact_snapshot(env):
     publish_v1(c, h, bid)
     # publish a second version with different content
     c.put(f"/api/v1/blocks/{bid}",
-          json={"content_md": "# 数据采集模块 v2\n\n新版描述。", "apis": APIS_V2_MINOR}, headers=h)
+          json={"content_md": "# 数据采集模块 v2\n\n新版描述：背景与流程叙述更新。",
+                "apis": APIS_V2_MINOR}, headers=h)
     c.post(f"/api/v1/blocks/{bid}/publish",
            json={"change_note": "v2", "fastTrack": True}, headers=h)
 

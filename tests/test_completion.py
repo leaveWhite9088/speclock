@@ -73,7 +73,10 @@ def test_index_domain_filter(env):
                 headers=h).json()
     doc = c.post("/api/v1/documents", json={"domain_id": dm["id"], "title": "商品主档"},
                  headers=h).json()
-    blk = c.post("/api/v1/blocks", json={"document_id": doc["id"], "title": "商品查询模块"},
+    blk = c.post("/api/v1/blocks",
+                 json={"document_id": doc["id"], "title": "商品查询模块",
+                       "content_md": "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。",
+                       "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}]},
                  headers=h).json()
     publish_v1(c, h, blk["id"])
 

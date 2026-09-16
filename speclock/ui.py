@@ -1,9 +1,9 @@
 """Minimal human-facing UI (Jinja2 + vanilla JS).
 
-Pages: document tree, module editor (业务描述 / API 填表区 / 非功能性需求
-三区，全程无 YAML), diff view, publish, proposal inbox, ack board,
-document version history. Auth via ?key=human-... query parameter — MVP
-grade, single-operator tool.
+Pages: document tree, module editor (业务描述拆为 背景叙述 / 规则清单 /
+边界与异常 三区 + API 填表区 + 非功能性需求，全程无 YAML), diff view,
+publish, proposal inbox, ack board, document version history. Auth via
+?key=human-... query parameter — MVP grade, single-operator tool.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from sqlalchemy.orm import Session
 
+from speclock.auth import hash_key, key_hint
 from speclock.db import get_db
 from speclock.models import (
     Ack,
@@ -33,6 +34,15 @@ router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
+def _render_md(text: str) -> str:
+    """业务描述 / 非功能性需求的 Markdown → HTML（查看页渲染用）。"""
+    import markdown
+    return markdown.markdown(text or "", extensions=["tables", "fenced_code", "sane_lists"])
+
+
+templates.env.filters["md"] = _render_md
+
+
 def _check_key(request: Request, db: Session) -> str | RedirectResponse:
     """UI 页面级校验：?key= 必须是库中存在的 human-* key，否则重定向登录页。
     （此前只查前缀，key 失效后页面照开、写接口才 401，用户无法自查。）"""
@@ -41,7 +51,7 @@ def _check_key(request: Request, db: Session) -> str | RedirectResponse:
     if key:
         rec = (
             db.query(ApiKey)
-            .filter(ApiKey.key == key, ApiKey.prefix == "human")
+            .filter(ApiKey.key == hash_key(key), ApiKey.prefix == "human")
             .first()
         )
     if rec is None:
@@ -108,6 +118,8 @@ def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
             "key": key,
             "block": block,
             "versions": versions,
+            "rules": json.loads(block.draft_rules_json or "[]"),
+            "edge_md": block.draft_edge_md,
             "apis": json.loads(block.draft_apis_json or "[]"),
         },
     )
@@ -135,6 +147,7 @@ def block_view(
         .first()
     )
     apis = json.loads(bv.apis_json or "[]") if bv else []
+    rules = json.loads(bv.rules_json or "[]") if bv else []
     detail = None
     if api is not None and 0 <= api < len(apis):
         detail = (api, apis[api])
@@ -146,6 +159,7 @@ def block_view(
             "block": block,
             "bv": bv,
             "apis": apis,
+            "rules": rules,
             "detail": detail,
             "versions": [v.version for v in block.versions],
         },
@@ -176,6 +190,7 @@ def diff_view(
 
     summary = None
     groups = []
+    rules_delta: dict[str, list[str]] = {}
     content_lines: list[str] = []
     nfr_lines: list[str] = []
     if from_ and to and from_ != to and from_ in versions and to in versions:
@@ -184,6 +199,9 @@ def diff_view(
         new_apis = json.loads(new.apis_json or "[]")
         d = diffing.delta(old_apis, new_apis)
         groups = diffing.group_delta(d, old_apis, new_apis)
+        rules_delta = diffing.rules_delta(
+            json.loads(old.rules_json or "[]"), json.loads(new.rules_json or "[]")
+        )
         summary = {
             "from": from_,
             "to": to,
@@ -191,6 +209,9 @@ def diff_view(
             "added": len(d["added"]),
             "modified": len(d["modified"]),
             "removed": len(d["removed"]),
+            "rules_added": len(rules_delta["rules_added"]),
+            "rules_removed": len(rules_delta["rules_removed"]),
+            "rules_modified": len(rules_delta["rules_modified"]),
             "change_note": new.change_note,
         }
         content_lines = diffing.text_diff(old.content_md, new.content_md, from_, to).splitlines()
@@ -206,6 +227,7 @@ def diff_view(
             "to": to,
             "summary": summary,
             "groups": groups,
+            "rules_delta": rules_delta,
             "content_lines": content_lines,
             "nfr_lines": nfr_lines,
         },
@@ -223,14 +245,22 @@ def mcp_page(request: Request, db: Session = Depends(get_db)):
     agent_rec = (
         db.query(ApiKey).filter(ApiKey.prefix == "agent").order_by(ApiKey.id).first()
     )
-    agent_key = agent_rec.key if agent_rec else "agent-<请先运行 seed 生成>"
+    # 密钥哈希化后系统不再保存明文，配置里只能给占位符——
+    # 用户到「密钥管理」页新建 agent key（仅此一次可见）后自行粘贴
+    agent_key = "<粘贴你的 agent key（密钥管理页生成，仅此一次可见）>"
+    agent_hint = agent_rec.hint if agent_rec else ""
+    # 对外地址：speclock.toml 当前环境配了 public_url 就用它（服务器场景），
+    # 否则按访问地址动态生成（本地场景）
+    from speclock.settings import load_settings
+
+    base_url = load_settings().public_url or str(request.base_url).rstrip("/")
     config = {
         "mcpServers": {
             "speclock": {
                 "command": sys.executable,
                 "args": ["-m", "speclock.mcp_server"],
                 "env": {
-                    "SPECLOCK_URL": str(request.base_url).rstrip("/"),
+                    "SPECLOCK_URL": base_url,
                     "SPECLOCK_KEY": agent_key,
                 },
             }
@@ -274,6 +304,7 @@ def mcp_page(request: Request, db: Session = Depends(get_db)):
             "key": key,
             "config": config,
             "agent_key": agent_key,
+            "agent_hint": agent_hint,
             "tools": MCP_TOOLS,
             "activities": activities,
             "brief": brief,
@@ -339,8 +370,15 @@ def keys_page(request: Request, db: Session = Depends(get_db)):
     if not isinstance(key, str):
         return key
     keys = db.query(ApiKey).order_by(ApiKey.id).all()
+    projects = db.query(Project).order_by(Project.id).all()
     return templates.TemplateResponse(
         request,
         "keys.html",
-        {"key": key, "keys": keys, "current_key": key},
+        {
+            "key": key,
+            "keys": keys,
+            "current_hint": key_hint(key),
+            "projects": projects,
+            "project_names": {p.id: p.name for p in projects},
+        },
     )

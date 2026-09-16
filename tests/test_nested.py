@@ -11,6 +11,7 @@ NESTED_V1 = [
     {
         "name": "保存异常规则",
         "api": "POST /api/daily-report/anomaly-rules",
+        "desc": "运营在规则配置页保存规则；带 rule_id 为修改，幂等",
         "request": [
             {
                 "name": "rule",
@@ -159,7 +160,7 @@ def test_nested_array_children_generate_items_schema(env):
     from speclock.diffing import apis_to_openapi
 
     apis = [{
-        "name": "查历史", "api": "GET /api/x/history", "request": [],
+        "name": "查历史", "api": "GET /api/x/history", "desc": "查历史快照；只读", "request": [],
         "response": [{"name": "rows", "type": "array", "required": True,
                       "description": "", "children": [
                           {"name": "date", "type": "string", "required": True,
