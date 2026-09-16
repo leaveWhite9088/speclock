@@ -6,5 +6,6 @@ __pycache__/
 .pytest_cache/
 server.log
 server.err.log
+DEPLOY.md
 build/
 dist/
