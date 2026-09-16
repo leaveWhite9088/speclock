@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from speclock import diffing
@@ -21,6 +21,7 @@ from speclock.db import get_db
 from speclock.models import (
     Ack,
     ApiKey,
+    AuditLog,
     Block,
     BlockVersion,
     Document,
@@ -264,6 +265,95 @@ def publish_block(
         affected=affected,
         groups=groups,
     )
+
+
+# ---------- SPA read endpoints（读操作不写审计） ----------
+
+
+@router.get("/tree")
+def get_tree(db: Session = Depends(get_db)):
+    """全量聚合树：projects → domains → documents → blocks，供 SPA 文档树主页
+    一次拉取。与 UI 主页一样含全部状态（draft / published / archived）的模块。"""
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "domains": [
+                {
+                    "id": d.id,
+                    "name": d.name,
+                    "documents": [
+                        {
+                            "id": doc.id,
+                            "title": doc.title,
+                            "doc_type": doc.doc_type,
+                            "current_version": doc.current_version,
+                            "blocks": [
+                                {
+                                    "id": b.id,
+                                    "title": b.title,
+                                    "status": b.status,
+                                    "current_published_version": b.current_published_version,
+                                    "completed": b.completed,
+                                }
+                                for b in doc.blocks
+                            ],
+                        }
+                        for doc in d.documents
+                    ],
+                }
+                for d in p.domains
+            ],
+        }
+        for p in db.query(Project).order_by(Project.id).all()
+    ]
+
+
+@router.get("/archive")
+def list_archive(db: Session = Depends(get_db)):
+    """已归档模块列表（含所属文档 / 大业务 / 项目名称），对应 UI 归档页。"""
+    return [
+        {
+            "id": b.id,
+            "title": b.title,
+            "current_published_version": b.current_published_version,
+            "archived_at": b.archived_at,
+            "document_id": b.document_id,
+            "document_title": b.document.title,
+            "domain_id": b.document.domain_id,
+            "domain_name": b.document.domain.name,
+            "project_id": b.document.domain.project_id,
+            "project_name": b.document.domain.project.name,
+        }
+        for b in db.query(Block)
+        .filter(Block.status == "archived")
+        .order_by(Block.id)
+        .all()
+    ]
+
+
+@router.get("/activity")
+def list_activity(
+    limit: int = Query(default=50, ge=1, le=500),
+    actor_prefix: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """最近审计日志（新的在前）。actor_prefix 可按 key 前缀过滤
+    （如 ``agent`` 只看 AI 活动，供 SPA 的 AI 接入页使用）。"""
+    q = db.query(AuditLog)
+    if actor_prefix:
+        q = q.filter(AuditLog.actor.like(f"{actor_prefix}%"))
+    return [
+        {
+            "id": a.id,
+            "actor": a.actor,
+            "action": a.action,
+            "target": a.target,
+            "detail": json.loads(a.detail_json or "{}"),
+            "created_at": a.created_at,
+        }
+        for a in q.order_by(AuditLog.id.desc()).limit(limit).all()
+    ]
 
 
 # ---------- taxonomy CRUD ----------
@@ -592,6 +682,31 @@ def list_versions(block_id: int, db: Session = Depends(get_db)):
         }
         for v in block.versions
     ]
+
+
+@router.get("/blocks/{block_id}/versions/{version}")
+def get_version(block_id: int, version: str, db: Session = Depends(get_db)):
+    """单个已发布版本的完整快照（human 侧，不限模块状态——已归档模块的历史
+    版本同样可查）。对应 UI 的模块查看页。"""
+    block = _get_block(db, block_id)
+    bv = _published_version(db, block, version)
+    return {
+        "block_id": bv.block_id,
+        "title": block.title,
+        "status": block.status,
+        "version": bv.version,
+        "content_md": bv.content_md,
+        "rules": json.loads(bv.rules_json or "[]"),
+        "apis": json.loads(bv.apis_json or "[]"),
+        "openapi_yaml": bv.openapi_yaml,
+        "nfr_md": bv.nfr_md,
+        "change_note": bv.change_note,
+        "delta": json.loads(bv.delta_json),
+        "published_by": bv.published_by,
+        "published_at": bv.published_at,
+        "completed": block.completed,
+        "completed_version": block.completed_version,
+    }
 
 
 @router.get("/documents/{document_id}/versions")

@@ -1,11 +1,12 @@
-"""API-key auth. Two key classes, two dependencies — the physical boundary
-of the whole system:
+"""API-key auth. Two key classes — the physical boundary of the whole system:
 
 - ``require_human`` guards every write endpoint (admin router).
 - ``require_agent`` guards the read + proposal endpoints (agent router).
+- ``require_reader`` accepts either class; used only by the shared diff read
+  endpoint, which applies agent-only visibility checks itself by key prefix.
 
 An ``agent-*`` key against any admin endpoint is always 403; a missing or
-unknown key is 401. There is no endpoint that accepts both.
+unknown key is 401.
 """
 
 from __future__ import annotations
@@ -69,6 +70,15 @@ def require_agent(
             detail="read endpoints require an agent-* key; humans use the admin API or UI",
         )
     return rec
+
+
+def require_reader(
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    """读端点（human / agent key 均可）。仅用于人机共用的 diff 读端点：
+    agent 的可见性约束（published 状态 / 项目隔离）由端点按 prefix 自行施加。"""
+    return _lookup(x_api_key, db)
 
 
 def audit(db: Session, actor: str, action: str, target: str, detail: dict | None = None) -> None:

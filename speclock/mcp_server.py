@@ -97,7 +97,12 @@ def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
 @mcp.tool(description=(
     "Submit a change proposal — the ONLY way an agent can influence the "
     "document store. A human must approve and publish it before it takes "
-    "effect; poll with get_proposal."
+    "effect; poll with get_proposal. Optionally attach a concrete rewrite: "
+    "proposed_content_md (full replacement of the business narrative) and/or "
+    "proposed_apis (full replacement of the structured API list — entries as "
+    "{name, api, desc, request, response} objects, same shape as returned by "
+    "get_block). The backend only understands these structured fields; it "
+    "does NOT accept raw OpenAPI YAML."
 ))
 def submit_proposal(
     block_id: int,
@@ -105,7 +110,7 @@ def submit_proposal(
     suggestion: str,
     scenario: str = "",
     proposed_content_md: str = "",
-    proposed_openapi_yaml: str = "",
+    proposed_apis: list[dict] | None = None,
 ) -> str:
     body: dict = {
         "block_id": block_id,
@@ -115,8 +120,8 @@ def submit_proposal(
     }
     if proposed_content_md:
         body["proposed_content_md"] = proposed_content_md
-    if proposed_openapi_yaml:
-        body["proposed_openapi_yaml"] = proposed_openapi_yaml
+    if proposed_apis is not None:
+        body["proposed_apis"] = proposed_apis
     return _call("POST", "/api/v1/proposals", json=body)
 
 

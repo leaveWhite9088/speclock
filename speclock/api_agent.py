@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from speclock import diffing
-from speclock.auth import audit, require_agent
+from speclock.auth import audit, require_agent, require_reader
 from speclock.db import get_db
 from speclock.models import (
     Ack,
@@ -161,31 +161,39 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     return _block_out(bv)
 
 
-@router.get("/blocks/{block_id}/diff")
-def get_diff(
-    block_id: int,
-    from_: str | None = Query(default=None, alias="from"),
-    to: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_agent),
-):
-    """版本间 diff。from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布
-    版本时返回友好提示（200）而非报错。"""
-    block = db.get(Block, block_id)
-    if block is None or block.status != "published":
-        raise HTTPException(status_code=404, detail=f"block {block_id} not found")
-    _check_project_scope(key, _block_project_id(block))
+def compute_block_diff(
+    db: Session, block: Block, from_: str | None, to: str | None
+) -> dict:
+    """版本间 diff 的核心逻辑，agent / admin 两端点共用。
+
+    from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布版本时返回
+    友好提示（调用方原样以 200 返回）而非报错。版本不存在抛 404。
+    不做鉴权 / 状态可见性检查（如 agent 仅见 published）——那是调用方
+    （端点）的职责；因此这里只按版本号查快照，已归档模块的历史版本同样可比。
+    """
     ordered = [v.version for v in block.versions]
     if len(ordered) < 2:
         return {
-            "block_id": block_id,
+            "block_id": block.id,
             "message": "该模块目前只有一个已发布版本，暂无可对比的历史版本",
             "versions": ordered,
         }
     from_ = from_ or ordered[-2]
     to = to or ordered[-1]
-    old = _published_snapshot(db, block, from_)
-    new = _published_snapshot(db, block, to)
+    old = (
+        db.query(BlockVersion)
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == from_)
+        .first()
+    )
+    new = (
+        db.query(BlockVersion)
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == to)
+        .first()
+    )
+    if old is None:
+        raise HTTPException(status_code=404, detail=f"block {block.id} has no version {from_}")
+    if new is None:
+        raise HTTPException(status_code=404, detail=f"block {block.id} has no version {to}")
     d = diffing.delta(json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]"))
     # 规则清单 delta 一并带给 agent（按 rule name 匹配；不算破坏性）
     d.update(
@@ -193,10 +201,8 @@ def get_diff(
             json.loads(old.rules_json or "[]"), json.loads(new.rules_json or "[]")
         )
     )
-    audit(db, key.hint, "pull", f"block:{block_id}/diff", {"from": from_, "to": to})
-    db.commit()
     return {
-        "block_id": block_id,
+        "block_id": block.id,
         "from": from_,
         "to": to,
         "content_diff": diffing.text_diff(
@@ -208,6 +214,36 @@ def get_diff(
         "delta": d,
         "breaking": diffing.is_breaking(d),
     }
+
+
+@router.get("/blocks/{block_id}/diff")
+def get_diff(
+    block_id: int,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_reader),
+):
+    """版本间 diff。from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布
+    版本时返回友好提示（200）而非报错。
+
+    human / agent key 均可用（同一路径，人机共用）：agent key 受 published
+    状态与项目隔离约束并写 pull 审计；human key 无限制、不写审计。"""
+    block = db.get(Block, block_id)
+    if block is None:
+        raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+    is_agent = key.prefix == "agent"
+    if is_agent:
+        # drafts and archived blocks are invisible to agents
+        if block.status != "published":
+            raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+        _check_project_scope(key, _block_project_id(block))
+    result = compute_block_diff(db, block, from_, to)
+    if is_agent:
+        audit(db, key.hint, "pull", f"block:{block_id}/diff",
+              {"from": result.get("from"), "to": result.get("to")})
+        db.commit()
+    return result
 
 
 # ---------- document-level reads (两级版本的文档侧) ----------
