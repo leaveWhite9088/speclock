@@ -59,9 +59,14 @@ def _get_block(db: Session, block_id: int) -> Block:
 
 
 def _published_version(db: Session, block: Block, version: str) -> BlockVersion:
+    """按版本号取可见快照；已作废（voided_at 非空）的版本视为不存在。"""
     bv = (
         db.query(BlockVersion)
-        .filter(BlockVersion.block_id == block.id, BlockVersion.version == version)
+        .filter(
+            BlockVersion.block_id == block.id,
+            BlockVersion.version == version,
+            BlockVersion.voided_at.is_(None),
+        )
         .first()
     )
     if bv is None:
@@ -193,7 +198,11 @@ def publish_block(
     breaking = diffing.is_breaking(d)
     affected = d["removed"] + d["modified"]
     groups = diffing.group_delta(d, old_apis, apis)
-    version, level = diffing.next_module_version(block.current_published_version, d)
+    # 版本号永不复用：从含作废版本在内的历史最大号继续递增；
+    # diff 基线仍是最新未作废版本（current_published_version 在作废时已回退）
+    ever = [v.version for v in block.versions]
+    base = max(ever, key=diffing.semver_key) if ever else None
+    version, level = diffing.next_module_version(base, d)
 
     if dry_run:
         doc = db.get(Document, block.document_id)
@@ -671,6 +680,7 @@ def publish(
 
 @router.get("/blocks/{block_id}/versions")
 def list_versions(block_id: int, db: Session = Depends(get_db)):
+    """版本历史列表：已作废版本不出现（逻辑删除，库里仍保留）。"""
     block = _get_block(db, block_id)
     return [
         {
@@ -681,6 +691,7 @@ def list_versions(block_id: int, db: Session = Depends(get_db)):
             "published_at": v.published_at,
         }
         for v in block.versions
+        if v.voided_at is None
     ]
 
 
@@ -706,6 +717,43 @@ def get_version(block_id: int, version: str, db: Session = Depends(get_db)):
         "published_at": bv.published_at,
         "completed": block.completed,
         "completed_version": block.completed_version,
+    }
+
+
+@router.post("/blocks/{block_id}/versions/{version}/void")
+def void_version(
+    block_id: int,
+    version: str,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_human),
+):
+    """版本作废（逻辑删除）：作废后该版本对 agent 与页面均不可见（读取 404、
+    历史列表/diff/index 均排除），数据库行保留可查。不提供恢复入口。
+
+    作废时把 Block.current_published_version 回退到最新未作废版本（全部作废
+    则置 None，模块按未发布展示），各读侧无需额外过滤即可看到一致语义；
+    版本号不复用由发布侧按含作废版本的历史最大号递增保证。
+    已作废的版本再次调用返回 409（与 restore/complete 的状态冲突语义一致）。"""
+    block = _get_block(db, block_id)
+    bv = (
+        db.query(BlockVersion)
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == version)
+        .first()
+    )
+    if bv is None:
+        raise HTTPException(status_code=404, detail=f"block {block.id} has no version {version}")
+    if bv.voided_at is not None:
+        raise HTTPException(status_code=409, detail=f"version {version} already voided")
+    bv.voided_at = utcnow()
+    remaining = [v for v in block.versions if v.voided_at is None]
+    block.current_published_version = remaining[-1].version if remaining else None
+    audit(db, key.hint, "void", f"block:{block.id}@{version}", {})
+    db.commit()
+    return {
+        "block_id": block.id,
+        "version": version,
+        "voided": True,
+        "current_published_version": block.current_published_version,
     }
 
 

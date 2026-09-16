@@ -115,6 +115,8 @@ class BlockVersion(Base):
     delta_json: Mapped[str] = mapped_column(Text, default="{}")  # {added, modified, removed}
     published_by: Mapped[str] = mapped_column(default="")
     published_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # 版本作废（逻辑删除）：非空即作废——对 agent 与页面均不可见，行保留在库中
+    voided_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     block: Mapped[Block] = relationship(back_populates="versions")
 

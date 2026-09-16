@@ -59,10 +59,16 @@ def _published_snapshot(db: Session, block: Block, version: str | None) -> Block
     if block.status != "published":
         # drafts and archived blocks are invisible to agents
         raise HTTPException(status_code=404, detail=f"block {block.id} not found")
+    # 不 pin 时取最新未作废版本（作废时 current_published_version 已回退；
+    # 全部作废则其为 None，下面的查询自然 404，模块对 agent 等同未发布）
     target = version or block.current_published_version
     bv = (
         db.query(BlockVersion)
-        .filter(BlockVersion.block_id == block.id, BlockVersion.version == target)
+        .filter(
+            BlockVersion.block_id == block.id,
+            BlockVersion.version == target,
+            BlockVersion.voided_at.is_(None),  # pin 已作废版本 → 404
+        )
         .first()
     )
     if bv is None:
@@ -102,6 +108,9 @@ def get_index(
     tree: dict[str, dict[int, dict]] = {}
     count = 0
     for block in db.query(Block).filter(Block.status == "published").all():
+        if block.current_published_version is None:
+            # 全部版本已作废：按未发布处理，不出现在索引
+            continue
         doc = block.document
         if key.project_id is not None and doc.domain.project_id != key.project_id:
             continue
@@ -171,23 +180,32 @@ def compute_block_diff(
     不做鉴权 / 状态可见性检查（如 agent 仅见 published）——那是调用方
     （端点）的职责；因此这里只按版本号查快照，已归档模块的历史版本同样可比。
     """
-    ordered = [v.version for v in block.versions]
-    if len(ordered) < 2:
+    ordered = [v.version for v in block.versions if v.voided_at is None]
+    from_ = from_ or (ordered[-2] if len(ordered) >= 2 else None)
+    to = to or (ordered[-1] if ordered else None)
+    if from_ is None or to is None:
         return {
             "block_id": block.id,
             "message": "该模块目前只有一个已发布版本，暂无可对比的历史版本",
             "versions": ordered,
         }
-    from_ = from_ or ordered[-2]
-    to = to or ordered[-1]
+    # 已作废版本不可见：显式指定作废版本同样 404
     old = (
         db.query(BlockVersion)
-        .filter(BlockVersion.block_id == block.id, BlockVersion.version == from_)
+        .filter(
+            BlockVersion.block_id == block.id,
+            BlockVersion.version == from_,
+            BlockVersion.voided_at.is_(None),
+        )
         .first()
     )
     new = (
         db.query(BlockVersion)
-        .filter(BlockVersion.block_id == block.id, BlockVersion.version == to)
+        .filter(
+            BlockVersion.block_id == block.id,
+            BlockVersion.version == to,
+            BlockVersion.voided_at.is_(None),
+        )
         .first()
     )
     if old is None:

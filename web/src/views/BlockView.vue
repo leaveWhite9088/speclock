@@ -25,6 +25,8 @@ const snap = ref(null) // 当前查看的版本快照
 const selected = ref('')
 const completeBusy = ref(false)
 const opError = ref('')
+const voidPending = ref('') // 正在二次确认作废的版本号
+const voidBusy = ref(false)
 
 function errText(e) {
   const d = e && e.detail
@@ -54,11 +56,35 @@ async function load() {
     ])
     meta.value = d
     versions.value = sorted(vs)
-    const want =
+    const pinned =
       typeof route.query.version === 'string' && route.query.version
         ? route.query.version
-        : d.current_published_version || versions.value.at(-1)?.version
-    if (want) await loadVersion(want)
+        : ''
+    // 依次尝试：URL pin → 当前发布版 → 列表末版；pin 的版本可能已作废（404），
+    // 此时回落到最新未作废版本而非整页报错
+    const candidates = [
+      ...new Set(
+        [pinned, d.current_published_version, versions.value.at(-1)?.version].filter(
+          Boolean,
+        ),
+      ),
+    ]
+    snap.value = null
+    let loaded = false
+    for (const v of candidates) {
+      try {
+        await loadVersion(v)
+        loaded = true
+        break
+      } catch {
+        /* 该版本不可查看（可能已作废），尝试下一个 */
+      }
+    }
+    if (pinned && selected.value !== pinned) {
+      opError.value = loaded
+        ? `版本 v${pinned} 不可查看（可能已作废），已为你显示最新可用版本。`
+        : ''
+    }
   } catch (e) {
     loadError.value = errText(e)
   } finally {
@@ -109,6 +135,37 @@ async function toggleComplete() {
     opError.value = errText(e)
   } finally {
     completeBusy.value = false
+  }
+}
+
+function askVoid(v) {
+  voidPending.value = v
+  opError.value = ''
+}
+
+function cancelVoid() {
+  voidPending.value = ''
+}
+
+async function confirmVoid(v) {
+  if (voidBusy.value) return
+  voidBusy.value = true
+  opError.value = ''
+  try {
+    await api.post(`/blocks/${bid}/versions/${v}/void`)
+    voidPending.value = ''
+    if (selected.value === v) {
+      // 正在查看的版本被作废：清掉 URL pin，load 会回落到最新未作废版本
+      // （全部作废则显示「尚未发布」空状态）
+      snap.value = null
+      selected.value = ''
+      await router.replace({ query: {} })
+    }
+    await load()
+  } catch (e) {
+    opError.value = errText(e)
+  } finally {
+    voidBusy.value = false
   }
 }
 </script>
@@ -259,24 +316,61 @@ async function toggleComplete() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="v in versions" :key="v.version">
-                <td>
-                  <VersionChip :version="v.version" />
-                  <span v-if="v.version === selected" class="current-tag">当前查看</span>
-                </td>
-                <td>{{ v.change_note || '—' }}</td>
-                <td class="muted mono ver-time">{{ v.published_at }}</td>
-                <td class="ver-ops">
-                  <a href="#" @click.prevent="pickVersion(v.version)">查看</a>
-                  <template v-if="prevVersion(v.version)">
-                    ·
-                    <RouterLink
-                      :to="`/blocks/${bid}/diff?from=${prevVersion(v.version)}&to=${v.version}`"
-                      >与上一版对比</RouterLink
-                    >
-                  </template>
-                </td>
-              </tr>
+              <template v-for="v in versions" :key="v.version">
+                <tr>
+                  <td>
+                    <VersionChip :version="v.version" />
+                    <span v-if="v.version === selected" class="current-tag">当前查看</span>
+                  </td>
+                  <td>{{ v.change_note || '—' }}</td>
+                  <td class="muted mono ver-time">{{ v.published_at }}</td>
+                  <td class="ver-ops">
+                    <a href="#" @click.prevent="pickVersion(v.version)">查看</a>
+                    <template v-if="prevVersion(v.version)">
+                      ·
+                      <RouterLink
+                        :to="`/blocks/${bid}/diff?from=${prevVersion(v.version)}&to=${v.version}`"
+                        >与上一版对比</RouterLink
+                      >
+                    </template>
+                    <template v-if="voidPending !== v.version">
+                      ·
+                      <a
+                        href="#"
+                        class="void-link"
+                        @click.prevent="askVoid(v.version)"
+                        >作废此版本</a
+                      >
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="voidPending === v.version" class="void-confirm-row">
+                  <td colspan="4">
+                    <span class="confirm-text is-danger">
+                      作废 v{{ v.version }}？作废后该版本对 AI 与本页面均不可见，
+                      仅数据库保留记录，不提供恢复。
+                    </span>
+                    <span class="confirm-btns">
+                      <button
+                        type="button"
+                        class="btn btn-danger"
+                        :disabled="voidBusy"
+                        @click="confirmVoid(v.version)"
+                      >
+                        {{ voidBusy ? '处理中…' : '确认作废' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn"
+                        :disabled="voidBusy"
+                        @click="cancelVoid"
+                      >
+                        取消
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </section>
@@ -477,5 +571,28 @@ async function toggleComplete() {
 .ver-ops {
   font-size: var(--text-sm);
   white-space: nowrap;
+}
+
+.void-link {
+  color: var(--danger);
+}
+
+.void-confirm-row td {
+  border-left: 2px solid var(--danger);
+  padding-left: var(--sp-3);
+}
+
+.confirm-text {
+  font-size: var(--text-sm);
+  margin-right: var(--sp-3);
+}
+
+.confirm-text.is-danger {
+  color: var(--danger);
+}
+
+.confirm-btns {
+  display: inline-flex;
+  gap: var(--sp-2);
 }
 </style>

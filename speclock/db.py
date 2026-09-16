@@ -53,6 +53,7 @@ def _ensure_columns() -> None:
         },
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
+            "voided_at": "DATETIME",
         },
     }
     dropped = {

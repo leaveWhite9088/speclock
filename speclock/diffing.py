@@ -387,6 +387,11 @@ def text_diff(old: str, new: str, fromfile: str = "old", tofile: str = "new") ->
 INITIAL_VERSION = "1.0.0"
 
 
+def semver_key(v: str) -> tuple[int, int, int]:
+    """'1.2.0' -> (1, 2, 0)，供按语义版本排序/取最大。"""
+    return tuple(int(part) for part in v.split("."))
+
+
 def bump_level(d: dict[str, list[str]]) -> str:
     """major | minor | patch for a non-first publish."""
     if is_breaking(d):
