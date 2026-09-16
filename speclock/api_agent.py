@@ -43,6 +43,18 @@ router = APIRouter(prefix="/api/v1", tags=["agent"])
 REF_RE = re.compile(r"^(?P<id>\d+)(?:@(?P<version>\d+\.\d+\.\d+))?$")
 
 
+def _check_project_scope(key: ApiKey, project_id: int) -> None:
+    """项目隔离：绑定了项目的 agent key 只能访问本项目的文档/模块。
+    跨项目访问一律 404（与不存在同样表现，不泄露其他项目的存在）。
+    project_id 为 None 的 key 是全局 key，不做隔离。"""
+    if key.project_id is not None and key.project_id != project_id:
+        raise HTTPException(status_code=404, detail="not found")
+
+
+def _block_project_id(block: Block) -> int:
+    return block.document.domain.project_id
+
+
 def _published_snapshot(db: Session, block: Block, version: str | None) -> BlockVersion:
     if block.status != "published":
         # drafts and archived blocks are invisible to agents
@@ -65,6 +77,8 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         title=block.title,
         version=bv.version,
         content_md=bv.content_md,
+        rules=json.loads(bv.rules_json or "[]"),
+        edge_md=bv.edge_md,
         apis=json.loads(bv.apis_json or "[]"),
         openapi_yaml=bv.openapi_yaml,
         nfr_md=bv.nfr_md,
@@ -90,6 +104,8 @@ def get_index(
     count = 0
     for block in db.query(Block).filter(Block.status == "published").all():
         doc = block.document
+        if key.project_id is not None and doc.domain.project_id != key.project_id:
+            continue
         if domain is not None and doc.domain.name != domain:
             continue
         if incomplete and block.completed:
@@ -122,7 +138,7 @@ def get_index(
         )
         for dom_name, docs in tree.items()
     ]
-    audit(db, key.key, "pull", "index", {"entries": count,
+    audit(db, key.hint, "pull", "index", {"entries": count,
                                          "domain": domain, "incomplete": incomplete})
     db.commit()
     return result
@@ -139,8 +155,9 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     block = db.get(Block, int(m.group("id")))
     if block is None:
         raise HTTPException(status_code=404, detail=f"block {ref} not found")
+    _check_project_scope(key, _block_project_id(block))
     bv = _published_snapshot(db, block, m.group("version"))
-    audit(db, key.key, "pull", f"block:{block.id}@{bv.version}", {})
+    audit(db, key.hint, "pull", f"block:{block.id}@{bv.version}", {})
     db.commit()
     return _block_out(bv)
 
@@ -158,6 +175,7 @@ def get_diff(
     block = db.get(Block, block_id)
     if block is None or block.status != "published":
         raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+    _check_project_scope(key, _block_project_id(block))
     ordered = [v.version for v in block.versions]
     if len(ordered) < 2:
         return {
@@ -170,7 +188,13 @@ def get_diff(
     old = _published_snapshot(db, block, from_)
     new = _published_snapshot(db, block, to)
     d = diffing.delta(json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]"))
-    audit(db, key.key, "pull", f"block:{block_id}/diff", {"from": from_, "to": to})
+    # 规则清单 delta 一并带给 agent（按 rule name 匹配；不算破坏性）
+    d.update(
+        diffing.rules_delta(
+            json.loads(old.rules_json or "[]"), json.loads(new.rules_json or "[]")
+        )
+    )
+    audit(db, key.hint, "pull", f"block:{block_id}/diff", {"from": from_, "to": to})
     db.commit()
     return {
         "block_id": block_id,
@@ -226,6 +250,8 @@ def get_documents(
     for doc in db.query(Document).all():
         if doc.current_version is None:
             continue
+        if key.project_id is not None and doc.domain.project_id != key.project_id:
+            continue
         if domain is not None and doc.domain.name != domain:
             continue
         out.append(
@@ -237,7 +263,7 @@ def get_documents(
                 version=doc.current_version,
             )
         )
-    audit(db, key.key, "pull", "documents", {"entries": len(out), "domain": domain})
+    audit(db, key.hint, "pull", "documents", {"entries": len(out), "domain": domain})
     db.commit()
     return out
 
@@ -253,6 +279,7 @@ def get_document(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(
     doc = db.get(Document, int(m.group("id")))
     if doc is None or doc.current_version is None:
         raise HTTPException(status_code=404, detail=f"document {ref} not found")
+    _check_project_scope(key, doc.domain.project_id)
     target = m.group("version") or doc.current_version
     dv = (
         db.query(DocumentVersion)
@@ -261,7 +288,7 @@ def get_document(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(
     )
     if dv is None:
         raise HTTPException(status_code=404, detail=f"document {doc.id} has no version {target}")
-    audit(db, key.key, "pull", f"document:{doc.id}@{dv.version}", {})
+    audit(db, key.hint, "pull", f"document:{doc.id}@{dv.version}", {})
     db.commit()
     return _document_out(db, dv)
 
@@ -280,10 +307,11 @@ def ack_block(
     block = db.get(Block, block_id)
     if block is None:
         raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+    _check_project_scope(key, _block_project_id(block))
     _published_snapshot(db, block, body.version)  # must be a real published version
-    ack = Ack(block_id=block_id, version=body.version, agent_key=key.key, task_desc=body.task_desc)
+    ack = Ack(block_id=block_id, version=body.version, agent_key=key.hint, task_desc=body.task_desc)
     db.add(ack)
-    audit(db, key.key, "ack", f"block:{block_id}@{body.version}", {"task_desc": body.task_desc})
+    audit(db, key.hint, "ack", f"block:{block_id}@{body.version}", {"task_desc": body.task_desc})
     db.commit()
     return {"id": ack.id, "block_id": block_id, "version": body.version}
 
@@ -299,6 +327,7 @@ def submit_proposal(
     block = db.get(Block, body.block_id)
     if block is None or block.status != "published":
         raise HTTPException(status_code=404, detail=f"block {body.block_id} not found")
+    _check_project_scope(key, _block_project_id(block))
     proposed_apis_json = None
     if body.proposed_apis is not None:
         try:
@@ -319,7 +348,7 @@ def submit_proposal(
     db.flush()
     audit(
         db,
-        key.key,
+        key.hint,
         "proposal_submit",
         f"proposal:{p.id}",
         {"block_id": body.block_id, "description": body.description},
@@ -336,4 +365,7 @@ def get_proposal(
     p = db.get(Proposal, proposal_id)
     if p is None:
         raise HTTPException(status_code=404, detail="proposal not found")
+    block = db.get(Block, p.block_id)
+    if block is not None:
+        _check_project_scope(key, _block_project_id(block))
     return p

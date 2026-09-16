@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% block title %}SpecLock · 文档树{% endblock %}
 {% block content %}
-<h1>文档树</h1>
+<h1>文档树
+  <button type="button" onclick="newProject()">+ 新建项目</button>
+</h1>
+<p class="muted">项目是文档隔离单元：每个项目有自己独立的一套 大业务→文档→模块；
+在「密钥管理」页把 agent key 绑定到项目后，该 key 只能读取本项目文档。</p>
 {% for project in projects %}
   <h2>{{ project.name }}
+    <button type="button" onclick='renameProject({{ project.id }}, {{ project.name | tojson }})'>重命名</button>
+    <button type="button" onclick='delProject({{ project.id }}, {{ project.name | tojson }})'>删除</button>
     <button type="button" onclick="newDomain({{ project.id }})">+ 新建大业务</button>
   </h2>
   {% for domain in domains if domain.project_id == project.id %}
@@ -73,6 +79,18 @@ async function api(method, path, body) {
   });
   if (!r.ok) { alert(r.status + ' ' + await r.text()); return; }
   location.reload();
+}
+function newProject() {
+  const name = prompt('项目名称：');
+  if (name) api('POST', '/api/v1/projects', {name});
+}
+function renameProject(id, old) {
+  const name = prompt('项目新名称：', old);
+  if (name) api('PUT', '/api/v1/projects/' + id, {name});
+}
+function delProject(id, name) {
+  if (confirm('删除项目「' + name + '」？其下全部 大业务/文档/模块 与绑定该项目的密钥将一并删除；若有已发布模块将被拒绝（409）。'))
+    api('DELETE', '/api/v1/projects/' + id);
 }
 function newDomain(projectId) {
   const name = prompt('大业务名称：');

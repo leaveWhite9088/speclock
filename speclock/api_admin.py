@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from speclock import diffing
-from speclock.auth import audit, new_key, require_human
+from speclock.auth import audit, hash_key, key_hint, new_key, require_human
 from speclock.db import get_db
 from speclock.models import (
     Ack,
@@ -75,6 +75,49 @@ def _validate_apis_or_422(apis: list[dict]) -> list[dict]:
         raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
 
 
+def _validate_rules_or_422(rules: list[dict]) -> list[dict]:
+    try:
+        return diffing.validate_rules(rules)
+    except diffing.ApisValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"业务规则清单不合法: {exc}") from exc
+
+
+CONTENT_MD_MIN_LEN = 20  # 业务背景与流程叙述的最短长度（去空白后）
+
+
+def _check_publish_readiness(block: Block) -> list[str]:
+    """发布关口「结构完备性」校验：返回全部缺失项（中文），空列表 = 可发布。
+
+    - 业务背景与流程叙述（draft_content_md）非空且至少 20 个字符；
+    - 业务规则清单至少 1 条且每条 name/detail 非空；
+    - 每条 API 的 desc（端点语义）非空。
+    """
+    problems: list[str] = []
+    if len((block.draft_content_md or "").strip()) < CONTENT_MD_MIN_LEN:
+        problems.append(
+            f"业务背景与流程叙述不能为空，且至少 {CONTENT_MD_MIN_LEN} 个字符"
+            f"（当前 {len((block.draft_content_md or '').strip())} 个）"
+        )
+    try:
+        rules = diffing.validate_rules(json.loads(block.draft_rules_json or "[]"))
+    except diffing.ApisValidationError as exc:
+        problems.append(f"业务规则清单不合法：{exc}")
+        rules = []
+    if not rules:
+        problems.append("业务规则清单至少需要 1 条规则（每条含规则名与详述）")
+    try:
+        apis = diffing.validate_apis(
+            json.loads(block.draft_apis_json or "[]"), require_desc=False
+        )
+    except diffing.ApisValidationError as exc:
+        problems.append(f"API 列表不合法：{exc}")
+    else:
+        for i, entry in enumerate(apis):
+            if not entry["desc"]:
+                problems.append(f"第 {i + 1} 个 API（{entry['name']}）缺少端点语义描述 desc")
+    return problems
+
+
 def _derive_document_version(
     db: Session, block: Block, module_level: str, actor: str, change_note: str
 ) -> str:
@@ -125,15 +168,27 @@ def publish_block(
       版本），不落库、不写审计；
     - fastTrack（秒批）：仅允许非破坏性 diff，破坏性直接 409 并引导取消秒批；
     - 破坏性变更的真实发布必须 confirm=true（来自确认视图的知晓勾选）。
+
+    发布关口先做「结构完备性」校验（背景叙述 / 规则清单 / API desc），
+    不满足返回 422 并列出全部缺失项；dryRun 预览同样受校验约束。
     """
+    problems = _check_publish_readiness(block)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "模块结构不完备，不能发布", "missing": problems},
+        )
     apis = _validate_apis_or_422(json.loads(block.draft_apis_json or "[]"))
+    rules = _validate_rules_or_422(json.loads(block.draft_rules_json or "[]"))
 
     old_apis: list = []
+    old_rules: list = []
     if block.current_published_version is not None:
-        old_apis = json.loads(
-            _published_version(db, block, block.current_published_version).apis_json or "[]"
-        )
+        old_bv = _published_version(db, block, block.current_published_version)
+        old_apis = json.loads(old_bv.apis_json or "[]")
+        old_rules = json.loads(old_bv.rules_json or "[]")
     d = diffing.delta(old_apis, apis)
+    d.update(diffing.rules_delta(old_rules, rules))  # rules 变化不算破坏性
     breaking = diffing.is_breaking(d)
     affected = d["removed"] + d["modified"]
     groups = diffing.group_delta(d, old_apis, apis)
@@ -175,6 +230,8 @@ def publish_block(
         block_id=block.id,
         version=version,
         content_md=block.draft_content_md,
+        rules_json=json.dumps(rules, ensure_ascii=False),
+        edge_md=block.draft_edge_md,
         apis_json=json.dumps(apis, ensure_ascii=False),
         openapi_yaml=diffing.apis_to_openapi_yaml(apis),
         nfr_md=block.draft_nfr_md,
@@ -213,12 +270,57 @@ def publish_block(
 # ---------- taxonomy CRUD ----------
 
 
+@router.get("/projects")
+def list_projects(db: Session = Depends(get_db)):
+    return [{"id": p.id, "name": p.name} for p in db.query(Project).order_by(Project.id).all()]
+
+
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
     p = Project(name=body.name)
     db.add(p)
     db.commit()
     return {"id": p.id, "name": p.name}
+
+
+@router.put("/projects/{project_id}")
+def rename_project(project_id: int, body: RenameRequest, db: Session = Depends(get_db)):
+    p = db.get(Project, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    p.name = body.name
+    audit(db, "human", "rename", f"project:{p.id}", {"name": body.name})
+    db.commit()
+    return {"id": p.id, "name": p.name}
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    """项目删除：仅当其下无已发布模块时允许，否则 409 提示先归档模块。
+    删除时级联硬删全部 大业务/文档/草稿模块/版本历史，并一并删除绑定到
+    该项目的 API key（避免遗留 key 失效语义不清）。"""
+    p = db.get(Project, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    for domain in p.domains:
+        for doc in domain.documents:
+            _hard_delete_document(db, doc)  # raises 409 if any published module
+        db.delete(domain)
+    bound_keys = db.query(ApiKey).filter(ApiKey.project_id == p.id).all()
+    bound_humans = sum(1 for k in bound_keys if k.prefix == "human")
+    total_humans = db.query(ApiKey).filter(ApiKey.prefix == "human").count()
+    if bound_humans and total_humans - bound_humans < 1:
+        raise HTTPException(
+            status_code=409,
+            detail="删除该项目会连带删除最后一把 human key，删除后无人能管理系统，已拒绝",
+        )
+    for k in bound_keys:
+        db.delete(k)
+    audit(db, "human", "delete", f"project:{p.id}",
+          {"name": p.name, "deleted_keys": len(bound_keys)})
+    db.delete(p)
+    db.commit()
+    return {"id": project_id, "deleted": True, "deleted_keys": len(bound_keys)}
 
 
 @router.post("/domains", status_code=201)
@@ -320,11 +422,14 @@ def create_block(body: BlockCreate, db: Session = Depends(get_db)):
     if db.get(Document, body.document_id) is None:
         raise HTTPException(status_code=404, detail="document not found")
     apis = _validate_apis_or_422([e.model_dump() for e in body.apis])
+    rules = _validate_rules_or_422([e.model_dump() for e in body.rules])
     block = Block(
         document_id=body.document_id,
         title=body.title,
         summary=body.summary,
         draft_content_md=body.content_md,
+        draft_rules_json=json.dumps(rules, ensure_ascii=False),
+        draft_edge_md=body.edge_md,
         draft_apis_json=json.dumps(apis, ensure_ascii=False),
         draft_nfr_md=body.nfr_md,
     )
@@ -345,6 +450,8 @@ def get_draft(block_id: int, db: Session = Depends(get_db)):
         "status": block.status,
         "current_published_version": block.current_published_version,
         "content_md": block.draft_content_md,
+        "rules": json.loads(block.draft_rules_json or "[]"),
+        "edge_md": block.draft_edge_md,
         "apis": json.loads(block.draft_apis_json or "[]"),
         "nfr_md": block.draft_nfr_md,
     }
@@ -359,6 +466,11 @@ def update_block(block_id: int, body: BlockUpdate, db: Session = Depends(get_db)
         block.summary = body.summary
     if body.content_md is not None:
         block.draft_content_md = body.content_md
+    if body.rules is not None:
+        rules = _validate_rules_or_422([e.model_dump() for e in body.rules])
+        block.draft_rules_json = json.dumps(rules, ensure_ascii=False)
+    if body.edge_md is not None:
+        block.draft_edge_md = body.edge_md
     if body.apis is not None:
         apis = _validate_apis_or_422([e.model_dump() for e in body.apis])
         block.draft_apis_json = json.dumps(apis, ensure_ascii=False)
@@ -464,7 +576,7 @@ def publish(
     return publish_block(
         db,
         block,
-        actor=key.key,
+        actor=key.hint,
         change_note=body.change_note,
         fast_track=body.fastTrack,
         confirm=body.confirm,
@@ -548,7 +660,7 @@ def resolve_proposal(
         p.status = "rejected"
         p.resolution_note = body.resolution_note
         p.resolved_at = utcnow()
-        audit(db, key.key, "proposal_resolve", f"proposal:{p.id}", {"action": "reject"})
+        audit(db, key.hint, "proposal_resolve", f"proposal:{p.id}", {"action": "reject"})
         db.commit()
         return {"id": p.id, "status": p.status}
 
@@ -562,7 +674,7 @@ def resolve_proposal(
     result = publish_block(
         db,
         block,
-        actor=key.key,
+        actor=key.hint,
         change_note=body.resolution_note or f"proposal #{p.id}: {p.description}",
         fast_track=False,
         confirm=True,
@@ -573,7 +685,7 @@ def resolve_proposal(
     p.resolved_at = utcnow()
     audit(
         db,
-        key.key,
+        key.hint,
         "proposal_resolve",
         f"proposal:{p.id}",
         {"action": "approve", "published_version": result.version},
@@ -610,9 +722,10 @@ def list_acks(db: Session = Depends(get_db)):
 
 
 def _key_out(k: ApiKey) -> dict:
+    """列表视图：绝不含明文，也不含哈希，只给展示用 hint。"""
     return {
         "id": k.id,
-        "key": k.key,
+        "hint": k.hint,
         "prefix": k.prefix,
         "label": k.label,
         "project_id": k.project_id,
@@ -627,11 +740,17 @@ def list_keys(db: Session = Depends(get_db)):
 
 @router.post("/keys", status_code=201)
 def create_key(body: KeyCreate, db: Session = Depends(get_db)):
-    k = ApiKey(key=new_key(body.prefix), prefix=body.prefix, label=body.label)
+    if body.project_id is not None and db.get(Project, body.project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    plaintext = new_key(body.prefix)
+    k = ApiKey(key=hash_key(plaintext), hint=key_hint(plaintext),
+               prefix=body.prefix, project_id=body.project_id, label=body.label)
     db.add(k)
-    audit(db, "human", "key_create", f"apikey:{k.key}", {"prefix": k.prefix, "label": k.label})
+    audit(db, "human", "key_create", f"apikey:{k.hint}", {"prefix": k.prefix, "label": k.label})
     db.commit()
-    return _key_out(k)
+    # 明文仅此一次返回，此后任何地方（列表/UI/审计）都不可再见
+    return {**_key_out(k), "key": plaintext,
+            "notice": "此 key 仅此一次可见，请立即复制保存；系统只存哈希，无法找回"}
 
 
 @router.delete("/keys/{key_id}")
@@ -646,7 +765,7 @@ def delete_key(key_id: int, db: Session = Depends(get_db)):
                 status_code=409,
                 detail="这是最后一把 human key，删除后无人能管理系统，已拒绝",
             )
-    audit(db, "human", "key_delete", f"apikey:{k.key}", {"prefix": k.prefix, "label": k.label})
+    audit(db, "human", "key_delete", f"apikey:{k.hint}", {"prefix": k.prefix, "label": k.label})
     db.delete(k)
     db.commit()
     return {"id": key_id, "deleted": True}
