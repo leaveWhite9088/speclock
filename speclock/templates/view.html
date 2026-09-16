@@ -88,11 +88,6 @@
 <p class="muted">无规则（历史版本可能早于结构化拆分）。</p>
 {% endif %}
 
-{% if bv.edge_md %}
-<h2>边界与异常</h2>
-<div class="doc-md">{{ bv.edge_md | md | safe }}</div>
-{% endif %}
-
 <h2>API 列表（{{ apis | length }} 个）</h2>
 <table>
   <tr><th>#</th><th>名称</th><th>API 名</th><th>方法</th><th>端点语义</th><th></th></tr>

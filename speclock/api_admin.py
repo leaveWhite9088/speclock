@@ -231,7 +231,6 @@ def publish_block(
         version=version,
         content_md=block.draft_content_md,
         rules_json=json.dumps(rules, ensure_ascii=False),
-        edge_md=block.draft_edge_md,
         apis_json=json.dumps(apis, ensure_ascii=False),
         openapi_yaml=diffing.apis_to_openapi_yaml(apis),
         nfr_md=block.draft_nfr_md,
@@ -429,7 +428,6 @@ def create_block(body: BlockCreate, db: Session = Depends(get_db)):
         summary=body.summary,
         draft_content_md=body.content_md,
         draft_rules_json=json.dumps(rules, ensure_ascii=False),
-        draft_edge_md=body.edge_md,
         draft_apis_json=json.dumps(apis, ensure_ascii=False),
         draft_nfr_md=body.nfr_md,
     )
@@ -451,7 +449,6 @@ def get_draft(block_id: int, db: Session = Depends(get_db)):
         "current_published_version": block.current_published_version,
         "content_md": block.draft_content_md,
         "rules": json.loads(block.draft_rules_json or "[]"),
-        "edge_md": block.draft_edge_md,
         "apis": json.loads(block.draft_apis_json or "[]"),
         "nfr_md": block.draft_nfr_md,
     }
@@ -469,8 +466,6 @@ def update_block(block_id: int, body: BlockUpdate, db: Session = Depends(get_db)
     if body.rules is not None:
         rules = _validate_rules_or_422([e.model_dump() for e in body.rules])
         block.draft_rules_json = json.dumps(rules, ensure_ascii=False)
-    if body.edge_md is not None:
-        block.draft_edge_md = body.edge_md
     if body.apis is not None:
         apis = _validate_apis_or_422([e.model_dump() for e in body.apis])
         block.draft_apis_json = json.dumps(apis, ensure_ascii=False)

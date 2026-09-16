@@ -121,7 +121,7 @@ def test_rules_delta_in_publish_and_diff(env):
     out = c.get(f"/api/v1/blocks/{bid}", headers=a).json()
     assert [r["name"] for r in out["rules"]] == ["销售额口径", "新增规则"]
     assert out["apis"][0]["desc"]
-    assert "edge_md" in out
+    assert "edge_md" not in out
 
     # agent diff 响应带 rules delta
     r = c.get(f"/api/v1/blocks/{bid}/diff",
@@ -148,10 +148,12 @@ def test_editor_page_has_structured_sections(env):
     ).text
     assert "业务背景与流程" in body
     assert "业务规则清单" in body
-    assert "边界与异常" in body
+    assert "非功能性需求" in body
+    assert "边界与异常" not in body
     assert 'id="rule-list"' in body
     assert 'id="rules-data"' in body
-    assert 'id="edge_md"' in body
+    assert 'id="nfr_md"' in body
+    assert body.count('class="card doc-card"') == 2  # 两张可整体收起的大卡片
     assert "端点语义" in body  # API 卡片里的 desc 输入
 
 
@@ -229,7 +231,6 @@ def test_init_db_migrates_legacy_db_idempotently(tmp_path):
         db = SessionLocal()
         block = db.query(Block).one()
         assert block.draft_rules_json == "[]"  # rules 刻意不回填
-        assert block.draft_edge_md == ""
         apis = json.loads(block.draft_apis_json)
         assert apis[0]["desc"] == "查"  # 缺 desc → 回填为 name
         assert apis[1]["desc"] == "已有 desc 不动"

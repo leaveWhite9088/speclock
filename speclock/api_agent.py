@@ -78,7 +78,6 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         version=bv.version,
         content_md=bv.content_md,
         rules=json.loads(bv.rules_json or "[]"),
-        edge_md=bv.edge_md,
         apis=json.loads(bv.apis_json or "[]"),
         openapi_yaml=bv.openapi_yaml,
         nfr_md=bv.nfr_md,

@@ -1,8 +1,8 @@
 """SQLAlchemy models — mirrors MVP requirements doc section 9, revised:
 
 - 块（Block）就是模块（小业务），必须挂在 Document（业务文档）下。
-- 每个模块的内容：业务描述（背景叙述 content_md + 结构化规则清单 rules_json
-  + 边界与异常 edge_md）+ API 列表（结构化 apis_json，
+- 每个模块的内容：业务描述（背景叙述 content_md + 结构化规则清单 rules_json）
+  + API 列表（结构化 apis_json，
   编辑与 diff 的真相源）+ 非功能性需求（Markdown）；openapi_yaml 是发布时
   从 apis_json 生成的机器消费产物。
 - 两级版本：模块独立 semver 发布；任何模块发布成功时所属文档派生一个
@@ -89,7 +89,6 @@ class Block(Base):
     # working draft — writable by humans only, never exposed to agents
     draft_content_md: Mapped[str] = mapped_column(Text, default="")  # 业务背景与流程叙述
     draft_rules_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化业务规则清单
-    draft_edge_md: Mapped[str] = mapped_column(Text, default="")  # 边界与异常（可选）
     draft_apis_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化 API 列表
     draft_nfr_md: Mapped[str] = mapped_column(Text, default="")
 
@@ -109,7 +108,6 @@ class BlockVersion(Base):
     version: Mapped[str]  # semver MAJOR.MINOR.PATCH
     content_md: Mapped[str] = mapped_column(Text, default="")  # 业务背景与流程叙述
     rules_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化业务规则清单
-    edge_md: Mapped[str] = mapped_column(Text, default="")  # 边界与异常（可选）
     apis_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化 API 列表（真相源）
     openapi_yaml: Mapped[str] = mapped_column(Text, default="")  # 发布时生成的 OpenAPI 3.x
     nfr_md: Mapped[str] = mapped_column(Text, default="")

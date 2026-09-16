@@ -50,6 +50,16 @@ button { cursor: pointer; }
 .api-card { padding: 8px 16px; }
 .api-summary { margin: 4px 0; }
 .toggle-btn { min-width: 52px; }
+.doc-card { padding: 0; }
+.doc-card > summary { cursor: pointer; font-weight: 600; font-size: 16px;
+  padding: 12px 16px; list-style: none; user-select: none; }
+.doc-card > summary::-webkit-details-marker { display: none; }
+.doc-card > summary::before { content: "▾ "; color: #6b7280; }
+.doc-card:not([open]) > summary::before { content: "▸ "; }
+.doc-card:not([open]) > summary { padding-bottom: 12px; }
+.doc-card > h2, .doc-card > div, .doc-card > textarea, .doc-card > button,
+.doc-card > p { margin-left: 16px; margin-right: 16px; }
+.doc-card > :last-child { margin-bottom: 14px; }
 .summary-bar { display: flex; gap: 14px; align-items: center; font-size: 15px; }
 .badge.breaking { background: #fee2e2; color: #b91c1c; }
 .badge.safe { background: #d1fae5; color: #047857; }

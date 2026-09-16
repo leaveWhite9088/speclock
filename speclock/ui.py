@@ -119,7 +119,6 @@ def editor(block_id: int, request: Request, db: Session = Depends(get_db)):
             "block": block,
             "versions": versions,
             "rules": json.loads(block.draft_rules_json or "[]"),
-            "edge_md": block.draft_edge_md,
             "apis": json.loads(block.draft_apis_json or "[]"),
         },
     )

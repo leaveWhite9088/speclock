@@ -39,9 +39,10 @@ def configure(url: str) -> None:
 
 
 def _ensure_columns() -> None:
-    """SQLite 增量迁移（幂等）：老库缺列时 ALTER TABLE ADD COLUMN。
+    """SQLite 增量迁移（幂等）：老库缺列时 ALTER TABLE ADD COLUMN；
+    已废弃的 edge_md 列存在时 DROP COLUMN（SQLite ≥ 3.35）。
 
-    create_all 对已有表不会补列，这里用 PRAGMA table_info 检测后逐列补齐；
+    create_all 对已有表不会补列/删列，这里用 PRAGMA table_info 检测后处理；
     列定义必须与 models.py 的默认值保持一致。
     """
     from sqlalchemy import text
@@ -49,12 +50,14 @@ def _ensure_columns() -> None:
     wanted = {
         "blocks": {
             "draft_rules_json": "TEXT NOT NULL DEFAULT '[]'",
-            "draft_edge_md": "TEXT NOT NULL DEFAULT ''",
         },
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
-            "edge_md": "TEXT NOT NULL DEFAULT ''",
         },
+    }
+    dropped = {
+        "blocks": ["draft_edge_md"],
+        "block_versions": ["edge_md"],
     }
     engine = get_engine()
     with engine.begin() as conn:
@@ -65,6 +68,9 @@ def _ensure_columns() -> None:
             for col, ddl in cols.items():
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+            for col in dropped.get(table, []):
+                if col in existing:
+                    conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {col}"))
 
 
 def _backfill_draft_api_desc() -> None:

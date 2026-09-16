@@ -44,7 +44,6 @@ class BlockCreate(BaseModel):
     summary: str = ""
     content_md: str = ""
     rules: list[RuleEntry] = []
-    edge_md: str = ""
     apis: list[ApiEntry] = []
     nfr_md: str = ""
 
@@ -54,7 +53,6 @@ class BlockUpdate(BaseModel):
     summary: str | None = None
     content_md: str | None = None
     rules: list[RuleEntry] | None = None
-    edge_md: str | None = None
     apis: list[ApiEntry] | None = None
     nfr_md: str | None = None
 
@@ -155,7 +153,6 @@ class BlockOut(BaseModel):
     version: str
     content_md: str
     rules: list[dict]  # 结构化业务规则清单 [{name, detail}]
-    edge_md: str  # 边界与异常（可空）
     apis: list[dict]  # 结构化 API 列表（真相源，条目带 desc 端点语义）
     openapi_yaml: str  # 发布时生成的 OpenAPI 3.x（机器消费）
     nfr_md: str

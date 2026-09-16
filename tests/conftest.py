@@ -89,7 +89,6 @@ def env():
         summary="汇总前一日经营数据并落库",
         draft_content_md="# 数据采集模块\n\n每日 06:00 汇总前一日经营数据。",
         draft_rules_json=json.dumps(RULES_V1, ensure_ascii=False),
-        draft_edge_md="",
         draft_apis_json=json.dumps(APIS_V1, ensure_ascii=False),
         draft_nfr_md="- 采集状态查询 P95 ≤ 300ms",
     )

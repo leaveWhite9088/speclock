@@ -11,22 +11,25 @@
 <a class="btn-page" href="/ui/blocks/{{ block.id }}/view?key={{ key }}">查看</a>
 {% endif %}
 
-<h2>业务背景与流程（Markdown，必填）</h2>
-<textarea id="content_md" rows="10">{{ block.draft_content_md }}</textarea>
+<details class="card doc-card" open>
+  <summary>业务描述（背景与流程 · 规则清单 · 非功能性需求）</summary>
 
-<h2>业务规则清单（结构化，至少 1 条）</h2>
-<div id="rule-list"></div>
-<button type="button" onclick="addRule()">+ 新增规则</button>
+  <h2>业务背景与流程（Markdown，必填）</h2>
+  <textarea id="content_md" rows="10">{{ block.draft_content_md }}</textarea>
 
-<h2>边界与异常（Markdown，可空）</h2>
-<textarea id="edge_md" rows="5">{{ edge_md }}</textarea>
+  <h2>业务规则清单（结构化，至少 1 条）</h2>
+  <div id="rule-list"></div>
+  <button type="button" onclick="addRule()">+ 新增规则</button>
 
-<h2>API 列表</h2>
-<div id="api-list"></div>
-<button type="button" onclick="addApi()">+ 新增 API</button>
+  <h2>非功能性需求</h2>
+  <textarea id="nfr_md" rows="5">{{ block.draft_nfr_md }}</textarea>
+</details>
 
-<h2>非功能性需求</h2>
-<textarea id="nfr_md" rows="5">{{ block.draft_nfr_md }}</textarea>
+<details class="card doc-card" open>
+  <summary>API 列表</summary>
+  <div id="api-list"></div>
+  <button type="button" onclick="addApi()">+ 新增 API</button>
+</details>
 
 <div class="actions">
   <button type="button" onclick="save()">保存草稿</button>
@@ -263,7 +266,6 @@ async function save() {
       summary: document.getElementById('summary').value,
       content_md: document.getElementById('content_md').value,
       rules: RULES,
-      edge_md: document.getElementById('edge_md').value,
       apis: APIS,
       nfr_md: document.getElementById('nfr_md').value,
     }),
