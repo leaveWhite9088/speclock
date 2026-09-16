@@ -615,8 +615,8 @@ const previewRulesDelta = computed(() =>
 .api-list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-2);
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-3);
 }
 
 .api-list + .muted {

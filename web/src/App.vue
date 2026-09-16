@@ -48,11 +48,6 @@ function logout() {
         >
       </nav>
 
-      <!-- 文档树导航占位：文档树页面接入后，树形导航渲染在这里 -->
-      <div class="side-tree mono" aria-label="文档树">
-        <span class="side-tree-hint">文档树将展示在这里</span>
-      </div>
-
       <nav class="side-nav side-bottom" aria-label="辅助导航">
         <RouterLink
           v-for="item in bottomNav"
@@ -134,19 +129,8 @@ function logout() {
   font-weight: 500;
 }
 
-.side-tree {
-  flex: 1;
-  margin-top: var(--sp-5);
-  padding: var(--sp-4) var(--sp-3);
-  border: 1px dashed var(--hairline);
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  display: flex;
-  align-items: flex-start;
-}
-
 .side-bottom {
+  margin-top: auto;
   border-top: 1px solid var(--hairline);
   padding-top: var(--sp-4);
 }
@@ -217,10 +201,6 @@ function logout() {
     width: auto;
     border-right: none;
     border-bottom: 1px solid var(--hairline);
-  }
-
-  .side-tree {
-    display: none;
   }
 
   .main {

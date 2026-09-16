@@ -3,9 +3,11 @@
  * HomeView（/）—— 文档树导航页：项目 → 大业务 → 文档 → 模块 四级可展开树，
  * 每级带 新建 / 重命名 / 删除 操作；模块节点显示版本印章与状态徽标。
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '../api/client.js'
 import TreeNode from '../components/TreeNode.vue'
+
+const PROJECT_KEY = 'speclock_project'
 
 const tree = ref([])
 const loading = ref(true)
@@ -15,6 +17,18 @@ const pending = ref(false)
 
 const addingProject = ref(false)
 const projectName = ref('')
+
+const selectedProjectId = ref(Number(localStorage.getItem(PROJECT_KEY)) || null)
+
+const visibleTree = computed(() => {
+  if (!selectedProjectId.value) return tree.value
+  return tree.value.filter((n) => n.id === selectedProjectId.value)
+})
+
+function pickProject(id) {
+  selectedProjectId.value = id
+  localStorage.setItem(PROJECT_KEY, String(id))
+}
 
 function toNode(p) {
   return {
@@ -50,6 +64,10 @@ async function load() {
   try {
     const raw = await api.get('/tree')
     tree.value = raw.map(toNode)
+    // 选中项目已不存在（被删/首次进入）时回落到第一个项目
+    if (tree.value.length && !tree.value.some((n) => n.id === selectedProjectId.value)) {
+      pickProject(tree.value[0].id)
+    }
   } catch (e) {
     pageError.value = fmtErr(e)
   } finally {
@@ -85,15 +103,18 @@ async function onOp(payload) {
   pageError.value = ''
   pending.value = true
   try {
-    if (payload.action === 'create') await CREATE[payload.kind](payload)
+    let res = null
+    if (payload.action === 'create') res = await CREATE[payload.kind](payload)
     else if (payload.action === 'rename')
       await api.put(`/${payload.kind}s/${payload.id}`, { name: payload.name })
     else if (payload.action === 'delete')
       await api.delete(`/${payload.kind}s/${payload.id}`)
     await load()
+    return res
   } catch (e) {
     // 409 守卫等错误：展示后端原文，定位到发起操作的节点下
     nodeError.value = { key: payload.errorKey, text: fmtErr(e) }
+    return null
   } finally {
     pending.value = false
   }
@@ -103,7 +124,8 @@ async function submitProject() {
   const name = projectName.value.trim()
   if (!name) return
   addingProject.value = false
-  await onOp({ action: 'create', kind: 'project', name, errorKey: 'project-new' })
+  const res = await onOp({ action: 'create', kind: 'project', name, errorKey: 'project-new' })
+  if (res && res.id) pickProject(res.id)
   projectName.value = ''
 }
 </script>
@@ -113,13 +135,24 @@ async function submitProject() {
     <p class="page-eyebrow">SpecLock · Registry</p>
     <div class="tree-head">
       <h1 class="page-title">文档树</h1>
-      <button
-        type="button"
-        class="btn btn-primary"
-        @click="((addingProject = true), (projectName = ''))"
-      >
-        新建项目
-      </button>
+      <div class="tree-head-ops">
+        <select
+          v-if="tree.length"
+          class="input project-picker"
+          :value="selectedProjectId"
+          @change="pickProject(Number($event.target.value))"
+          aria-label="选择项目"
+        >
+          <option v-for="p in tree" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
+        <button
+          type="button"
+          class="btn btn-primary"
+          @click="((addingProject = true), (projectName = ''))"
+        >
+          新建项目
+        </button>
+      </div>
     </div>
     <p class="page-desc">
       项目是文档隔离单元：每个项目有自己独立的一套 大业务 → 文档 → 模块；在「密钥管理」页把
@@ -172,7 +205,7 @@ async function submitProject() {
     <div v-else class="tree">
       <ul class="tree-root">
         <TreeNode
-          v-for="n in tree"
+          v-for="n in visibleTree"
           :key="`project-${n.id}`"
           :node="n"
           :node-error="nodeError"
@@ -216,6 +249,18 @@ async function submitProject() {
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-4);
+}
+
+.tree-head-ops {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.project-picker {
+  width: auto;
+  min-width: 160px;
+  font-weight: 500;
 }
 
 .page-err {

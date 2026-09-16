@@ -38,7 +38,7 @@ function addRow(kind) {
 <template>
   <div class="card api-card">
     <div class="api-head">
-      <span class="idx mono muted">#{{ index + 1 }}</span>
+      <span class="idx mono">#{{ index + 1 }}</span>
       <template v-if="collapsed">
         <strong class="api-name">{{ api.name || '（未命名）' }}</strong>
         <span class="mono apikey">{{ api.api || '（未填 API 名）' }}</span>
@@ -122,7 +122,12 @@ function addRow(kind) {
 
 <style scoped>
 .api-card {
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--paper);
+  border: 1px solid #d8dde6;
+  border-left: 3px solid var(--contract);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(28, 35, 51, 0.06);
 }
 
 .api-head {
@@ -134,6 +139,11 @@ function addRow(kind) {
 
 .idx {
   font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--contract);
+  border: 1px solid var(--contract);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--sp-2);
 }
 
 .api-name {
