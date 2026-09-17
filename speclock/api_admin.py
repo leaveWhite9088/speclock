@@ -27,6 +27,7 @@ from speclock.models import (
     Document,
     DocumentVersion,
     Domain,
+    MeetingSeries,
     Project,
     Proposal,
     utcnow,
@@ -411,6 +412,15 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=409,
             detail="删除该项目会连带删除最后一把 human key，删除后无人能管理系统，已拒绝",
+        )
+    meeting_series = (
+        db.query(MeetingSeries).filter(MeetingSeries.project_id == p.id).count()
+    )
+    if meeting_series:
+        raise HTTPException(
+            status_code=409,
+            detail=f"该项目下还有 {meeting_series} 条会议业务线，会议记录不随项目级联删除；"
+                   "请先在「会议记录」模块删除这些业务线（或另行迁移），再删除项目",
         )
     for k in bound_keys:
         db.delete(k)
