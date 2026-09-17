@@ -1,0 +1,166 @@
+/* 树状导航样式（文档树 / 会议记录共用）。
+   原 TreeNode.vue scoped 样式原样搬出，数值不变（搬家不是重设计）：
+   行式节点 .trow、caret 展开收起、缩进引导线 .tkids、悬停行内操作 .tops、
+   层级字号梯度 .k-project/.k-domain/.k-document。
+   注意：.btn-mini / .rename-input 限定在树上下文（.trow / .confirm-strip）内，
+   避免影响其他页面同名 class 的既有局部样式。 */
+
+.tnode {
+  list-style: none;
+}
+
+.trow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-2);
+  border-radius: var(--radius);
+  transition: background var(--dur) var(--ease);
+}
+
+.trow:hover {
+  background: var(--card);
+}
+
+.caret,
+.caret-sp {
+  width: 18px;
+  flex: none;
+  text-align: center;
+}
+
+.caret {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.caret:hover {
+  color: var(--ink);
+}
+
+.tname {
+  font-size: var(--text-sm);
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tname-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+a.tname:hover {
+  color: var(--contract);
+}
+
+/* 层级字号梯度：项目最大，模块最小 */
+.k-project > .trow .tname {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.k-domain > .trow .tname {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.k-document > .trow .tname {
+  font-size: var(--text-md);
+}
+
+.tmeta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.doc-type {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+}
+
+.done-badge {
+  font-size: var(--text-xs);
+  color: var(--success);
+  border: 1px solid var(--success);
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.tops {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--sp-1);
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.trow:hover .tops,
+.trow:focus-within .tops {
+  opacity: 1;
+}
+
+/* 树内小按钮 / 行内输入框：只在树与确认条上下文生效 */
+.trow .btn-mini,
+.confirm-strip .btn-mini {
+  padding: 2px var(--sp-2);
+  font-size: var(--text-xs);
+}
+
+.trow .rename-input {
+  max-width: 260px;
+  padding: 4px var(--sp-2);
+}
+
+.add-row {
+  padding-left: var(--sp-2);
+}
+
+/* 缩进引导线 */
+.tkids {
+  margin: 0 0 0 17px;
+  padding: 0 0 0 var(--sp-3);
+  border-left: 1px solid var(--hairline);
+}
+
+.confirm-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: 2px 0 4px 26px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.confirm-text {
+  font-size: var(--text-sm);
+  flex: 1;
+  min-width: 240px;
+}
+
+.terror {
+  margin: 2px 0 4px 26px;
+  font-size: var(--text-xs);
+}

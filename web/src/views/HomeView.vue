@@ -293,11 +293,6 @@ async function submitProject() {
   padding: 4px var(--sp-2);
 }
 
-.caret-sp {
-  width: 18px;
-  flex: none;
-}
-
 .empty {
   margin-top: var(--sp-5);
   padding: var(--sp-6);

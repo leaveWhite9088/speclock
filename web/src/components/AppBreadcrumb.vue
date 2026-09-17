@@ -103,6 +103,7 @@ function goBack() {
 </template>
 
 <style scoped>
+/* .crumbs / .sep / .crumb-link / .crumb-current 已抽全局（styles/base.css） */
 .crumbs-bar {
   display: flex;
   align-items: center;
@@ -112,32 +113,5 @@ function goBack() {
 
 .back-btn {
   flex: none;
-}
-
-.crumbs {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-  font-size: var(--text-sm);
-  min-width: 0;
-}
-
-.sep {
-  color: var(--ink-2);
-}
-
-.crumb-link {
-  color: var(--ink-2);
-  transition: color var(--dur) var(--ease);
-}
-
-.crumb-link:hover {
-  color: var(--contract);
-}
-
-.crumb-current {
-  color: var(--ink);
-  font-weight: 500;
 }
 </style>

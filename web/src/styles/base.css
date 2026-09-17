@@ -200,6 +200,40 @@ pre,
   color: var(--ink-2);
 }
 
+/* ---------- 面包屑（文档页 / 会议模块共用） ---------- */
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+
+.crumbs .sep {
+  color: var(--ink-2);
+}
+
+.crumb-link {
+  color: var(--ink-2);
+  transition: color var(--dur) var(--ease);
+}
+
+.crumb-link:hover {
+  color: var(--contract);
+}
+
+/* 无独立页面的中间层级（如业务线）：纯文本 */
+.crumb-plain {
+  color: var(--ink-2);
+}
+
+.crumb-current {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 /* ---------- 页面切换淡入 ---------- */
 
 .fade-enter-active,
