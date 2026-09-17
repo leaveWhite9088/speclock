@@ -55,6 +55,9 @@ def _ensure_columns() -> None:
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
             "voided_at": "DATETIME",
         },
+        "meeting_series": {
+            "share_token": "TEXT",
+        },
     }
     dropped = {
         "blocks": ["draft_edge_md"],
@@ -101,12 +104,33 @@ def _backfill_draft_api_desc() -> None:
         db.close()
 
 
+def _backfill_meeting_series_tokens() -> None:
+    """存量迁移（幂等）：老库里的 MeetingSeries 没有 share_token 列，
+    _ensure_columns 补列后这里给空 token 的行回填 ms- 前缀哈希码。"""
+    import secrets
+
+    from speclock.models import MeetingSeries
+
+    db = SessionLocal()
+    try:
+        dirty = False
+        for s in db.query(MeetingSeries).all():
+            if not s.share_token:
+                s.share_token = f"ms-{secrets.token_hex(16)}"
+                dirty = True
+        if dirty:
+            db.commit()
+    finally:
+        db.close()
+
+
 def init_db() -> None:
     from speclock import models  # noqa: F401  (register tables)
 
     Base.metadata.create_all(get_engine())
     _ensure_columns()
     _backfill_draft_api_desc()
+    _backfill_meeting_series_tokens()
 
 
 def get_db():

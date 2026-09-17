@@ -194,3 +194,169 @@ class AuditLog(Base):
     target: Mapped[str]  # e.g. block:3@1.2.0
     detail_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+# ---------- 会议记录（独立于 Project→Domain→Document→Block 链路） ----------
+
+
+class MeetingSeries(Base):
+    """业务线（如"采购部分"）：一组同业务线会议的容器。"""
+
+    __tablename__ = "meeting_series"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    name: Mapped[str]
+    share_token: Mapped[str | None] = mapped_column(
+        unique=True, index=True, nullable=True
+    )  # "ms-"+token_hex(16)，明文存；存量行由 db 迁移回填
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    meetings: Mapped[list["Meeting"]] = relationship(back_populates="series")
+    docs: Mapped[list["SeriesDoc"]] = relationship(back_populates="series")
+
+
+class Meeting(Base):
+    """一次会议：按目录名导入的一批 md 文件 + 哈希码分享配置。"""
+
+    __tablename__ = "meetings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    series_id: Mapped[int] = mapped_column(ForeignKey("meeting_series.id"))
+    name: Mapped[str]  # 如"采购第5次业务交流"
+    date: Mapped[str | None] = mapped_column(nullable=True)  # 从目录名 YYMMDD- 前缀解析，ISO 日期
+    dir_name: Mapped[str] = mapped_column(default="")  # 原始目录名
+    share_token: Mapped[str] = mapped_column(unique=True, index=True)  # "mt-"+token_hex(16)，明文存
+    share_kinds_json: Mapped[str] = mapped_column(Text, default='["requirements", "facts", "confirm"]')
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    series: Mapped[MeetingSeries] = relationship(back_populates="meetings")
+    files: Mapped[list["MeetingFile"]] = relationship(back_populates="meeting")
+
+
+class MeetingFile(Base):
+    """会议下的一份 md 文件。切块文件（精准需求/业务事实）的真相源是 chunks，
+    content_md 为渲染产物；其余文件整篇存/整篇编辑。"""
+
+    __tablename__ = "meeting_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    meeting_id: Mapped[int] = mapped_column(ForeignKey("meetings.id"))
+    filename: Mapped[str]  # 原始文件名
+    kind: Mapped[str]  # transcript|requirements|facts|confirm|questions|glossary|other
+    current_version: Mapped[str] = mapped_column(default="1.0.0")  # 文件级 semver
+    content_md: Mapped[str] = mapped_column(Text, default="")  # 当前内容（v1=上传原文）
+    parse_status: Mapped[str] = mapped_column(default="na")  # ok|degraded|failed|na
+    parse_error: Mapped[str] = mapped_column(Text, default="")  # 可直接贴给 agent 的报错
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    meeting: Mapped[Meeting] = relationship(back_populates="files")
+    versions: Mapped[list["MeetingFileVersion"]] = relationship(
+        back_populates="file", order_by="MeetingFileVersion.id"
+    )
+    chunks: Mapped[list["MeetingChunk"]] = relationship(
+        back_populates="file", order_by="MeetingChunk.seq"
+    )
+
+
+class MeetingFileVersion(Base):
+    """文件版本快照：v1 存上传原文，之后每次编辑一个不可变快照。"""
+
+    __tablename__ = "meeting_file_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file_id: Mapped[int] = mapped_column(ForeignKey("meeting_files.id"))
+    version: Mapped[str]  # semver MAJOR.MINOR.PATCH
+    content_md: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(default="upload")  # upload|edit
+    bump: Mapped[str] = mapped_column(default="none")  # major|minor|patch|none
+    change_note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(default="")  # key hint
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    file: Mapped[MeetingFile] = relationship(back_populates="versions")
+
+
+class MeetingChunk(Base):
+    """切块文件的单个块：条目（REQ/FACT/CON/ACT/Q）或散文节（prose，
+    含标题行、会议概括、覆盖校验等，保持 seq 顺序以完整渲染回文件）。"""
+
+    __tablename__ = "meeting_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file_id: Mapped[int] = mapped_column(ForeignKey("meeting_files.id"))
+    seq: Mapped[int]
+    section: Mapped[str] = mapped_column(default="")  # 所属 ## / ### 标题
+    ref_id: Mapped[str | None] = mapped_column(nullable=True)  # REQ-01/FACT-03/...；prose 为 None
+    chunk_type: Mapped[str]  # req|fact|con|act|q|prose
+    fields_json: Mapped[str] = mapped_column(Text, default="{}")  # statement/status/.../quotes[]
+    text_md: Mapped[str] = mapped_column(Text, default="")  # 该块渲染文本，供搜索
+
+    file: Mapped[MeetingFile] = relationship(back_populates="chunks")
+
+
+# ---------- 业务线汇总文档（总精准需求 / 总业务事实） ----------
+
+
+class SeriesDoc(Base):
+    """业务线下的汇总文档：每个业务线每类一份（requirements|facts），
+    由 refresh 从各会议文件汇总生成，之后可块级编辑（联动源文件）。"""
+
+    __tablename__ = "series_docs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    series_id: Mapped[int] = mapped_column(ForeignKey("meeting_series.id"))
+    kind: Mapped[str]  # requirements|facts
+    current_version: Mapped[str] = mapped_column(default="1.0.0")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    series: Mapped[MeetingSeries] = relationship(back_populates="docs")
+    items: Mapped[list["SeriesItem"]] = relationship(
+        back_populates="doc", order_by="SeriesItem.seq"
+    )
+    versions: Mapped[list["SeriesDocVersion"]] = relationship(
+        back_populates="doc", order_by="SeriesDocVersion.id"
+    )
+
+
+class SeriesItem(Base):
+    """汇总文档条目：与 MeetingChunk 同构的 fields_json/text_md；
+    origin_* 记录来源（会议文件里的块），业务级新增的条目 origin 全空。"""
+
+    __tablename__ = "series_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doc_id: Mapped[int] = mapped_column(ForeignKey("series_docs.id"))
+    seq: Mapped[int]
+    chunk_type: Mapped[str]  # req|con|act|q|fact|prose
+    section: Mapped[str] = mapped_column(default="")
+    ref_id: Mapped[str | None] = mapped_column(nullable=True)  # 汇总文档内重编号
+    fields_json: Mapped[str] = mapped_column(Text, default="{}")
+    text_md: Mapped[str] = mapped_column(Text, default="")
+    # 溯源（可空；源块被删后保留原值作展示，联动时按"源已不存在"处理）
+    origin_chunk_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meeting_chunks.id"), nullable=True
+    )
+    origin_meeting_id: Mapped[int | None] = mapped_column(nullable=True)
+    origin_ref_id: Mapped[str | None] = mapped_column(nullable=True)
+    origin_meeting_name: Mapped[str] = mapped_column(default="")  # 冗余便于展示
+
+    doc: Mapped[SeriesDoc] = relationship(back_populates="items")
+
+
+class SeriesDocVersion(Base):
+    """汇总文档版本快照：refresh（汇总刷新）| edit（块级编辑）。"""
+
+    __tablename__ = "series_doc_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doc_id: Mapped[int] = mapped_column(ForeignKey("series_docs.id"))
+    version: Mapped[str]
+    content_md: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(default="refresh")  # refresh|edit
+    bump: Mapped[str] = mapped_column(default="none")  # major|minor|patch|none
+    change_note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    doc: Mapped[SeriesDoc] = relationship(back_populates="versions")

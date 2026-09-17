@@ -88,6 +88,71 @@ class ProjectCreate(BaseModel):
     name: str
 
 
+# ---------- 会议记录 ----------
+
+
+class MeetingSeriesCreate(BaseModel):
+    project_id: int
+    name: str
+
+
+class MeetingCreate(BaseModel):
+    series_id: int
+    name: str
+    dir_name: str = ""  # 原始目录名；带 YYMMDD- 前缀时自动解析出会议日期
+    date: str | None = None  # 显式指定（YYYY-MM-DD）优先于目录名解析
+
+
+class FileRename(BaseModel):
+    filename: str
+
+
+class MeetingUpdate(BaseModel):
+    name: str | None = None
+    date: str | None = None  # YYYY-MM-DD；显式传 null 清空日期
+    dir_name: str | None = None
+
+
+class ShareKindsUpdate(BaseModel):
+    kinds: list[str]
+
+
+class MeetingChunkIn(BaseModel):
+    """切块编辑提交的一个块：条目块带 ref_id（新增可空，服务端分配），
+    prose 块 fields 里只需 raw 原文。"""
+
+    ref_id: str | None = None
+    chunk_type: str  # req|fact|con|act|q|prose
+    section: str = ""
+    fields: dict = {}
+
+
+class ChunkUpdate(BaseModel):
+    chunks: list[MeetingChunkIn]
+    change_note: str = ""
+
+
+class SeriesItemIn(MeetingChunkIn):
+    """汇总文档条目提交：origin_* 仅用于展示回显，服务端以库内值为准
+    （新条目 origin 全空 = 业务级增加）。"""
+
+    origin_chunk_id: int | None = None
+    origin_meeting_id: int | None = None
+    origin_ref_id: str | None = None
+    origin_meeting_name: str = ""
+
+
+class SeriesItemsUpdate(BaseModel):
+    items: list[SeriesItemIn]
+    change_note: str = ""
+
+
+class ContentUpdate(BaseModel):
+    content: str
+    bump: str = Field(default="patch", pattern="^(major|minor|patch)$")
+    change_note: str = ""
+
+
 class KeyCreate(BaseModel):
     prefix: str = Field(pattern="^(human|agent)$")
     label: str = ""
