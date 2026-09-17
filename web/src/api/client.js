@@ -34,18 +34,7 @@ export function keyHint(key = getKey()) {
   return `${prefix}-…${key.slice(-4)}`
 }
 
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
-  const key = getKey()
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: {
-      ...(key ? { 'X-API-Key': key } : {}),
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-
+async function handleResponse(res) {
   if (res.status === 401) {
     clearKey()
     // 守卫之外唯一的强制登出点：密钥无效时回到登录页
@@ -76,6 +65,20 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
   return data
 }
 
+async function request(path, { method = 'GET', body, headers = {} } = {}) {
+  const key = getKey()
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      ...(key ? { 'X-API-Key': key } : {}),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  return handleResponse(res)
+}
+
 export const api = {
   get: (path, options) => request(path, { ...options, method: 'GET' }),
   post: (path, body, options) =>
@@ -85,4 +88,39 @@ export const api = {
   patch: (path, body, options) =>
     request(path, { ...options, method: 'PATCH', body }),
   delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
+  /** multipart 上传：不能带 JSON Content-Type，让浏览器自己设 boundary */
+  postForm: async (path, formData) => {
+    const key = getKey()
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { ...(key ? { 'X-API-Key': key } : {}) },
+      body: formData,
+    })
+    return handleResponse(res)
+  },
+}
+
+/** 带 X-API-Key 下载附件（导出端点不能靠 <a href>，header 带不上）。
+ * 文件名从 Content-Disposition 取（优先 RFC 5987 filename*=UTF-8''）。 */
+export async function downloadFile(path) {
+  const key = getKey()
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { ...(key ? { 'X-API-Key': key } : {}) },
+  })
+  if (!res.ok) await handleResponse(res) // 统一 401/错误处理，必定 throw
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') || ''
+  let filename = 'download'
+  const star = cd.match(/filename\*=UTF-8''([^;]+)/i)
+  const plain = cd.match(/filename="([^"]+)"/i)
+  if (star) filename = decodeURIComponent(star[1])
+  else if (plain) filename = plain[1]
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }

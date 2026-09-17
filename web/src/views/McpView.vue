@@ -1,7 +1,20 @@
 <script setup>
-// AI 接入（MCP）：配置生成 + 工具清单 + agent 最近活动流。
+// AI 接入：Tab 切换 ——「接口契约 MCP」（文档树，MCP stdio）/「会议记录分享」
+//（哈希码只读链接，面板组件 AiMeetingsView）。tab 状态放在 route query
+//（/mcp?tab=meetings），可分享直达。
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
+import AiMeetingsView from './AiMeetingsView.vue'
+
+const route = useRoute()
+const router = useRouter()
+
+const tab = computed(() => (route.query.tab === 'meetings' ? 'meetings' : 'mcp'))
+
+function setTab(t) {
+  router.replace({ query: { ...route.query, tab: t === 'mcp' ? undefined : t } })
+}
 
 // 与后端 ui.py 的 MCP_TOOLS 保持一致的一句话说明
 const TOOLS = [
@@ -129,8 +142,33 @@ onMounted(load)
 
 <template>
   <div class="page mcp-page">
-    <p class="page-eyebrow">MCP</p>
-    <h1 class="page-title">AI 接入（MCP）</h1>
+    <p class="page-eyebrow">AI Access</p>
+    <h1 class="page-title">AI 接入</h1>
+
+    <div class="tab-bar" role="tablist">
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'is-active': tab === 'mcp' }"
+        role="tab"
+        :aria-selected="tab === 'mcp'"
+        @click="setTab('mcp')"
+      >
+        接口契约 MCP
+      </button>
+      <button
+        type="button"
+        class="tab"
+        :class="{ 'is-active': tab === 'meetings' }"
+        role="tab"
+        :aria-selected="tab === 'meetings'"
+        @click="setTab('meetings')"
+      >
+        会议记录分享
+      </button>
+    </div>
+
+    <template v-if="tab === 'mcp'">
     <p class="page-desc">
       本页面向开发 agent。点「复制接入说明」得到一份完整的 Markdown 接入指南，直接发给 agent，它会自行完成配置。
     </p>
@@ -230,12 +268,47 @@ onMounted(load)
         </table>
       </div>
     </section>
+    </template>
+
+    <AiMeetingsView v-else />
   </div>
 </template>
 
 <style scoped>
 .mcp-page {
   max-width: 860px;
+}
+
+.tab-bar {
+  display: flex;
+  gap: var(--sp-1);
+  margin-top: var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 7px var(--sp-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab.is-active {
+  color: var(--contract);
+  border-bottom-color: var(--contract);
+  font-weight: 500;
 }
 
 .section {

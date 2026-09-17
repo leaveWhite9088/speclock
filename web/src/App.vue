@@ -12,6 +12,7 @@ const hint = computed(() => keyHint())
 
 const mainNav = [
   { to: '/', label: '文档树' },
+  { to: '/meetings', label: '会议记录' },
   { to: '/proposals', label: '提案' },
   { to: '/acks', label: '回执' },
   { to: '/archive', label: '归档' },

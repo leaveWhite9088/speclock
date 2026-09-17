@@ -12,6 +12,11 @@ import AcksView from './views/AcksView.vue'
 import ArchiveView from './views/ArchiveView.vue'
 import KeysView from './views/KeysView.vue'
 import McpView from './views/McpView.vue'
+import MeetingsView from './views/MeetingsView.vue'
+import MeetingDetailView from './views/MeetingDetailView.vue'
+import MeetingFileView from './views/MeetingFileView.vue'
+import MeetingSearchView from './views/MeetingSearchView.vue'
+import SeriesDetailView from './views/SeriesDetailView.vue'
 
 const routes = [
   {
@@ -60,6 +65,37 @@ const routes = [
   },
   { path: '/keys', name: 'keys', component: KeysView, meta: { title: '密钥管理' } },
   { path: '/mcp', name: 'mcp', component: McpView, meta: { title: 'AI 接入' } },
+  {
+    path: '/meetings',
+    name: 'meetings',
+    component: MeetingsView,
+    meta: { title: '会议记录' },
+  },
+  {
+    // 必须放在 /meetings/:id 之前，否则 "search" 会被当成会议 id 吞掉
+    path: '/meetings/search',
+    name: 'meeting-search',
+    component: MeetingSearchView,
+    meta: { title: '会议搜索' },
+  },
+  {
+    path: '/meetings/series/:id',
+    name: 'series-detail',
+    component: SeriesDetailView,
+    meta: { title: '业务线详情' },
+  },
+  {
+    path: '/meetings/:id',
+    name: 'meeting-detail',
+    component: MeetingDetailView,
+    meta: { title: '会议详情' },
+  },
+  {
+    path: '/meetings/:id/files/:fileId',
+    name: 'meeting-file',
+    component: MeetingFileView,
+    meta: { title: '会议文件' },
+  },
 ]
 
 export const router = createRouter({
