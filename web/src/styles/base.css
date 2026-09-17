@@ -202,6 +202,17 @@ pre,
 
 /* ---------- 面包屑（文档页 / 会议模块共用） ---------- */
 
+.crumbs-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.back-btn {
+  flex: none;
+}
+
 .crumbs {
   display: flex;
   align-items: center;

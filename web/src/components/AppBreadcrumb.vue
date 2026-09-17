@@ -103,15 +103,6 @@ function goBack() {
 </template>
 
 <style scoped>
-/* .crumbs / .sep / .crumb-link / .crumb-current 已抽全局（styles/base.css） */
-.crumbs-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-3);
-}
-
-.back-btn {
-  flex: none;
-}
+/* .crumbs-bar / .back-btn / .crumbs / .sep / .crumb-link / .crumb-current
+   均为全局（styles/base.css） */
 </style>
