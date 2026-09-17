@@ -30,9 +30,16 @@ const kinds = ref([])
 const kindsSaving = ref(false)
 const kindsMsg = ref('')
 
-const tokenCopied = ref(false)
+const curlCopied = ref(false)
 const regenerating = ref(false)
 const exporting = ref(false)
+
+// curl 命令带完整 URL（含哈希码），是唯一展示 token 的地方
+const curlCmd = computed(() =>
+  meeting.value?.share_token
+    ? `curl "${window.location.origin}/api/share/${meeting.value.share_token}"`
+    : '',
+)
 
 // 标准文件固定展示顺序（其余 kind=other 进「其他文件」组）
 const STANDARD_ORDER = ['transcript', 'requirements', 'facts', 'confirm', 'questions', 'glossary']
@@ -72,20 +79,19 @@ async function load() {
 
 onMounted(load)
 
-async function copyToken() {
-  const text = meeting.value.share_token
+async function copyCurl() {
   try {
-    await navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(curlCmd.value)
   } catch {
     const ta = document.createElement('textarea')
-    ta.value = text
+    ta.value = curlCmd.value
     document.body.appendChild(ta)
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
   }
-  tokenCopied.value = true
-  setTimeout(() => (tokenCopied.value = false), 1500)
+  curlCopied.value = true
+  setTimeout(() => (curlCopied.value = false), 1500)
 }
 
 async function regenerate() {
@@ -265,10 +271,10 @@ async function removeMeeting() {
       <section class="section">
         <h2 class="section-title">哈希码分享</h2>
         <div class="card section-card">
-          <div class="token-row">
-            <code class="mono token">{{ meeting.share_token }}</code>
-            <button type="button" class="btn" @click="copyToken">
-              {{ tokenCopied ? '已复制 ✓' : '复制' }}
+          <pre class="code-pre mono">{{ curlCmd }}</pre>
+          <div class="curl-ops">
+            <button type="button" class="btn" @click="copyCurl">
+              {{ curlCopied ? '已复制到剪贴板 ✓' : '复制 curl 命令' }}
             </button>
             <button
               type="button"
@@ -276,12 +282,12 @@ async function removeMeeting() {
               :disabled="regenerating"
               @click="regenerate"
             >
-              {{ regenerating ? '生成中…' : '重新生成' }}
+              {{ regenerating ? '生成中…' : '重新生成哈希码' }}
             </button>
           </div>
           <p class="muted hint">
-            任何拿到哈希码的人都能通过 <code>/api/share/{{ meeting.share_token.slice(0, 7) }}…</code>
-            只读访问下方勾选的文件内容；在「AI 接入 · 会议」页可生成 curl 命令与提示词模板。
+            URL 里的哈希码本身即授权，拿到链接的人可只读访问下方勾选的文件内容（Markdown）；
+            重新生成后旧链接立即失效。「AI 接入 › 会议记录分享」页可生成提示词模板。
           </p>
           <div class="kinds-row">
             <label v-for="k in SHAREABLE_KINDS" :key="k" class="kind-check">
@@ -427,32 +433,26 @@ async function removeMeeting() {
   gap: var(--sp-3);
 }
 
-.token-row {
+.code-pre {
+  margin: 0;
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.curl-ops {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex-wrap: wrap;
-}
-
-.token {
-  font-size: var(--text-xs);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 4px var(--sp-2);
-  word-break: break-all;
 }
 
 .hint {
   font-size: var(--text-xs);
-}
-
-.hint code {
-  font-size: var(--text-xs);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--sp-1);
 }
 
 .kinds-row {

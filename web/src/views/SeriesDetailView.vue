@@ -31,7 +31,6 @@ const series = ref(null)
 const loading = ref(true)
 const loadError = ref('')
 
-const tokenCopied = ref(false)
 const curlCopied = ref(false)
 const regenerating = ref(false)
 
@@ -66,7 +65,7 @@ const activeDocMeta = computed(
   () => series.value?.docs.find((d) => d.kind === activeKind.value) || null,
 )
 
-async function copyText(text, which) {
+async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
@@ -77,12 +76,8 @@ async function copyText(text, which) {
     document.execCommand('copy')
     document.body.removeChild(ta)
   }
-  if (which === 'token') tokenCopied.value = true
-  else curlCopied.value = true
-  setTimeout(() => {
-    tokenCopied.value = false
-    curlCopied.value = false
-  }, 1500)
+  curlCopied.value = true
+  setTimeout(() => (curlCopied.value = false), 1500)
 }
 
 function toDraft(i) {
@@ -262,25 +257,22 @@ const LINK_ACTION_LABELS = { added: '新增', updated: '联动更新', deleted: 
       </p>
       <p v-if="refreshMsg" class="muted refresh-msg" role="status">{{ refreshMsg }}</p>
 
-      <!-- 哈希码分享 -->
+      <!-- 分享：curl 区（URL 含哈希码）+ 重新生成 -->
       <section class="section">
         <h2 class="section-title">哈希码分享</h2>
         <div class="card section-card">
-          <div class="token-row">
-            <code class="mono token">{{ series.share_token }}</code>
-            <button type="button" class="btn" @click="copyText(series.share_token, 'token')">
-              {{ tokenCopied ? '已复制 ✓' : '复制' }}
+          <pre class="code-pre mono">{{ curlCmd }}</pre>
+          <div class="curl-ops">
+            <button type="button" class="btn" @click="copyText(curlCmd)">
+              {{ curlCopied ? '已复制到剪贴板 ✓' : '复制 curl 命令' }}
             </button>
             <button type="button" class="btn btn-danger" :disabled="regenerating" @click="regenerate">
-              {{ regenerating ? '生成中…' : '重新生成' }}
+              {{ regenerating ? '生成中…' : '重新生成哈希码' }}
             </button>
           </div>
-          <pre class="code-pre mono">{{ curlCmd }}</pre>
-          <button type="button" class="btn" @click="copyText(curlCmd, 'curl')">
-            {{ curlCopied ? '已复制到剪贴板 ✓' : '复制 curl 命令' }}
-          </button>
           <p class="muted hint">
-            拿到链接的人可只读访问两个汇总文档（条目带来源行）；「AI 接入 › 会议记录分享」页可生成提示词模板。
+            URL 里的哈希码本身即授权，拿到链接的人可只读访问两个汇总文档（条目带来源行）；
+            重新生成后旧链接立即失效。「AI 接入 › 会议记录分享」页可生成提示词模板。
           </p>
         </div>
       </section>
@@ -502,22 +494,6 @@ const LINK_ACTION_LABELS = { added: '新增', updated: '联动更新', deleted: 
   gap: var(--sp-3);
 }
 
-.token-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-}
-
-.token {
-  font-size: var(--text-xs);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 4px var(--sp-2);
-  word-break: break-all;
-}
-
 .code-pre {
   margin: 0;
   width: 100%;
@@ -528,6 +504,12 @@ const LINK_ACTION_LABELS = { added: '新增', updated: '联动更新', deleted: 
   font-size: var(--text-xs);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.curl-ops {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .hint {
