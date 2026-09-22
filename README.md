@@ -49,8 +49,8 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **两级版本** — 模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增 → MINOR，其余 PATCH）；任一模块发布时所属文档自动派生文档版本（manifest = 全部模块当前版本清单）
 - **字段级 diff 与破坏性判定** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；删除必填字段 / 删除整个 API / 类型或必填标志变更为破坏性，删除可选字段不算
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→文档→模块 三层概要树（模块节点带一句话摘要与完成标记），选中后再按需精读，上下文占用最小
-- **提案通道** — AI 发现文档有误或缺失时提交提案，收件箱一键"批准并发布"，小变更从提出到发布 ≤2 分钟
-- **完成状态跟踪** — 模块级 `completed` 标记（发布新版自动重置），agent 可过滤未完成模块，只做没做完的小业务
+- **提案通道** — AI 发现文档有误或缺失时提交提案，收件箱一键"批准并发布"，小变更从提出到发布 ≤2 分钟；API 改写推荐 delta 模式（`proposed_api_ops`：upsert/delete 按 `api` 定位条目，只携带变更项），提交时记录基底版本 `base_version`，批准时若基底过期且 ops 触及其间已变更的 API 则 409 拒绝合并；旧的 `proposed_apis` 整体替换模式保留向后兼容
+- **完成状态跟踪** — 模块级 `completed` 标记（发布新版自动重置），agent 可过滤未完成模块，只做没做完的小业务；回执看板提供全项目 大业务→文档→模块 进度总览与最近回执条带，模块页版本历史逐版本展示回执三态（已回执/待回执/已被取代）与回执明细
 - **全链路审计** — 发布 / 提案 / 拉取 / ack 全部落 `AuditLog`
 
 ## 工作原理
@@ -76,7 +76,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 - **版本 pin**：`GET /blocks/{id}@{version}`、`GET /documents/{id}@{version}` 读不可变快照；草稿对 agent 永远不可见
 - **发布两通道**：默认先 `dryRun` 预览（版本号 / delta 摘要 / 破坏性），确认后落库，破坏性变更须显式 `confirm=true`；`fastTrack` 秒批仅限非破坏性变更
-- **ack 回执**：agent 声明"已按 模块@版本 实现"，与权威完成状态 `completed` 互补
+- **ack 回执**：agent 声明"已按 模块@版本 实现"；回执当前最新发布版本即将模块标记为已完成（`completed`），前端只读
 
 ## 文档模型
 
@@ -172,7 +172,7 @@ curl -H "X-API-Key: $KEY" http://127.0.0.1:8000/api/v1/blocks/1@1.0.0    # 精�
 curl -H "X-API-Key: $KEY" http://127.0.0.1:8000/api/v1/documents/1@1.2.0 # 文档 manifest（pin 历史快照）
 curl -H "X-API-Key: $KEY" "http://127.0.0.1:8000/api/v1/blocks/1/diff?from=1.0.0&to=1.1.0"
 curl -X POST -H "X-API-Key: $KEY" -d '{"version":"1.1.0","task_desc":"..."}' http://127.0.0.1:8000/api/v1/blocks/1/ack
-curl -X POST -H "X-API-Key: $KEY" -d '{"block_id":1,"description":"...","suggestion":"..."}' http://127.0.0.1:8000/api/v1/proposals
+curl -X POST -H "X-API-Key: $KEY" -d '{"block_id":1,"description":"...","suggestion":"...","proposed_api_ops":[{"op":"upsert","api":"GET /api/x","entry":{...}}]}' http://127.0.0.1:8000/api/v1/proposals
 ```
 
 ### MCP（Claude Code 等）
@@ -202,8 +202,8 @@ MCP server 暴露 **7 个工具**：
 | `get_block` | 读取模块已发布版本，可 pin 版本号 |
 | `get_document` | 文档 manifest（模块→版本清单），可 pin 历史文档版本 |
 | `get_diff` | 两个已发布版本之间的结构化 + 文本 diff |
-| `ack_block` | 回执：声明「已按 模块@版本 实现」 |
-| `submit_proposal` | 提交变更提案——AI 唯一的写出口 |
+| `ack_block` | 回执：声明「已按 模块@版本 实现」；回执当前最新发布版本即把模块标记为已完成 |
+| `submit_proposal` | 提交变更提案——AI 唯一的写出口；API 改写推荐 `proposed_api_ops` delta 模式（upsert/delete 按 `api` 匹配），`proposed_apis` 整体替换为 legacy 用法，二者互斥 |
 | `get_proposal` | 轮询提案状态 |
 
 没有任何写文档的工具；为控制 AI 上下文占用，工具数保持精简。管理 SPA 的「AI 接入」页提供可直接复制的配置与给 agent 的完整接入说明，`SPECLOCK_URL` 按浏览器当前访问地址（`window.location.origin`）自动生成。
@@ -212,7 +212,7 @@ MCP server 暴露 **7 个工具**：
 
 - **删除语义**：已发布内容不可消失。已发布模块的删除 = 归档（agent 读 404、索引排除、历史版本保留，并立即派生文档新版本）；归档模块可在 SPA 归档管理页恢复或彻底删除（purge，不可恢复）；文档 / 大业务 / 项目仅当其下无已发布模块时可删
 - **版本作废**：单个已发布版本可作废（`POST /api/v1/blocks/{id}/versions/{version}/void`，仅 human key，重复作废 409）——逻辑删除：agent 读取/pin、diff、index 与 SPA 版本历史均不可见，数据库行保留（`voided_at`）但不提供恢复入口；作废后模块当前版本回落到最新未作废版本（全部作废则按未发布展示），版本号永不复用（再发布从含作废版本的历史最大号继续递增）
-- **完成状态**：发布新版本时 `completed` 自动重置为 False，`completed_version` 保留上次完成版本；ack 是单次回执，`completed` 是权威状态，两者不自动联动
+- **完成状态**：`completed` 只能由后端写入——agent 调用 `ack_block` 回执当前最新发布版本时置为 True（`completed_version`/`completed_at` 记录对应版本与时间），前端一律只读；发布新版本时自动重置为 False，`completed_version` 保留上次完成版本
 - **审计**：发布（模块 + 文档）/ 提案 / 拉取 / ack 全部写 `AuditLog`，「AI 接入」页展示最近 50 条 agent 活动
 
 ## 项目结构
