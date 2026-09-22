@@ -90,7 +90,7 @@ def test_void_flow_visibility(env):
 
 
 def test_void_is_idempotent_conflict(env):
-    """已作废版本再次作废 → 409（与 restore/complete 的状态冲突语义一致）。"""
+    """已作废版本再次作废 → 409（与 restore 的状态冲突语义一致）。"""
     _publish_two_versions(env)
     assert _void(env, "1.1.0").status_code == 200
     r = _void(env, "1.1.0")

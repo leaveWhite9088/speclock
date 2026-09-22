@@ -38,6 +38,16 @@ const RULES = [
 
 const KEY_PLACEHOLDER = 'agent-…（到「密钥管理」新建 agent key 后填入）'
 
+// 客户端包（speclock wheel）下载信息，来自 GET /agent/client-package；
+// 服务端未构建 wheel 时接口 404，pkg 保持 null，安装命令退化为占位形式
+const pkg = ref(null)
+
+const installCommand = computed(
+  () =>
+    pkg.value?.install_command ??
+    `pip install "speclock @ ${window.location.origin}/api/v1/agent/client-package/speclock-<版本>-py3-none-any.whl"`,
+)
+
 const configJson = computed(() =>
   JSON.stringify(
     {
@@ -65,7 +75,17 @@ const brief = computed(
 
 请按以下步骤自行完成接入。
 
-## 1. 写入 MCP 配置
+## 1. 安装 MCP server 包
+
+speclock 包不在 PyPI 上，直接从本站下载 wheel 安装（需要 Python ≥ 3.11 与 pip）：
+
+\`\`\`bash
+${installCommand.value}
+\`\`\`
+
+安装后 \`python -m speclock.mcp_server\` 即为可启动的 MCP server（stdio 方式）。
+
+## 2. 写入 MCP 配置
 
 把下面的 JSON 合并到项目根目录的 \`.mcp.json\`（若已有 \`mcpServers\` 字段，只合并其中 \`speclock\` 一项），然后重启你的客户端使配置生效。MCP server 以 stdio 方式启动。
 
@@ -73,11 +93,11 @@ const brief = computed(
 ${configJson.value}
 \`\`\`
 
-## 2. 你可用的工具（${TOOLS.length} 个）
+## 3. 你可用的工具（${TOOLS.length} 个）
 
 ${TOOLS.map(([name, desc]) => `- \`${name}\`：${desc}`).join('\n')}
 
-## 3. 使用规则
+## 4. 使用规则
 
 ${RULES.map((r) => `- ${r.replace(/(\w[\w_]*)/g, (m) => (TOOLS.some(([t]) => t === m) ? `\`${m}\`` : m))}`).join('\n')}
 `,
@@ -87,7 +107,7 @@ const activities = ref([])
 const agentHint = ref('')
 const loading = ref(true)
 const error = ref('')
-const copyState = ref('') // 'config' | 'brief' 最近复制了哪个
+const copyState = ref('') // 'install' | 'config' | 'brief' 最近复制了哪个
 const copied = ref(false)
 
 async function copyText(text, which) {
@@ -127,6 +147,13 @@ async function load() {
         .then((ks) => {
           const agent = ks.find((k) => k.prefix === 'agent')
           if (agent) agentHint.value = agent.hint
+        })
+        .catch(() => {}),
+      // 客户端包下载信息（wheel 未构建时 404，忽略即可，安装命令用占位形式）
+      api
+        .get('/agent/client-package')
+        .then((p) => {
+          pkg.value = p
         })
         .catch(() => {}),
     ])
@@ -178,9 +205,26 @@ onMounted(load)
         {{ copied && copyState === 'brief' ? '已复制到剪贴板 ✓' : '复制接入说明' }}
       </button>
       <span class="muted intro-hint">
-        说明包含：接入方式、MCP 配置、{{ TOOLS.length }} 个工具清单、使用规则。
+        说明包含：安装命令、接入方式、MCP 配置、{{ TOOLS.length }} 个工具清单、使用规则。
       </span>
     </div>
+
+    <!-- 第 0 步：安装 MCP server 包 -->
+    <section class="section">
+      <h2 class="section-title">第 0 步：安装 MCP server 包</h2>
+      <div class="card section-card">
+        <p class="step-text">
+          speclock 包不在 PyPI 上，直接从本站下载 wheel 安装（需要 Python ≥ 3.11 与 pip）：
+        </p>
+        <pre class="config-pre mono">{{ installCommand }}</pre>
+        <p v-if="!pkg" class="step-text muted">
+          服务端尚未构建客户端包时上面的 URL 会 404——构建方式见 DEPLOY.md（python -m build --wheel）。
+        </p>
+        <button type="button" class="btn" @click="copyText(installCommand, 'install')">
+          {{ copied && copyState === 'install' ? '已复制到剪贴板 ✓' : '复制安装命令' }}
+        </button>
+      </div>
+    </section>
 
     <!-- 第 1 步：MCP 配置 -->
     <section class="section">

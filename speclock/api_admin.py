@@ -75,9 +75,9 @@ def _published_version(db: Session, block: Block, version: str) -> BlockVersion:
     return bv
 
 
-def _validate_apis_or_422(apis: list[dict]) -> list[dict]:
+def _validate_apis_or_422(apis: list[dict], require_desc: bool = True) -> list[dict]:
     try:
-        return diffing.validate_apis(apis)
+        return diffing.validate_apis(apis, require_desc=require_desc)
     except diffing.ApisValidationError as exc:
         raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
 
@@ -166,6 +166,7 @@ def publish_block(
     fast_track: bool,
     confirm: bool,
     dry_run: bool = False,
+    enforce_readiness: bool = True,
 ) -> PublishResult:
     """Snapshot the working draft into a new immutable BlockVersion, then
     derive a new DocumentVersion for the owning document.
@@ -178,14 +179,16 @@ def publish_block(
 
     发布关口先做「结构完备性」校验（背景叙述 / 规则清单 / API desc），
     不满足返回 422 并列出全部缺失项；dryRun 预览同样受校验约束。
+    enforce_readiness=False 仅用于 inject_ops 恢复先于关口存在的历史数据。
     """
-    problems = _check_publish_readiness(block)
+    problems = _check_publish_readiness(block) if enforce_readiness else []
     if problems:
         raise HTTPException(
             status_code=422,
             detail={"error": "模块结构不完备，不能发布", "missing": problems},
         )
-    apis = _validate_apis_or_422(json.loads(block.draft_apis_json or "[]"))
+    apis = _validate_apis_or_422(json.loads(block.draft_apis_json or "[]"),
+                                 require_desc=enforce_readiness)
     rules = _validate_rules_or_422(json.loads(block.draft_rules_json or "[]"))
 
     old_apis: list = []
@@ -639,33 +642,6 @@ def restore_block(block_id: int, db: Session = Depends(get_db)):
             "document_version": doc_version}
 
 
-# ---------- 完成标记 ----------
-
-
-@router.post("/blocks/{block_id}/complete")
-def complete_block(block_id: int, db: Session = Depends(get_db)):
-    """标记完成：当前已发布版本已被实现完成。权威状态由人驱动；ack 是 AI 的
-    单次回执，两者不自动联动。"""
-    block = _get_block(db, block_id)
-    if block.status != "published" or block.current_published_version is None:
-        raise HTTPException(status_code=409, detail="只有已发布的模块才能标记完成")
-    block.completed = True
-    block.completed_version = block.current_published_version
-    block.completed_at = utcnow()
-    audit(db, "human", "complete", f"block:{block.id}@{block.completed_version}", {})
-    db.commit()
-    return {"id": block.id, "completed": True, "completed_version": block.completed_version}
-
-
-@router.post("/blocks/{block_id}/uncomplete")
-def uncomplete_block(block_id: int, db: Session = Depends(get_db)):
-    block = _get_block(db, block_id)
-    block.completed = False
-    audit(db, "human", "uncomplete", f"block:{block.id}", {})
-    db.commit()
-    return {"id": block.id, "completed": False, "completed_version": block.completed_version}
-
-
 # ---------- publish / versions ----------
 
 
@@ -743,7 +719,7 @@ def void_version(
     作废时把 Block.current_published_version 回退到最新未作废版本（全部作废
     则置 None，模块按未发布展示），各读侧无需额外过滤即可看到一致语义；
     版本号不复用由发布侧按含作废版本的历史最大号递增保证。
-    已作废的版本再次调用返回 409（与 restore/complete 的状态冲突语义一致）。"""
+    已作废的版本再次调用返回 409（与 restore 的状态冲突语义一致）。"""
     block = _get_block(db, block_id)
     bv = (
         db.query(BlockVersion)

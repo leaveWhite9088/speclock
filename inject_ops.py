@@ -105,7 +105,7 @@ def main() -> None:
             db.add(block)
             db.flush()
             result = publish_block(db, block, actor="inject_ops", change_note="初始发布",
-                                   fast_track=True, confirm=False)
+                                   fast_track=True, confirm=False, enforce_readiness=False)
             created.append((domain_name, document.title, block.title, result.version,
                             result.document_version, len(mod.get("apis", []))))
 

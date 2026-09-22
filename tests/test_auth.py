@@ -23,8 +23,6 @@ WRITE_ENDPOINTS = [
     ("DELETE", "/api/v1/blocks/1", None),
     ("POST", "/api/v1/blocks/1/restore", None),
     ("DELETE", "/api/v1/blocks/1/purge", None),
-    ("POST", "/api/v1/blocks/1/complete", None),
-    ("POST", "/api/v1/blocks/1/uncomplete", None),
     ("POST", "/api/v1/blocks/1/publish", {"change_note": "x", "fastTrack": True}),
     ("POST", "/api/v1/proposals/1/resolve", {"action": "approve"}),
     ("POST", "/api/v1/keys", {"prefix": "agent"}),
