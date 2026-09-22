@@ -22,7 +22,7 @@ const TOOLS = [
   ['get_block', '读取一个模块的已发布版本，可 pin 版本号锁定快照'],
   ['get_document', '读取文档 manifest（模块→版本清单），可 pin 历史文档版本回放快照'],
   ['get_diff', '两个已发布版本之间的结构化 + 文本 diff'],
-  ['ack_block', '回执：声明「已按 模块@版本 实现」'],
+  ['ack_block', '回执：声明「该模块当前版本的全部契约（所有 API + 所有规则）均已实现」；仅在全部完成时调用，部分完成不打；回执当前最新发布版本即把模块标记为已完成'],
   ['submit_proposal', '提交变更提案——AI 唯一的写出口，需人审批发布后才生效'],
   ['get_proposal', '轮询提案状态（submitted / published / rejected）'],
 ]
@@ -30,7 +30,8 @@ const TOOLS = [
 const RULES = [
   '先调用 get_index 拿 大业务→小业务→模块 的三层索引树，在树里选中目标模块后用 get_block 拉取，不要逐个全量拉取。',
   '索引树每个模块节点都带 completed 完成标记：迭代时只做 completed=false 的模块（也可用 get_index(incomplete_only=true) 直接过滤），不要重做已完成模块。',
-  '实现前用 get_document / get_block 的版本参数 pin 住快照；实现完成后调用 ack_block 回执「已按 模块@版本 实现」。',
+  '实现前用 get_document / get_block 的版本参数 pin 住快照；实现完成后调用 ack_block 回执——ack 的语义是「该模块当前版本的全部契约（所有 API + 所有规则）均已实现」，只在全部完成时才打；做到一半不要打，completed 是是非题、不是进度百分比（completed 只由后端写入，页面只读展示）。',
+  '如果一个模块经常无法作为整体做完，说明模块边界太大：用 submit_proposal 提议拆分模块，而不是对部分实现打回执。',
   '只能读到已发布版本；草稿与已归档内容不可见。',
   '没有任何修改文档的工具。发现文档有误或缺失时，用 submit_proposal 提交变更提案（唯一的写出口），经人审批发布后才生效；用 get_proposal 轮询提案状态。',
   '需要对比两个版本时调用 get_diff，按结构化 diff 增量调整实现。',

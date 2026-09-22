@@ -1,7 +1,7 @@
 <script setup>
 /**
  * BlockView（/blocks/:id）—— 已发布模块只读页：完整快照渲染、版本切换、
- * 完成标记切换、「编辑」「查看 diff」入口。
+ * 完成状态展示（由后端 ack 驱动，页面只读）、「编辑」「查看 diff」入口。
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -12,6 +12,7 @@ import BlockMethodBadge from '../components/BlockMethodBadge.vue'
 import BlockApiDetail from '../components/BlockApiDetail.vue'
 import BlockMd from '../components/BlockMd.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
+import AcksModal from '../components/AcksModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,16 +24,22 @@ const meta = ref(null) // 草稿侧的实时元信息（title/status/document_id
 const versions = ref([])
 const snap = ref(null) // 当前查看的版本快照
 const selected = ref('')
-const completeBusy = ref(false)
 const opError = ref('')
 const voidPending = ref('') // 正在二次确认作废的版本号
 const voidBusy = ref(false)
+const acksModal = ref(null) // {context, acks}：「查看回执」弹窗内容
 
 function errText(e) {
   const d = e && e.detail
   if (!d) return '请求失败，请检查网络后重试。'
   if (typeof d === 'string') return d
   return d.error || JSON.stringify(d)
+}
+
+const ACK_STATE_TEXT = {
+  acked: '已回执',
+  pending: '待回执',
+  superseded: '已被取代',
 }
 
 function sorted(list) {
@@ -117,24 +124,22 @@ const latestDiff = computed(() => {
   return { from: vs[vs.length - 2].version, to: vs[vs.length - 1].version }
 })
 
+const versionsDesc = computed(() => [...versions.value].reverse())
+
 function prevVersion(v) {
   const i = versions.value.findIndex((x) => x.version === v)
   return i > 0 ? versions.value[i - 1].version : null
 }
 
-async function toggleComplete() {
-  if (!snap.value || completeBusy.value) return
-  completeBusy.value = true
-  opError.value = ''
-  const done = !snap.value.completed
-  try {
-    const res = await api.post(`/blocks/${bid}/${done ? 'complete' : 'uncomplete'}`)
-    snap.value.completed = res.completed
-    snap.value.completed_version = res.completed_version
-  } catch (e) {
-    opError.value = errText(e)
-  } finally {
-    completeBusy.value = false
+function openAcks(v) {
+  acksModal.value = {
+    context: {
+      ...v,
+      block_id: Number(bid),
+      current_version: meta.value?.current_published_version,
+      prev_version: prevVersion(v.version),
+    },
+    acks: v.acks || [],
   }
 }
 
@@ -243,15 +248,6 @@ async function confirmVoid(v) {
                 >
               </span>
               <span v-else class="undone-badge">未完成</span>
-              <button
-                type="button"
-                class="btn"
-                :class="{ 'btn-primary': !snap.completed }"
-                :disabled="completeBusy"
-                @click="toggleComplete"
-              >
-                {{ snap.completed ? '取消完成' : '标记完成' }}
-              </button>
             </span>
           </div>
           <p v-if="opError" class="error-text" role="alert">{{ opError }}</p>
@@ -312,11 +308,12 @@ async function confirmVoid(v) {
                 <th>版本</th>
                 <th>变更说明</th>
                 <th>发布时间</th>
+                <th>回执</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="v in versions" :key="v.version">
+              <template v-for="v in versionsDesc" :key="v.version">
                 <tr>
                   <td>
                     <VersionChip :version="v.version" />
@@ -324,6 +321,18 @@ async function confirmVoid(v) {
                   </td>
                   <td>{{ v.change_note || '—' }}</td>
                   <td class="muted mono ver-time">{{ v.published_at }}</td>
+                  <td class="ver-acks">
+                    <span class="ack-badge" :class="`is-${v.ack_state}`">
+                      {{ ACK_STATE_TEXT[v.ack_state] || v.ack_state }}
+                    </span>
+                    <a
+                      v-if="v.acks && v.acks.length"
+                      href="#"
+                      class="ack-link"
+                      @click.prevent="openAcks(v)"
+                      >查看回执</a
+                    >
+                  </td>
                   <td class="ver-ops">
                     <a href="#" @click.prevent="pickVersion(v.version)">查看</a>
                     <template v-if="prevVersion(v.version)">
@@ -345,7 +354,7 @@ async function confirmVoid(v) {
                   </td>
                 </tr>
                 <tr v-if="voidPending === v.version" class="void-confirm-row">
-                  <td colspan="4">
+                  <td colspan="5">
                     <span class="confirm-text is-danger">
                       作废 v{{ v.version }}？作废后该版本对 AI 与本页面均不可见，
                       仅数据库保留记录，不提供恢复。
@@ -376,6 +385,14 @@ async function confirmVoid(v) {
         </section>
       </template>
     </template>
+
+    <AcksModal
+      v-if="acksModal"
+      :title="`v${acksModal.context.version} 回执`"
+      :context="acksModal.context"
+      :acks="acksModal.acks"
+      @close="acksModal = null"
+    />
   </div>
 </template>
 
@@ -566,6 +583,41 @@ async function confirmVoid(v) {
   margin-left: var(--sp-2);
   font-size: var(--text-xs);
   color: var(--contract);
+}
+
+.ver-acks {
+  font-size: var(--text-xs);
+}
+
+.ack-badge {
+  display: inline-block;
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.ack-badge.is-acked {
+  color: var(--contract);
+  border-color: var(--contract);
+  background: color-mix(in srgb, var(--contract) 7%, var(--card));
+}
+
+.ack-badge.is-pending {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, var(--card));
+}
+
+.ack-badge.is-superseded {
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink-2) 5%, var(--card));
+}
+
+.ack-link {
+  margin-left: var(--sp-2);
+  white-space: nowrap;
 }
 
 .ver-ops {

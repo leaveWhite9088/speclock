@@ -64,7 +64,7 @@ function logout() {
       <header class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
-          <VersionChip version="0.1.0" status="draft" />
+          <VersionChip version="0.3.3" />
         </div>
         <div class="topbar-right">
           <span class="key-hint mono" :title="hint">{{ hint }}</span>

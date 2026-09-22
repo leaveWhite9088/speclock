@@ -88,7 +88,16 @@ def get_diff(block_id: int, from_version: str = "", to_version: str = "") -> str
     return _call("GET", f"/api/v1/blocks/{block_id}/diff", params=params)
 
 
-@mcp.tool(description="Receipt: declare 'I implemented against block {id} @ {version}'.")
+@mcp.tool(description=(
+    "Receipt: declare 'I implemented this block's ENTIRE contract at "
+    "{version} — every API and every rule in it'. Call this only when the "
+    "whole block is done at the given version; partial progress is NOT "
+    "acked (completed is boolean, not a percentage). Acking the block's "
+    "latest published version marks the block as completed; acking an "
+    "older (pinned) version only records the receipt. If a block routinely "
+    "cannot be finished as a whole, its boundary is too big — submit a "
+    "proposal to split it instead of acking partially."
+))
 def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
     return _call("POST", f"/api/v1/blocks/{block_id}/ack",
                  json={"version": version, "task_desc": task_desc})

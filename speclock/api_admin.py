@@ -666,19 +666,49 @@ def publish(
 
 @router.get("/blocks/{block_id}/versions")
 def list_versions(block_id: int, db: Session = Depends(get_db)):
-    """版本历史列表：已作废版本不出现（逻辑删除，库里仍保留）。"""
+    """版本历史列表：已作废版本不出现（逻辑删除，库里仍保留）。
+    每个版本附带回执记录（按时间正序）与三态 ack_state：
+    acked（有回执）/ pending（当前已发布版本待回执，唯一 actionable）/
+    superseded（无回执且已被取代）。"""
     block = _get_block(db, block_id)
-    return [
-        {
-            "version": v.version,
-            "change_note": v.change_note,
-            "delta": json.loads(v.delta_json),
-            "published_by": v.published_by,
-            "published_at": v.published_at,
-        }
-        for v in block.versions
-        if v.voided_at is None
-    ]
+    acks_by_version: dict[str, list[Ack]] = {}
+    for a in (
+        db.query(Ack)
+        .filter(Ack.block_id == block.id)
+        .order_by(Ack.created_at, Ack.id)
+        .all()
+    ):
+        acks_by_version.setdefault(a.version, []).append(a)
+    out = []
+    for v in block.versions:
+        if v.voided_at is not None:
+            continue
+        v_acks = acks_by_version.get(v.version, [])
+        if v_acks:
+            ack_state = "acked"
+        elif v.version == block.current_published_version:
+            ack_state = "pending"
+        else:
+            ack_state = "superseded"
+        out.append(
+            {
+                "version": v.version,
+                "change_note": v.change_note,
+                "delta": json.loads(v.delta_json),
+                "published_by": v.published_by,
+                "published_at": v.published_at,
+                "acks": [
+                    {
+                        "agent_key": a.agent_key,
+                        "task_desc": a.task_desc,
+                        "created_at": a.created_at,
+                    }
+                    for a in v_acks
+                ],
+                "ack_state": ack_state,
+            }
+        )
+    return out
 
 
 @router.get("/blocks/{block_id}/versions/{version}")
