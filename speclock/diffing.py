@@ -200,6 +200,24 @@ def delta(old_apis: list, new_apis: list) -> dict[str, list[str]]:
     return {"added": added, "modified": modified, "removed": removed}
 
 
+def changed_api_keys(old_apis: list, new_apis: list) -> set[str]:
+    """两个 API 列表之间发生过变化的 API 标识集合（'METHOD /path'）。
+
+    基于 flatten 键集合：新增/删除/字段值变化的条目都映射回所属 API。
+    delta 提案的 stale 检查用它判定「基底版本之后动过哪些 API」。
+    """
+    old = flatten_apis(old_apis)
+    new = flatten_apis(new_apis)
+    keys = (old.keys() ^ new.keys()) | {
+        k for k in old.keys() & new.keys() if old[k] != new[k]
+    }
+    out: set[str] = set()
+    for k in keys:
+        _, rest = k.split(":", 1)
+        out.add(rest.split(":", 1)[0] if ":" in rest else rest)
+    return out
+
+
 def is_breaking(d: dict[str, list[str]]) -> bool:
     """破坏性判定：
     - 删除整个 API、删除必填字段、任何类型/必填标志变更（modified）→ 破坏性；

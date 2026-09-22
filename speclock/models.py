@@ -151,6 +151,8 @@ class Proposal(Base):
     scenario: Mapped[str] = mapped_column(Text, default="")  # 发现场景 / 代码位置
     proposed_content_md: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_apis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposed_api_ops_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_version: Mapped[str | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(default="submitted")  # submitted|published|rejected
     resolution_note: Mapped[str] = mapped_column(Text, default="")
     published_version: Mapped[str | None] = mapped_column(nullable=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ---------- structured API entries (编辑与 diff 的真相源) ----------
@@ -169,6 +169,14 @@ class AckRequest(BaseModel):
     task_desc: str = ""
 
 
+class ApiOp(BaseModel):
+    """delta 提案的一条变更：按 api 字段（方法 + 路径）定位目标条目。"""
+
+    op: str = Field(pattern="^(upsert|delete)$")
+    api: str  # 定位键，如 "GET /api/daily-report"
+    entry: ApiEntry | None = None  # upsert 必填，delete 必须为 null
+
+
 class ProposalCreate(BaseModel):
     block_id: int
     description: str
@@ -176,6 +184,23 @@ class ProposalCreate(BaseModel):
     scenario: str = ""
     proposed_content_md: str | None = None
     proposed_apis: list[ApiEntry] | None = None
+    proposed_api_ops: list[ApiOp] | None = None
+
+    @model_validator(mode="after")
+    def _check_api_payload(self):
+        if self.proposed_apis is not None and self.proposed_api_ops is not None:
+            raise ValueError("proposed_apis 与 proposed_api_ops 互斥，只能二选一")
+        for op in self.proposed_api_ops or []:
+            if op.op == "upsert":
+                if op.entry is None:
+                    raise ValueError(f"upsert 必须携带 entry（api={op.api}）")
+                if op.entry.api != op.api:
+                    raise ValueError(
+                        f"upsert 的 entry.api（{op.entry.api}）必须与顶层 api（{op.api}）一致"
+                    )
+            elif op.entry is not None:
+                raise ValueError(f"delete 不能携带 entry（api={op.api}）")
+        return self
 
 
 # ---------- responses ----------
@@ -264,6 +289,8 @@ class ProposalOut(BaseModel):
     scenario: str
     proposed_content_md: str | None
     proposed_apis: list[dict] | None
+    proposed_api_ops: list[dict] | None
+    base_version: str | None  # 提交时模块的已发布版本号（delta 提案的合并基底）
     status: str
     resolution_note: str
     published_version: str | None

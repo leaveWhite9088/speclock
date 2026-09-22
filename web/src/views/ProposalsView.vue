@@ -45,10 +45,33 @@ function renderMd(text) {
   return marked.parse(text || '')
 }
 
-function proposedApis(p) {
-  const apis = p.proposed_apis
-  if (!apis) return null
-  return typeof apis === 'string' ? apis : JSON.stringify(apis, null, 2)
+function apiOps(p) {
+  return p.proposed_api_ops?.length ? p.proposed_api_ops : p.proposed_apis_view || []
+}
+
+function entryText(e) {
+  if (!e) return ''
+  const parts = [e.name]
+  if (e.desc) parts.push(e.desc)
+  const req = (e.request || []).map((f) => f.name).join(', ')
+  const res = (e.response || []).map((f) => f.name).join(', ')
+  if (req) parts.push(`请求: ${req}`)
+  if (res) parts.push(`响应: ${res}`)
+  return parts.join(' · ')
+}
+
+function contractChanges(op) {
+  const c = op.changes?.contract
+  if (!c) return []
+  return [...(c.added || []), ...(c.modified || []), ...(c.removed || [])]
+}
+
+function textChanges(op) {
+  return op.changes?.text || []
+}
+
+function hasChanges(op) {
+  return contractChanges(op).length > 0 || textChanges(op).length > 0
 }
 
 function switchTab(key) {
@@ -172,10 +195,85 @@ onMounted(load)
           <!-- markdown 渲染结果包在容器内，样式由下方 :deep 控制 -->
           <div class="md-body" v-html="renderMd(p.proposed_content_md)"></div>
         </div>
-        <details v-if="proposedApis(p)" class="p-apis">
-          <summary>建议的 API 列表（结构化）</summary>
-          <pre class="mono">{{ proposedApis(p) }}</pre>
-        </details>
+        <div v-if="apiOps(p).length" class="p-ops">
+          <p class="p-proposed-label">
+            <template v-if="p.proposed_api_ops && p.proposed_api_ops.length">
+              建议的 API 变更（delta，基于 {{ p.base_version ? `v${p.base_version}` : '未发布版本' }}）
+            </template>
+            <template v-else>
+              建议的 API 变更（整体替换，按 API 分拆{{ p.base_version ? `，对照 v${p.base_version}` : '' }}）
+            </template>
+          </p>
+          <ul class="p-op-list">
+            <li v-for="(op, i) in apiOps(p)" :key="i" class="p-op">
+              <div class="p-op-head">
+                <span class="p-op-badge" :class="`is-${op.op}`">
+                  {{ op.op === 'upsert' ? '更新' : '删除' }}
+                </span>
+                <span class="mono p-op-api">{{ op.api }}</span>
+              </div>
+
+              <template v-if="op.op === 'delete'">
+                <p class="p-op-note muted">将删除以下当前定义：</p>
+                <p v-if="op.current_entry" class="p-op-summary muted">
+                  {{ entryText(op.current_entry) }}
+                </p>
+                <details v-if="op.current_entry" class="p-op-detail">
+                  <summary>当前定义 JSON</summary>
+                  <pre class="mono">{{ JSON.stringify(op.current_entry, null, 2) }}</pre>
+                </details>
+              </template>
+
+              <template v-else>
+                <div class="p-op-compare">
+                  <div class="p-op-side">
+                    <p class="p-op-side-label">当前定义</p>
+                    <template v-if="op.current_entry">
+                      <p class="p-op-summary muted">{{ entryText(op.current_entry) }}</p>
+                      <details class="p-op-detail">
+                        <summary>字段详情</summary>
+                        <pre class="mono">{{ JSON.stringify(op.current_entry, null, 2) }}</pre>
+                      </details>
+                    </template>
+                    <p v-else class="p-op-new muted">新增 API（当前不存在）</p>
+                  </div>
+                  <div class="p-op-side">
+                    <p class="p-op-side-label">提案定义</p>
+                    <p class="p-op-summary muted">{{ entryText(op.entry) }}</p>
+                    <details class="p-op-detail">
+                      <summary>字段详情</summary>
+                      <pre class="mono">{{ JSON.stringify(op.entry, null, 2) }}</pre>
+                    </details>
+                  </div>
+                </div>
+
+                <div class="p-op-changes">
+                  <p class="p-op-side-label">变更摘要</p>
+                  <template v-if="hasChanges(op)">
+                    <div v-if="contractChanges(op).length" class="p-change-group">
+                      <p class="p-change-title">契约变更</p>
+                      <ul>
+                        <li v-for="(c, j) in contractChanges(op)" :key="j" class="mono">
+                          {{ c }}
+                        </li>
+                      </ul>
+                    </div>
+                    <div v-if="textChanges(op).length" class="p-change-group">
+                      <p class="p-change-title">文案变更</p>
+                      <ul>
+                        <li v-for="(c, j) in textChanges(op)" :key="j">
+                          <span class="mono">{{ c.path }}</span>：{{ c.old ?? '（无）' }} →
+                          {{ c.new ?? '（无）' }}
+                        </li>
+                      </ul>
+                    </div>
+                  </template>
+                  <p v-else class="muted p-op-nochange">无差异</p>
+                </div>
+              </template>
+            </li>
+          </ul>
+        </div>
 
         <template v-if="p.status === 'submitted'">
           <div class="p-actions">
@@ -419,22 +517,146 @@ onMounted(load)
   font-size: var(--text-xs);
 }
 
-.p-apis {
+/* ---------- delta 变更列表 ---------- */
+
+.p-ops {
   margin-top: var(--sp-3);
+}
+
+.p-op-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.p-op {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  padding: var(--sp-2) var(--sp-3);
   font-size: var(--text-sm);
 }
 
-.p-apis summary {
-  cursor: pointer;
+.p-op-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.p-op-badge {
+  font-size: var(--text-xs);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.p-op-badge.is-upsert {
+  color: var(--contract);
+  border-color: var(--contract);
+  background: color-mix(in srgb, var(--contract) 7%, var(--card));
+}
+
+.p-op-badge.is-delete {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--card));
+}
+
+.p-op-api {
+  font-size: var(--text-xs);
+}
+
+.p-op-summary {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--text-xs);
+}
+
+.p-op-note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-xs);
+}
+
+.p-op-compare {
+  margin-top: var(--sp-2);
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.p-op-side {
+  flex: 1;
+  min-width: 0;
+}
+
+.p-op-side-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: var(--sp-1);
+}
+
+.p-op-new {
+  font-size: var(--text-xs);
+}
+
+.p-op-changes {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--hairline);
+}
+
+.p-change-group {
+  margin-top: var(--sp-1);
+}
+
+.p-change-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--ink-2);
 }
 
-.p-apis pre {
-  margin-top: var(--sp-2);
-  background: var(--paper);
+.p-change-group ul {
+  margin: var(--sp-1) 0 0;
+  padding-left: var(--sp-4);
+  list-style: disc;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.p-change-group li {
+  margin: 1px 0;
+  word-break: break-all;
+}
+
+.p-op-nochange {
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 640px) {
+  .p-op-compare {
+    flex-direction: column;
+  }
+}
+
+.p-op-detail {
+  margin-top: var(--sp-1);
+}
+
+.p-op-detail summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.p-op-detail pre {
+  margin-top: var(--sp-1);
+  background: var(--card);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
-  padding: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   overflow-x: auto;
   font-size: var(--text-xs);
 }

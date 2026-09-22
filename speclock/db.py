@@ -58,6 +58,10 @@ def _ensure_columns() -> None:
         "meeting_series": {
             "share_token": "TEXT",
         },
+        "proposals": {
+            "proposed_api_ops_json": "TEXT",
+            "base_version": "TEXT",
+        },
     }
     dropped = {
         "blocks": ["draft_edge_md"],

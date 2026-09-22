@@ -764,31 +764,238 @@ def list_document_versions(document_id: int, db: Session = Depends(get_db)):
 # ---------- proposals (human review queue) ----------
 
 
+def _apply_api_ops(current: list[dict], ops: list[dict]) -> list[dict]:
+    """按 op 顺序把 delta 变更应用到当前 API 列表（按 api 字段定位）：
+    upsert 命中原位替换、未命中追加末尾；delete 未命中 409。"""
+    merged = list(current)
+    for op in ops:
+        key = op["api"]
+        idx = next((i for i, e in enumerate(merged) if e.get("api") == key), None)
+        if op["op"] == "upsert":
+            if idx is None:
+                merged.append(op["entry"])
+            else:
+                merged[idx] = op["entry"]
+        else:
+            if idx is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"delta 提案 delete 未命中：API {key} 在当前草稿中不存在",
+                )
+            merged.pop(idx)
+    return merged
+
+
+def _check_stale_ops(db: Session, block: Block, p: Proposal, ops: list[dict]) -> None:
+    """delta 提案基底过期检查：base_version 到当前已发布版本之间发生过变化
+    的 API 与本次 ops 的 api 集合有交集 → 409。"""
+    base_bv = (
+        db.query(BlockVersion)
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == p.base_version)
+        .first()
+    )
+    current_bv = None
+    if block.current_published_version is not None:
+        current_bv = (
+            db.query(BlockVersion)
+            .filter(
+                BlockVersion.block_id == block.id,
+                BlockVersion.version == block.current_published_version,
+            )
+            .first()
+        )
+    if base_bv is None or current_bv is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"基底版本已过期：提案基于 {p.base_version}，该版本快照已不可用",
+        )
+    changed = diffing.changed_api_keys(
+        json.loads(base_bv.apis_json or "[]"), json.loads(current_bv.apis_json or "[]")
+    )
+    conflict = sorted(changed & {op["api"] for op in ops})
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"基底版本已过期：提案基于 {p.base_version}，当前版本 "
+                f"{block.current_published_version} 已变更以下 API：{'、'.join(conflict)}"
+            ),
+        )
+
+
+def _field_descriptions(fields: list[dict], prefix: str = "") -> dict[str, str]:
+    """递归收集 {点号路径: description}，供文案变更对比。"""
+    out: dict[str, str] = {}
+    for f in fields:
+        path = f"{prefix}{f['name']}"
+        out[path] = f.get("description", "")
+        if f.get("children"):
+            out.update(_field_descriptions(f["children"], path + "."))
+    return out
+
+
+def _text_changes(old: dict, new: dict) -> list[dict]:
+    """文案变更（仅展示，不影响 semver）：name/desc/字段 description 的新旧值对比。
+    flatten_apis 刻意排除文案，审阅场景必须单独算。"""
+    changes: list[dict] = []
+    for key in ("name", "desc"):
+        if old.get(key, "") != new.get(key, ""):
+            changes.append({"path": key, "old": old.get(key, ""), "new": new.get(key, "")})
+    for kind in ("request", "response"):
+        old_d = _field_descriptions(old.get(kind) or [])
+        new_d = _field_descriptions(new.get(kind) or [])
+        for path in sorted(old_d.keys() | new_d.keys()):
+            if old_d.get(path) != new_d.get(path):
+                changes.append(
+                    {
+                        "path": f"{kind}:{path}.description",
+                        "old": old_d.get(path),
+                        "new": new_d.get(path),
+                    }
+                )
+    return changes
+
+
+def _normalize_api_key(api: str) -> str:
+    method, path = diffing.parse_api_name(api)
+    return f"{method} {path}"
+
+
+def _enrich_op(current_apis: list[dict], op: dict) -> dict:
+    """收件箱展示的即时计算（不落库）：op 的 api 在当前草稿中匹配到的条目
+    （current_entry，未命中 = 新增 API → null），以及与 op.entry 的变更摘要
+    （contract = 契约变更，复用 flatten/delta；text = 文案变更）。delete 无 changes。"""
+    key = _normalize_api_key(op["api"])
+    current = None
+    for e in current_apis:
+        try:
+            if _normalize_api_key(e.get("api", "")) == key:
+                current = e
+                break
+        except diffing.ApisValidationError:
+            continue
+    enriched = {**op, "current_entry": current}
+    if op["op"] == "upsert":
+        enriched["changes"] = {
+            "contract": diffing.delta([current] if current else [], [op["entry"]]),
+            "text": _text_changes(current, op["entry"]) if current else [],
+        }
+    else:
+        enriched["changes"] = None
+    return enriched
+
+
+def _reference_apis(db: Session, block: Block | None, p: Proposal) -> list[dict]:
+    """legacy 全量提案的对照参照系：published 取发布前一版本的快照（优先
+    base_version），submitted/rejected 取当前草稿。取不到 → 空列表。"""
+    if p.status == "published":
+        if p.base_version:
+            base_bv = (
+                db.query(BlockVersion)
+                .filter(
+                    BlockVersion.block_id == p.block_id,
+                    BlockVersion.version == p.base_version,
+                    BlockVersion.voided_at.is_(None),
+                )
+                .first()
+            )
+            if base_bv is not None:
+                return json.loads(base_bv.apis_json or "[]")
+        if p.published_version:
+            cur = (
+                db.query(BlockVersion)
+                .filter(
+                    BlockVersion.block_id == p.block_id,
+                    BlockVersion.version == p.published_version,
+                )
+                .first()
+            )
+            if cur is not None:
+                prev = (
+                    db.query(BlockVersion)
+                    .filter(
+                        BlockVersion.block_id == p.block_id,
+                        BlockVersion.id < cur.id,
+                        BlockVersion.voided_at.is_(None),
+                    )
+                    .order_by(BlockVersion.id.desc())
+                    .first()
+                )
+                if prev is not None:
+                    return json.loads(prev.apis_json or "[]")
+        return []
+    return json.loads(block.draft_apis_json or "[]") if block else []
+
+
+def _legacy_view(reference: list[dict], proposed: list[dict]) -> list[dict]:
+    """把全量替换列表归一化为与 enriched ops 相同的结构：每条 proposed entry
+    一个 upsert；参照系中未被携带的条目追加显式 delete（全量替换的隐含删除）。"""
+    view = []
+    proposed_keys = set()
+    for entry in proposed:
+        proposed_keys.add(_normalize_api_key(entry["api"]))
+        view.append(
+            _enrich_op(
+                reference, {"op": "upsert", "api": entry["api"], "entry": entry}
+            )
+        )
+    for e in reference:
+        try:
+            key = _normalize_api_key(e.get("api", ""))
+        except diffing.ApisValidationError:
+            continue
+        if key not in proposed_keys:
+            view.append(
+                {
+                    "op": "delete",
+                    "api": key,
+                    "entry": None,
+                    "current_entry": e,
+                    "changes": None,
+                }
+            )
+    return view
+
+
 @router.get("/proposals")
 def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
     q = db.query(Proposal)
     if status:
         q = q.filter(Proposal.status == status)
-    return [
-        {
-            "id": p.id,
-            "block_id": p.block_id,
-            "block_title": db.get(Block, p.block_id).title,
-            "author_type": p.author_type,
-            "description": p.description,
-            "suggestion": p.suggestion,
-            "scenario": p.scenario,
-            "proposed_content_md": p.proposed_content_md,
-            "proposed_apis": json.loads(p.proposed_apis_json)
-            if p.proposed_apis_json
-            else None,
-            "status": p.status,
-            "resolution_note": p.resolution_note,
-            "published_version": p.published_version,
-            "created_at": p.created_at,
-        }
-        for p in q.order_by(Proposal.id.desc()).all()
-    ]
+    out = []
+    for p in q.order_by(Proposal.id.desc()).all():
+        block = db.get(Block, p.block_id)
+        ops = json.loads(p.proposed_api_ops_json) if p.proposed_api_ops_json else None
+        if ops is not None:
+            current_apis = json.loads(block.draft_apis_json or "[]") if block else []
+            ops = [_enrich_op(current_apis, op) for op in ops]
+        proposed_apis = json.loads(p.proposed_apis_json) if p.proposed_apis_json else None
+        proposed_apis_view = None
+        if proposed_apis is not None:
+            proposed_apis_view = _legacy_view(
+                _reference_apis(db, block, p), proposed_apis
+            )
+        out.append(
+            {
+                "id": p.id,
+                "block_id": p.block_id,
+                "block_title": block.title,
+                "author_type": p.author_type,
+                "description": p.description,
+                "suggestion": p.suggestion,
+                "scenario": p.scenario,
+                "proposed_content_md": p.proposed_content_md,
+                "proposed_apis": proposed_apis,
+                "proposed_apis_view": proposed_apis_view,
+                "proposed_api_ops": ops,
+                "base_version": p.base_version,
+                "status": p.status,
+                "resolution_note": p.resolution_note,
+                "published_version": p.published_version,
+                "created_at": p.created_at,
+            }
+        )
+    return out
 
 
 @router.post("/proposals/{proposal_id}/resolve")
@@ -819,6 +1026,13 @@ def resolve_proposal(
         block.draft_content_md = p.proposed_content_md
     if p.proposed_apis_json is not None:
         block.draft_apis_json = p.proposed_apis_json
+    elif p.proposed_api_ops_json is not None:
+        ops = json.loads(p.proposed_api_ops_json)
+        if p.base_version and p.base_version != block.current_published_version:
+            _check_stale_ops(db, block, p, ops)
+        merged = _apply_api_ops(json.loads(block.draft_apis_json or "[]"), ops)
+        merged = _validate_apis_or_422(merged)  # 与发布关口同一套结构校验
+        block.draft_apis_json = json.dumps(merged, ensure_ascii=False)
     result = publish_block(
         db,
         block,

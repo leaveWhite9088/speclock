@@ -99,10 +99,18 @@ def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
     "document store. A human must approve and publish it before it takes "
     "effect; poll with get_proposal. Optionally attach a concrete rewrite: "
     "proposed_content_md (full replacement of the business narrative) and/or "
-    "proposed_apis (full replacement of the structured API list — entries as "
-    "{name, api, desc, request, response} objects, same shape as returned by "
-    "get_block). The backend only understands these structured fields; it "
-    "does NOT accept raw OpenAPI YAML."
+    "proposed_api_ops (RECOMMENDED delta mode: a list of "
+    "{op, api, entry} ops applied on top of the current API list — "
+    "'upsert' replaces the entry whose api matches (appends when absent), "
+    "'delete' removes it; entry is required for upsert (its api must equal "
+    "the top-level api) and must be null for delete; entry objects are "
+    "{name, api, desc, request, response}, same shape as returned by "
+    "get_block). proposed_apis (full replacement of the structured API "
+    "list) is LEGACY: mutually exclusive with proposed_api_ops and forces "
+    "you to carry the whole list. The server records the block's current "
+    "published version as the merge base; approval fails with 409 if that "
+    "base is stale and the ops touch APIs changed since. The backend only "
+    "understands these structured fields; it does NOT accept raw OpenAPI YAML."
 ))
 def submit_proposal(
     block_id: int,
@@ -111,6 +119,7 @@ def submit_proposal(
     scenario: str = "",
     proposed_content_md: str = "",
     proposed_apis: list[dict] | None = None,
+    proposed_api_ops: list[dict] | None = None,
 ) -> str:
     body: dict = {
         "block_id": block_id,
@@ -122,6 +131,8 @@ def submit_proposal(
         body["proposed_content_md"] = proposed_content_md
     if proposed_apis is not None:
         body["proposed_apis"] = proposed_apis
+    if proposed_api_ops is not None:
+        body["proposed_api_ops"] = proposed_api_ops
     return _call("POST", "/api/v1/proposals", json=body)
 
 

@@ -449,6 +449,21 @@ def submit_proposal(
         except diffing.ApisValidationError as exc:
             raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
         proposed_apis_json = json.dumps(normalized, ensure_ascii=False)
+    proposed_api_ops_json = None
+    if body.proposed_api_ops is not None:
+        normalized_ops = []
+        for op in body.proposed_api_ops:
+            try:
+                method, path = diffing.parse_api_name(op.api)
+                entry = None
+                if op.entry is not None:
+                    entry = diffing.validate_apis([op.entry.model_dump()])[0]
+            except diffing.ApisValidationError as exc:
+                raise HTTPException(status_code=422, detail=f"API 变更不合法: {exc}") from exc
+            normalized_ops.append(
+                {"op": op.op, "api": f"{method} {path}", "entry": entry}
+            )
+        proposed_api_ops_json = json.dumps(normalized_ops, ensure_ascii=False)
     p = Proposal(
         block_id=body.block_id,
         author_type="agent",
@@ -457,6 +472,8 @@ def submit_proposal(
         scenario=body.scenario,
         proposed_content_md=body.proposed_content_md,
         proposed_apis_json=proposed_apis_json,
+        proposed_api_ops_json=proposed_api_ops_json,
+        base_version=block.current_published_version,
     )
     db.add(p)
     db.flush()
@@ -491,6 +508,10 @@ def get_proposal(
         scenario=p.scenario,
         proposed_content_md=p.proposed_content_md,
         proposed_apis=json.loads(p.proposed_apis_json) if p.proposed_apis_json else None,
+        proposed_api_ops=json.loads(p.proposed_api_ops_json)
+        if p.proposed_api_ops_json
+        else None,
+        base_version=p.base_version,
         status=p.status,
         resolution_note=p.resolution_note,
         published_version=p.published_version,
