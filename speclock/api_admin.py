@@ -287,6 +287,10 @@ def publish_block(
 def get_tree(db: Session = Depends(get_db)):
     """全量聚合树：projects → domains → documents → blocks，供 SPA 文档树主页
     一次拉取。与 UI 主页一样含全部状态（draft / published / archived）的模块。"""
+    published_at_map = {
+        (bv.block_id, bv.version): bv.published_at
+        for bv in db.query(BlockVersion).all()
+    }
     return [
         {
             "id": p.id,
@@ -307,6 +311,9 @@ def get_tree(db: Session = Depends(get_db)):
                                     "title": b.title,
                                     "status": b.status,
                                     "current_published_version": b.current_published_version,
+                                    "current_published_at": published_at_map.get(
+                                        (b.id, b.current_published_version)
+                                    ),
                                     "completed": b.completed,
                                 }
                                 for b in doc.blocks

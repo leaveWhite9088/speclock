@@ -156,3 +156,26 @@ def test_diff_single_version_friendly_message(env):
     r = env["client"].get(f"/api/v1/blocks/{env['block_id']}/diff", headers=env["agent"])
     assert r.status_code == 200
     assert "暂无可对比" in r.json()["message"]
+
+
+def test_tree_carries_current_published_at(env):
+    """tree 的 block 条目带 current_published_at：已发布模块为当前版本发布时间，
+    草稿模块（从未发布）为 null。"""
+    c, h, did, bid = env["client"], env["human"], env["document_id"], env["block_id"]
+    publish_v1(c, h, bid)
+    draft_bid = create_module(c, h, did, "未发布的草稿模块")
+
+    tree = c.get("/api/v1/tree", headers=h).json()
+    blocks = {
+        b["id"]: b
+        for proj in tree
+        for d in proj["domains"]
+        for doc in d["documents"]
+        for b in doc["blocks"]
+    }
+    published = blocks[bid]
+    assert published["current_published_version"] == "1.0.0"
+    assert published["current_published_at"]
+    draft = blocks[draft_bid]
+    assert draft["current_published_version"] is None
+    assert draft["current_published_at"] is None

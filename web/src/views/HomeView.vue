@@ -19,10 +19,21 @@ const addingProject = ref(false)
 const projectName = ref('')
 
 const selectedProjectId = ref(Number(localStorage.getItem(PROJECT_KEY)) || null)
+const onlyPending = ref(false)
+
+function filterPending(node) {
+  if (node.kind === 'block') {
+    return node.status !== 'archived' && node.version && !node.completed ? node : null
+  }
+  const children = (node.children || []).map(filterPending).filter(Boolean)
+  return children.length ? { ...node, children } : null
+}
 
 const visibleTree = computed(() => {
-  if (!selectedProjectId.value) return tree.value
-  return tree.value.filter((n) => n.id === selectedProjectId.value)
+  let t = tree.value
+  if (selectedProjectId.value) t = t.filter((n) => n.id === selectedProjectId.value)
+  if (onlyPending.value) t = t.map(filterPending).filter(Boolean)
+  return t
 })
 
 function pickProject(id) {
@@ -136,6 +147,10 @@ async function submitProject() {
     <div class="tree-head">
       <h1 class="page-title">文档树</h1>
       <div class="tree-head-ops">
+        <label class="pending-filter">
+          <input type="checkbox" v-model="onlyPending" />
+          只看待回执
+        </label>
         <select
           v-if="tree.length"
           class="input project-picker"
@@ -255,6 +270,16 @@ async function submitProject() {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+}
+
+.pending-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .project-picker {
