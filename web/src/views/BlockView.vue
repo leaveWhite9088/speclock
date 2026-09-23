@@ -200,6 +200,7 @@ async function confirmVoid(v) {
         <div class="view-head">
           <div class="title-row">
             <h1 class="page-title">{{ snap.title }}</h1>
+            <span class="bid mono">#{{ bid }}</span>
             <BlockStatusBadge :status="snap.status" />
           </div>
           <div class="seal-row">

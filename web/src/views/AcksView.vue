@@ -194,15 +194,31 @@ onMounted(load)
           还没有回执。AI 通过 MCP 或 REST 调用 ack_block 声明「已按 模块@版本 实现」后，记录会出现在这里。
         </p>
         <ul v-else class="recent-list">
+          <li class="recent-item recent-item-head">
+            <span>模块</span>
+            <span>版本</span>
+            <span>回执人</span>
+            <span>任务说明</span>
+            <span>时间</span>
+            <span></span>
+          </li>
           <li v-for="a in recentAcks" :key="a.id" class="recent-item">
-            <RouterLink :to="`/blocks/${a.block_id}`" class="recent-block">{{
-              a.block_title
-            }}</RouterLink>
+            <span class="recent-block">
+              <span class="bid mono">#{{ a.block_id }}</span>
+              <RouterLink :to="`/blocks/${a.block_id}`" class="recent-block-link">{{
+                a.block_title
+              }}</RouterLink>
+            </span>
             <VersionChip :version="a.version" />
             <span class="mono recent-key">{{ a.agent_key }}</span>
-            <span v-if="a.task_desc" class="muted recent-task">{{ a.task_desc }}</span>
-            <a href="#" class="recent-open" @click.prevent="openAck(a)">查看回执</a>
+            <span
+              class="muted recent-task"
+              :class="{ expanded: expandedTasks.has(a.id) }"
+              :title="a.task_desc ? '点击展开/收起' : ''"
+              @click="toggleTask(a.id)"
+            >{{ a.task_desc || '（未填写）' }}</span>
             <span class="muted recent-time">{{ fmtTime(a.created_at) }}</span>
+            <a href="#" class="recent-open" @click.prevent="openAck(a)">查看回执</a>
           </li>
         </ul>
       </section>
@@ -334,13 +350,19 @@ onMounted(load)
 }
 
 .recent-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 190px 76px 104px minmax(0, 1fr) 150px 60px;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   padding: var(--sp-2) 0;
   border-bottom: 1px solid var(--hairline);
   font-size: var(--text-sm);
-  flex-wrap: wrap;
+}
+
+.recent-item-head {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  padding-bottom: var(--sp-1);
 }
 
 .recent-item:last-child {
@@ -348,12 +370,26 @@ onMounted(load)
 }
 
 .recent-block {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.recent-block-link {
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-key {
   font-size: var(--text-xs);
   color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-task {
@@ -362,15 +398,20 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.recent-time {
-  margin-left: auto;
+.recent-task.expanded {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.recent-open {
   font-size: var(--text-xs);
   white-space: nowrap;
 }
 
-.recent-open {
+.recent-time {
   font-size: var(--text-xs);
   white-space: nowrap;
 }

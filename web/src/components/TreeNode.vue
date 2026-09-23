@@ -161,6 +161,7 @@ function confirmDelete() {
             <VersionChip v-if="node.version" :version="node.version" />
           </template>
           <template v-if="isBlock">
+            <span class="bid mono">#{{ node.id }}</span>
             <VersionChip
               v-if="node.version"
               :version="node.version"
