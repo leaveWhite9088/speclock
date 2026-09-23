@@ -5,6 +5,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
+import { useKeyNames } from '../api/keyNames.js'
 import AiMeetingsView from './AiMeetingsView.vue'
 
 const route = useRoute()
@@ -104,6 +105,7 @@ ${RULES.map((r) => `- ${r.replace(/(\w[\w_]*)/g, (m) => (TOOLS.some(([t]) => t =
 `,
 )
 
+const { keyName } = useKeyNames()
 const activities = ref([])
 const agentHint = ref('')
 const loading = ref(true)
@@ -307,7 +309,7 @@ onMounted(load)
               <td class="muted time-cell">{{ fmtTime(a.created_at) }}</td>
               <td><span class="action-badge mono">{{ a.action }}</span></td>
               <td class="mono target-cell">{{ a.target }}</td>
-              <td class="mono muted key-cell">{{ a.actor }}</td>
+              <td class="mono muted key-cell" :title="a.actor">{{ keyName(a.actor) }}</td>
             </tr>
           </tbody>
         </table>

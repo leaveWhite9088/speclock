@@ -2,7 +2,10 @@
 // 回执详情弹窗：上段版本上下文（版本/发布说明/delta 摘要/取代提示/跳转），
 // 下段回执记录。遮罩 + 居中卡片，点遮罩 / Esc / 关闭按钮关闭。
 import { computed, onMounted, onUnmounted } from 'vue'
+import { useKeyNames } from '../api/keyNames.js'
 import VersionChip from './VersionChip.vue'
+
+const { keyName } = useKeyNames()
 
 const props = defineProps({
   title: { type: String, default: '回执' },
@@ -60,7 +63,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <section v-else-if="context" class="modal-context">
           <div class="ctx-head">
             <VersionChip :version="context.version" />
-            <span class="mono ctx-by">{{ context.published_by }}</span>
+            <span class="mono ctx-by">{{ keyName(context.published_by) }}</span>
             <span class="muted ctx-time">{{ fmtTime(context.published_at) }}</span>
           </div>
           <p class="ctx-note">{{ context.change_note || '无变更说明' }}</p>
@@ -93,7 +96,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <ul v-else class="modal-acks">
           <li v-for="(a, i) in acks" :key="i" class="modal-ack">
             <div class="modal-ack-head">
-              <span class="mono modal-key">{{ a.agent_key }}</span>
+              <span class="mono modal-key">{{ keyName(a.agent_key) }}</span>
               <span v-if="intervalLabel(a)" class="ack-interval">
                 {{ intervalLabel(a) }}
               </span>

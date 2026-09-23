@@ -2,10 +2,12 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearKey, keyHint } from './api/client.js'
+import { useKeyNames } from './api/keyNames.js'
 import VersionChip from './components/VersionChip.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { keyName } = useKeyNames()
 
 const isPublic = computed(() => route.meta.public === true)
 const hint = computed(() => keyHint())
@@ -64,10 +66,10 @@ function logout() {
       <header class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
-          <VersionChip version="0.3.3" />
+          <VersionChip version="0.3.4" />
         </div>
         <div class="topbar-right">
-          <span class="key-hint mono" :title="hint">{{ hint }}</span>
+          <span class="key-hint mono" :title="hint">{{ keyName(hint) }}</span>
           <button type="button" class="btn" @click="logout">退出登录</button>
         </div>
       </header>

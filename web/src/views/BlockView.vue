@@ -6,6 +6,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
+import { useKeyNames } from '../api/keyNames.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockStatusBadge from '../components/BlockStatusBadge.vue'
 import BlockMethodBadge from '../components/BlockMethodBadge.vue'
@@ -17,6 +18,7 @@ import AcksModal from '../components/AcksModal.vue'
 const route = useRoute()
 const router = useRouter()
 const bid = route.params.id
+const { keyName } = useKeyNames()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -218,7 +220,7 @@ async function confirmVoid(v) {
             </select>
           </div>
           <p class="muted seal-meta">
-            {{ snap.change_note || '（无变更说明）' }} · 由 {{ snap.published_by }} 发布于
+            {{ snap.change_note || '（无变更说明）' }} · 由 {{ keyName(snap.published_by) }} 发布于
             {{ snap.published_at }}
           </p>
 

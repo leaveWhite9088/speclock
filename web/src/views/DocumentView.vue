@@ -3,8 +3,11 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client.js'
+import { useKeyNames } from '../api/keyNames.js'
 import VersionChip from '../components/VersionChip.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
+
+const { keyName } = useKeyNames()
 
 const route = useRoute()
 const docId = computed(() => Number(route.params.id))
@@ -145,7 +148,7 @@ watch(docId, load, { immediate: true })
                 </button>
               </header>
               <p class="tl-meta muted">
-                {{ fmtTime(v.published_at) }} · {{ v.published_by }} 发布 · 触发模块
+                {{ fmtTime(v.published_at) }} · {{ keyName(v.published_by) }} 发布 · 触发模块
                 <RouterLink :to="`/blocks/${v.triggered_by_block_id}`">{{
                   triggerTitle(v)
                 }}</RouterLink>

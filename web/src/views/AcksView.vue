@@ -3,9 +3,11 @@
 // 分组、按等待天数倒序）+ 最近回执条带。完成状态只由后端 ack 驱动，页面只读。
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api/client.js'
+import { useKeyNames } from '../api/keyNames.js'
 import VersionChip from '../components/VersionChip.vue'
 import AcksModal from '../components/AcksModal.vue'
 
+const { keyName } = useKeyNames()
 
 const loading = ref(true)
 const error = ref('')
@@ -210,7 +212,7 @@ onMounted(load)
               }}</RouterLink>
             </span>
             <VersionChip :version="a.version" />
-            <span class="mono recent-key">{{ a.agent_key }}</span>
+            <span class="mono recent-key">{{ keyName(a.agent_key) }}</span>
             <span
               class="muted recent-task"
               :class="{ expanded: expandedTasks.has(a.id) }"
