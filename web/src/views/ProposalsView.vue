@@ -49,6 +49,14 @@ function apiOps(p) {
   return p.proposed_api_ops?.length ? p.proposed_api_ops : p.proposed_apis_view || []
 }
 
+function isEmptyPayload(p) {
+  return (
+    !p.proposed_content_md &&
+    !p.proposed_api_ops?.length &&
+    !p.proposed_apis?.length
+  )
+}
+
 function entryText(e) {
   if (!e) return ''
   const parts = [e.name]
@@ -97,6 +105,16 @@ async function resolve(p, action) {
   const note = (notes.value[p.id] || '').trim()
   if (action === 'reject' && !note) {
     cardError.value = { ...cardError.value, [p.id]: '拒绝需要填写理由——告诉提交方为什么。' }
+    return
+  }
+  if (
+    action === 'approve' &&
+    isEmptyPayload(p) &&
+    !window.confirm(
+      `提案 #${p.id} 不含任何内容变更（无改写正文、无 API 变更），` +
+        '发布将只记录说明并 bump 版本号，正文/接口/规则零变化。确定批准并发布？'
+    )
+  ) {
     return
   }
   busy.value = { ...busy.value, [p.id]: true }
@@ -189,6 +207,20 @@ onMounted(load)
             <dd class="muted">{{ p.scenario }}</dd>
           </div>
         </dl>
+
+        <p
+          v-if="isEmptyPayload(p)"
+          class="p-empty-warning"
+          :class="{ 'is-note-only': p.note_only }"
+        >
+          <template v-if="p.note_only">
+            纯说明提案（note_only）：不含内容变更，发布将只记录说明并 bump 版本号。
+          </template>
+          <template v-else>
+            ⚠ 此提案不含内容变更（无改写正文、无 API 变更），批准发布将只记录说明并
+            bump 版本号，正文/接口/规则零变化。
+          </template>
+        </p>
 
         <div v-if="p.proposed_content_md" class="p-proposed">
           <p class="p-proposed-label">建议改写后的内容预览</p>
@@ -459,6 +491,22 @@ onMounted(load)
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.p-empty-warning {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, var(--card));
+  font-size: var(--text-sm);
+}
+
+.p-empty-warning.is-note-only {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 6%, var(--card));
 }
 
 /* ---------- proposed 内容预览 ---------- */
