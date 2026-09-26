@@ -105,8 +105,15 @@ def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
 
 @mcp.tool(description=(
     "Submit a change proposal — the ONLY way an agent can influence the "
-    "document store. A human must approve and publish it before it takes "
-    "effect; poll with get_proposal. Optionally attach a concrete rewrite: "
+    "document store. WARNING: 'suggestion' is free text shown to the human "
+    "reviewer only — it is NEVER applied to the document. If "
+    "proposed_content_md / proposed_api_ops / proposed_apis are all empty, "
+    "approving the proposal publishes an EMPTY version (version bump with "
+    "zero content change); the server therefore rejects such submissions "
+    "with 422 unless you explicitly pass note_only=true for a pure "
+    "explanatory proposal. To actually change the document you MUST fill a "
+    "payload field. A human must approve and publish the proposal before "
+    "it takes effect; poll with get_proposal. Payload fields: "
     "proposed_content_md (full replacement of the business narrative) and/or "
     "proposed_api_ops (RECOMMENDED delta mode: a list of "
     "{op, api, entry} ops applied on top of the current API list — "
@@ -129,6 +136,7 @@ def submit_proposal(
     proposed_content_md: str = "",
     proposed_apis: list[dict] | None = None,
     proposed_api_ops: list[dict] | None = None,
+    note_only: bool = False,
 ) -> str:
     body: dict = {
         "block_id": block_id,
@@ -142,6 +150,8 @@ def submit_proposal(
         body["proposed_apis"] = proposed_apis
     if proposed_api_ops is not None:
         body["proposed_api_ops"] = proposed_api_ops
+    if note_only:
+        body["note_only"] = True
     return _call("POST", "/api/v1/proposals", json=body)
 
 
