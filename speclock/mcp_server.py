@@ -107,21 +107,26 @@ def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
     "Submit a change proposal — the ONLY way an agent can influence the "
     "document store. WARNING: 'suggestion' is free text shown to the human "
     "reviewer only — it is NEVER applied to the document. If "
-    "proposed_content_md / proposed_api_ops / proposed_apis are all empty, "
-    "approving the proposal publishes an EMPTY version (version bump with "
-    "zero content change); the server therefore rejects such submissions "
-    "with 422 unless you explicitly pass note_only=true for a pure "
-    "explanatory proposal. To actually change the document you MUST fill a "
-    "payload field. A human must approve and publish the proposal before "
-    "it takes effect; poll with get_proposal. Payload fields: "
-    "proposed_content_md (full replacement of the business narrative) and/or "
-    "proposed_api_ops (RECOMMENDED delta mode: a list of "
+    "proposed_content_md / proposed_api_ops / proposed_apis / "
+    "proposed_rule_ops are all empty, approving the proposal publishes an "
+    "EMPTY version (version bump with zero content change); the server "
+    "therefore rejects such submissions with 422 unless you explicitly pass "
+    "note_only=true for a pure explanatory proposal. To actually change the "
+    "document you MUST fill a payload field. A human must approve and "
+    "publish the proposal before it takes effect; poll with get_proposal. "
+    "Payload fields: proposed_content_md (full replacement of the business "
+    "narrative) and/or proposed_api_ops (RECOMMENDED delta mode: a list of "
     "{op, api, entry} ops applied on top of the current API list — "
     "'upsert' replaces the entry whose api matches (appends when absent), "
     "'delete' removes it; entry is required for upsert (its api must equal "
     "the top-level api) and must be null for delete; entry objects are "
     "{name, api, desc, request, response}, same shape as returned by "
-    "get_block). proposed_apis (full replacement of the structured API "
+    "get_block). proposed_rule_ops works the same way for business rules: "
+    "a list of {op, name, entry} ops located by rule name — 'upsert' "
+    "replaces the rule whose name matches (appends when absent), 'delete' "
+    "removes it; entry {name, detail} is required for upsert (its name "
+    "must equal the top-level name) and must be null for delete. "
+    "proposed_apis (full replacement of the structured API "
     "list) is LEGACY: mutually exclusive with proposed_api_ops and forces "
     "you to carry the whole list. The server records the block's current "
     "published version as the merge base; approval fails with 409 if that "
@@ -136,6 +141,7 @@ def submit_proposal(
     proposed_content_md: str = "",
     proposed_apis: list[dict] | None = None,
     proposed_api_ops: list[dict] | None = None,
+    proposed_rule_ops: list[dict] | None = None,
     note_only: bool = False,
 ) -> str:
     body: dict = {
@@ -150,6 +156,8 @@ def submit_proposal(
         body["proposed_apis"] = proposed_apis
     if proposed_api_ops is not None:
         body["proposed_api_ops"] = proposed_api_ops
+    if proposed_rule_ops is not None:
+        body["proposed_rule_ops"] = proposed_rule_ops
     if note_only:
         body["note_only"] = True
     return _call("POST", "/api/v1/proposals", json=body)
