@@ -177,6 +177,14 @@ class ApiOp(BaseModel):
     entry: ApiEntry | None = None  # upsert 必填，delete 必须为 null
 
 
+class RuleOp(BaseModel):
+    """rules delta 提案的一条变更：按规则名定位目标条目。"""
+
+    op: str = Field(pattern="^(upsert|delete)$")
+    name: str  # 定位键：规则名
+    entry: RuleEntry | None = None  # upsert 必填，delete 必须为 null
+
+
 class ProposalCreate(BaseModel):
     block_id: int
     description: str
@@ -185,6 +193,7 @@ class ProposalCreate(BaseModel):
     proposed_content_md: str | None = None
     proposed_apis: list[ApiEntry] | None = None
     proposed_api_ops: list[ApiOp] | None = None
+    proposed_rule_ops: list[RuleOp] | None = None
     note_only: bool = False  # 纯说明提案：无载荷时须显式置 true，否则 422
 
     @model_validator(mode="after")
@@ -201,6 +210,16 @@ class ProposalCreate(BaseModel):
                     )
             elif op.entry is not None:
                 raise ValueError(f"delete 不能携带 entry（api={op.api}）")
+        for op in self.proposed_rule_ops or []:
+            if op.op == "upsert":
+                if op.entry is None:
+                    raise ValueError(f"upsert 必须携带 entry（规则名={op.name}）")
+                if op.entry.name != op.name:
+                    raise ValueError(
+                        f"upsert 的 entry.name（{op.entry.name}）必须与顶层 name（{op.name}）一致"
+                    )
+            elif op.entry is not None:
+                raise ValueError(f"delete 不能携带 entry（规则名={op.name}）")
         return self
 
 
@@ -291,6 +310,7 @@ class ProposalOut(BaseModel):
     proposed_content_md: str | None
     proposed_apis: list[dict] | None
     proposed_api_ops: list[dict] | None
+    proposed_rule_ops: list[dict] | None
     base_version: str | None  # 提交时模块的已发布版本号（delta 提案的合并基底）
     note_only: bool
     status: str

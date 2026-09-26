@@ -54,12 +54,14 @@ def _ensure_columns() -> None:
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
             "voided_at": "DATETIME",
+            "applied_ops_json": "TEXT NOT NULL DEFAULT '{}'",
         },
         "meeting_series": {
             "share_token": "TEXT",
         },
         "proposals": {
             "proposed_api_ops_json": "TEXT",
+            "proposed_rule_ops_json": "TEXT",
             "base_version": "TEXT",
             "note_only": "INTEGER NOT NULL DEFAULT 0",
         },

@@ -113,6 +113,8 @@ class BlockVersion(Base):
     nfr_md: Mapped[str] = mapped_column(Text, default="")
     change_note: Mapped[str] = mapped_column(Text, default="")
     delta_json: Mapped[str] = mapped_column(Text, default="{}")  # {added, modified, removed}
+    # 提案发布留痕：本次发布实际应用的结构化 ops 清单（apis/rules），{} = 非提案发布
+    applied_ops_json: Mapped[str] = mapped_column(Text, default="{}")
     published_by: Mapped[str] = mapped_column(default="")
     published_at: Mapped[datetime] = mapped_column(default=utcnow)
     # 版本作废（逻辑删除）：非空即作废——对 agent 与页面均不可见，行保留在库中
@@ -152,6 +154,7 @@ class Proposal(Base):
     proposed_content_md: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_apis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_api_ops_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposed_rule_ops_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_version: Mapped[str | None] = mapped_column(nullable=True)
     note_only: Mapped[bool] = mapped_column(default=False)  # 纯说明提案：无载荷，发布只 bump 版本
     status: Mapped[str] = mapped_column(default="submitted")  # submitted|published|rejected
