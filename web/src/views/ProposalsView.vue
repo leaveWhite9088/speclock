@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { marked } from 'marked'
 import { api } from '../api/client.js'
 import VersionChip from '../components/VersionChip.vue'
+import BlockTextDiff from '../components/BlockTextDiff.vue'
 
 const TABS = [
   { key: 'submitted', label: '待处理' },
@@ -53,7 +54,8 @@ function isEmptyPayload(p) {
   return (
     !p.proposed_content_md &&
     !p.proposed_api_ops?.length &&
-    !p.proposed_apis?.length
+    !p.proposed_apis?.length &&
+    !p.proposed_rule_ops?.length
   )
 }
 
@@ -80,6 +82,21 @@ function textChanges(op) {
 
 function hasChanges(op) {
   return contractChanges(op).length > 0 || textChanges(op).length > 0
+}
+
+function ruleOpKindLabel(op) {
+  return { added: '新增规则', modified: '规则变更', unchanged: '无差异', removed: '删除规则' }[
+    op.kind
+  ]
+}
+
+function ruleOpKindClass(op) {
+  return {
+    added: 'is-upsert',
+    modified: 'is-modified',
+    unchanged: '',
+    removed: 'is-delete',
+  }[op.kind]
 }
 
 function switchTab(key) {
@@ -111,7 +128,7 @@ async function resolve(p, action) {
     action === 'approve' &&
     isEmptyPayload(p) &&
     !window.confirm(
-      `提案 #${p.id} 不含任何内容变更（无改写正文、无 API 变更），` +
+      `提案 #${p.id} 不含任何内容变更（无改写正文、无 API/规则变更），` +
         '发布将只记录说明并 bump 版本号，正文/接口/规则零变化。确定批准并发布？'
     )
   ) {
@@ -217,7 +234,7 @@ onMounted(load)
             纯说明提案（note_only）：不含内容变更，发布将只记录说明并 bump 版本号。
           </template>
           <template v-else>
-            ⚠ 此提案不含内容变更（无改写正文、无 API 变更），批准发布将只记录说明并
+            ⚠ 此提案不含内容变更（无改写正文、无 API/规则变更），批准发布将只记录说明并
             bump 版本号，正文/接口/规则零变化。
           </template>
         </p>
@@ -226,6 +243,10 @@ onMounted(load)
           <p class="p-proposed-label">建议改写后的内容预览</p>
           <!-- markdown 渲染结果包在容器内，样式由下方 :deep 控制 -->
           <div class="md-body" v-html="renderMd(p.proposed_content_md)"></div>
+          <details v-if="p.content_diff" class="p-op-detail p-content-diff">
+            <summary>与当前正文的文本差异</summary>
+            <BlockTextDiff :text="p.content_diff" />
+          </details>
         </div>
         <div v-if="apiOps(p).length" class="p-ops">
           <p class="p-proposed-label">
@@ -301,6 +322,54 @@ onMounted(load)
                     </div>
                   </template>
                   <p v-else class="muted p-op-nochange">无差异</p>
+                </div>
+              </template>
+            </li>
+          </ul>
+        </div>
+
+        <div v-if="p.proposed_rule_ops && p.proposed_rule_ops.length" class="p-ops">
+          <p class="p-proposed-label">
+            建议的规则变更（delta，基于 {{ p.base_version ? `v${p.base_version}` : '未发布版本' }}）
+          </p>
+          <ul class="p-op-list">
+            <li v-for="(op, i) in p.proposed_rule_ops" :key="i" class="p-op">
+              <div class="p-op-head">
+                <span class="p-op-badge" :class="`is-${op.op}`">
+                  {{ op.op === 'upsert' ? '更新' : '删除' }}
+                </span>
+                <span class="p-op-rule">{{ op.name }}</span>
+                <span class="p-op-badge" :class="ruleOpKindClass(op)">
+                  {{ ruleOpKindLabel(op) }}
+                </span>
+              </div>
+
+              <template v-if="op.op === 'delete'">
+                <p class="p-op-note muted">将删除以下当前规则：</p>
+                <p v-if="op.current_entry" class="p-op-summary muted">
+                  {{ op.current_entry.detail }}
+                </p>
+                <p v-else class="p-op-summary muted">（当前草稿中已不存在该规则）</p>
+              </template>
+
+              <template v-else>
+                <div class="p-op-compare">
+                  <div class="p-op-side">
+                    <p class="p-op-side-label">当前详述</p>
+                    <p v-if="op.current_entry" class="p-op-summary muted">
+                      {{ op.current_entry.detail }}
+                    </p>
+                    <p v-else class="p-op-new muted">新增规则（当前不存在）</p>
+                  </div>
+                  <div class="p-op-side">
+                    <p class="p-op-side-label">提案详述</p>
+                    <p class="p-op-summary muted">{{ op.entry.detail }}</p>
+                  </div>
+                </div>
+
+                <div v-if="op.detail_diff" class="p-op-changes">
+                  <p class="p-op-side-label">详述文本差异</p>
+                  <BlockTextDiff :text="op.detail_diff" />
                 </div>
               </template>
             </li>
@@ -612,6 +681,21 @@ onMounted(load)
   color: var(--danger);
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 7%, var(--card));
+}
+
+.p-op-badge.is-modified {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, var(--card));
+}
+
+.p-op-rule {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.p-content-diff {
+  margin-top: var(--sp-2);
 }
 
 .p-op-api {
