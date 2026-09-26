@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speclock"
-version = "0.3.4"
+version = "0.3.5"
 description = "SpecLock — single source of truth for business docs, read-only to coding agents"
 readme = "README.md"
 license = { text = "MIT" }
