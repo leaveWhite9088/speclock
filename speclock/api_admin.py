@@ -167,6 +167,7 @@ def publish_block(
     confirm: bool,
     dry_run: bool = False,
     enforce_readiness: bool = True,
+    applied_ops: dict | None = None,
 ) -> PublishResult:
     """Snapshot the working draft into a new immutable BlockVersion, then
     derive a new DocumentVersion for the owning document.
@@ -180,6 +181,8 @@ def publish_block(
     发布关口先做「结构完备性」校验（背景叙述 / 规则清单 / API desc），
     不满足返回 422 并列出全部缺失项；dryRun 预览同样受校验约束。
     enforce_readiness=False 仅用于 inject_ops 恢复先于关口存在的历史数据。
+    applied_ops：提案批准发布时传入的实际应用 ops 清单（apis/rules），
+    记入 BlockVersion.applied_ops_json 作发布留痕；非提案发布为 {}。
     """
     problems = _check_publish_readiness(block) if enforce_readiness else []
     if problems:
@@ -250,6 +253,7 @@ def publish_block(
         nfr_md=block.draft_nfr_md,
         change_note=change_note,
         delta_json=json.dumps(d, ensure_ascii=False),
+        applied_ops_json=json.dumps(applied_ops or {}, ensure_ascii=False),
         published_by=actor,
     )
     db.add(bv)
@@ -702,6 +706,7 @@ def list_versions(block_id: int, db: Session = Depends(get_db)):
                 "version": v.version,
                 "change_note": v.change_note,
                 "delta": json.loads(v.delta_json),
+                "applied_ops": json.loads(v.applied_ops_json or "{}"),
                 "published_by": v.published_by,
                 "published_at": v.published_at,
                 "acks": [
@@ -736,6 +741,7 @@ def get_version(block_id: int, version: str, db: Session = Depends(get_db)):
         "nfr_md": bv.nfr_md,
         "change_note": bv.change_note,
         "delta": json.loads(bv.delta_json),
+        "applied_ops": json.loads(bv.applied_ops_json or "{}"),
         "published_by": bv.published_by,
         "published_at": bv.published_at,
         "completed": block.completed,
@@ -821,6 +827,58 @@ def _apply_api_ops(current: list[dict], ops: list[dict]) -> list[dict]:
                 )
             merged.pop(idx)
     return merged
+
+
+def _apply_rule_ops(current: list[dict], ops: list[dict]) -> list[dict]:
+    """按 op 顺序把 rules delta 变更应用到当前规则清单（按规则名定位）：
+    upsert 命中原位替换、未命中追加末尾；delete 未命中 409。"""
+    merged = list(current)
+    for op in ops:
+        name = op["name"]
+        idx = next((i for i, r in enumerate(merged) if r.get("name") == name), None)
+        if op["op"] == "upsert":
+            if idx is None:
+                merged.append(op["entry"])
+            else:
+                merged[idx] = op["entry"]
+        else:
+            if idx is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"delta 提案 delete 未命中：规则「{name}」在当前草稿中不存在",
+                )
+            merged.pop(idx)
+    return merged
+
+
+def _enrich_rule_op(current_rules: list[dict], op: dict) -> dict:
+    """rules 版 _enrich_op：op 的规则名在当前规则清单中匹配到的条目
+    （current_entry，未命中 = 新增规则 → null）；upsert 附 kind
+    （added|modified|unchanged）与 detail 文本 diff（仅 modified 时）。
+    delete 恒为 removed。"""
+    current = next((r for r in current_rules if r.get("name") == op["name"]), None)
+    enriched = {**op, "current_entry": current}
+    if op["op"] == "upsert":
+        if current is None:
+            enriched["kind"] = "added"
+        elif current.get("detail", "") != op["entry"].get("detail", ""):
+            enriched["kind"] = "modified"
+        else:
+            enriched["kind"] = "unchanged"
+        enriched["detail_diff"] = (
+            diffing.text_diff(
+                current.get("detail", ""),
+                op["entry"].get("detail", ""),
+                fromfile="current",
+                tofile="proposed",
+            )
+            if enriched["kind"] == "modified"
+            else None
+        )
+    else:
+        enriched["kind"] = "removed"
+        enriched["detail_diff"] = None
+    return enriched
 
 
 def _check_stale_ops(db: Session, block: Block, p: Proposal, ops: list[dict]) -> None:
@@ -1012,6 +1070,18 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
             proposed_apis_view = _legacy_view(
                 _reference_apis(db, block, p), proposed_apis
             )
+        rule_ops = json.loads(p.proposed_rule_ops_json) if p.proposed_rule_ops_json else None
+        if rule_ops is not None:
+            current_rules = json.loads(block.draft_rules_json or "[]") if block else []
+            rule_ops = [_enrich_rule_op(current_rules, op) for op in rule_ops]
+        content_diff = None
+        if p.proposed_content_md is not None:
+            content_diff = diffing.text_diff(
+                block.draft_content_md if block else "",
+                p.proposed_content_md,
+                fromfile="current",
+                tofile="proposed",
+            )
         out.append(
             {
                 "id": p.id,
@@ -1022,9 +1092,11 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
                 "suggestion": p.suggestion,
                 "scenario": p.scenario,
                 "proposed_content_md": p.proposed_content_md,
+                "content_diff": content_diff,
                 "proposed_apis": proposed_apis,
                 "proposed_apis_view": proposed_apis_view,
                 "proposed_api_ops": ops,
+                "proposed_rule_ops": rule_ops,
                 "base_version": p.base_version,
                 "note_only": p.note_only,
                 "status": p.status,
@@ -1060,9 +1132,23 @@ def resolve_proposal(
     # approve: apply the proposal's rewrite to the draft, then publish it.
     # Human approval is itself the confirmation, so breaking diffs publish.
     block = _get_block(db, p.block_id)
+    applied_ops: dict = {"proposal_id": p.id}
     if p.proposed_content_md is not None:
         block.draft_content_md = p.proposed_content_md
+        applied_ops["content_md_replaced"] = True
     if p.proposed_apis_json is not None:
+        # 留痕：全量替换折算为逐条 replace + 对未携带条目的隐含 delete
+        draft_keys = []
+        for e in json.loads(block.draft_apis_json or "[]"):
+            try:
+                draft_keys.append(_normalize_api_key(e.get("api", "")))
+            except diffing.ApisValidationError:
+                continue
+        proposed = json.loads(p.proposed_apis_json)
+        proposed_keys = [_normalize_api_key(e["api"]) for e in proposed]
+        applied_ops["apis"] = [{"op": "replace", "api": k} for k in proposed_keys] + [
+            {"op": "delete", "api": k} for k in draft_keys if k not in proposed_keys
+        ]
         block.draft_apis_json = p.proposed_apis_json
     elif p.proposed_api_ops_json is not None:
         ops = json.loads(p.proposed_api_ops_json)
@@ -1071,6 +1157,15 @@ def resolve_proposal(
         merged = _apply_api_ops(json.loads(block.draft_apis_json or "[]"), ops)
         merged = _validate_apis_or_422(merged)  # 与发布关口同一套结构校验
         block.draft_apis_json = json.dumps(merged, ensure_ascii=False)
+        applied_ops["apis"] = [{"op": op["op"], "api": op["api"]} for op in ops]
+    if p.proposed_rule_ops_json is not None:
+        rule_ops = json.loads(p.proposed_rule_ops_json)
+        merged_rules = _apply_rule_ops(
+            json.loads(block.draft_rules_json or "[]"), rule_ops
+        )
+        merged_rules = _validate_rules_or_422(merged_rules)
+        block.draft_rules_json = json.dumps(merged_rules, ensure_ascii=False)
+        applied_ops["rules"] = [{"op": op["op"], "name": op["name"]} for op in rule_ops]
     result = publish_block(
         db,
         block,
@@ -1078,6 +1173,7 @@ def resolve_proposal(
         change_note=body.resolution_note or f"proposal #{p.id}: {p.description}",
         fast_track=False,
         confirm=True,
+        applied_ops=applied_ops,
     )
     p.status = "published"
     p.resolution_note = body.resolution_note

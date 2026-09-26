@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from speclock import diffing
+from speclock.api_admin import _enrich_op, _enrich_rule_op, _legacy_view
 from speclock.auth import audit, require_agent, require_reader
 from speclock.db import get_db
 from speclock.models import utcnow
@@ -446,13 +447,14 @@ def submit_proposal(
         body.proposed_content_md is None
         and body.proposed_apis is None
         and body.proposed_api_ops is None
+        and body.proposed_rule_ops is None
         and not body.note_only
     ):
         raise HTTPException(
             status_code=422,
             detail=(
                 "提案不含任何内容载荷（proposed_content_md / proposed_apis / "
-                "proposed_api_ops 全为空）：suggestion 只是给审批人看的说明，"
+                "proposed_api_ops / proposed_rule_ops 全为空）：suggestion 只是给审批人看的说明，"
                 "不会被应用，发布后将是一个没有任何内容变化的空版本。"
                 "如确为纯说明提案，请显式传 note_only=true。"
             ),
@@ -479,6 +481,22 @@ def submit_proposal(
                 {"op": op.op, "api": f"{method} {path}", "entry": entry}
             )
         proposed_api_ops_json = json.dumps(normalized_ops, ensure_ascii=False)
+    proposed_rule_ops_json = None
+    if body.proposed_rule_ops is not None:
+        normalized_rule_ops = []
+        for op in body.proposed_rule_ops:
+            entry = None
+            if op.entry is not None:
+                try:
+                    entry = diffing.validate_rules([op.entry.model_dump()])[0]
+                except diffing.ApisValidationError as exc:
+                    raise HTTPException(
+                        status_code=422, detail=f"规则变更不合法: {exc}"
+                    ) from exc
+            normalized_rule_ops.append(
+                {"op": op.op, "name": op.name.strip(), "entry": entry}
+            )
+        proposed_rule_ops_json = json.dumps(normalized_rule_ops, ensure_ascii=False)
     p = Proposal(
         block_id=body.block_id,
         author_type="agent",
@@ -488,6 +506,7 @@ def submit_proposal(
         proposed_content_md=body.proposed_content_md,
         proposed_apis_json=proposed_apis_json,
         proposed_api_ops_json=proposed_api_ops_json,
+        proposed_rule_ops_json=proposed_rule_ops_json,
         base_version=block.current_published_version,
         note_only=body.note_only,
     )
@@ -527,6 +546,9 @@ def get_proposal(
         proposed_api_ops=json.loads(p.proposed_api_ops_json)
         if p.proposed_api_ops_json
         else None,
+        proposed_rule_ops=json.loads(p.proposed_rule_ops_json)
+        if p.proposed_rule_ops_json
+        else None,
         base_version=p.base_version,
         note_only=p.note_only,
         status=p.status,
@@ -535,3 +557,85 @@ def get_proposal(
         created_at=p.created_at,
         resolved_at=p.resolved_at,
     )
+
+
+def _proposal_base_snapshot(db: Session, p: Proposal, block: Block | None):
+    """提案 diff 的参照快照：优先提案记录的 base_version（未作废），取不到
+    （已作废/不存在）回退模块当前已发布版本。刻意不回退草稿——本端点
+    agent 可读，草稿内容永不外泄。返回 (BlockVersion | None, fallback_used)。"""
+    candidates = [p.base_version]
+    if block is not None and block.current_published_version != p.base_version:
+        candidates.append(block.current_published_version)
+    for i, version in enumerate(candidates):
+        if not version:
+            continue
+        bv = (
+            db.query(BlockVersion)
+            .filter(
+                BlockVersion.block_id == p.block_id,
+                BlockVersion.version == version,
+                BlockVersion.voided_at.is_(None),
+            )
+            .first()
+        )
+        if bv is not None:
+            return bv, i > 0
+    return None, False
+
+
+@router.get("/proposals/{proposal_id}/diff")
+def get_proposal_diff(
+    proposal_id: int, db: Session = Depends(get_db), key: ApiKey = Depends(require_reader)
+):
+    """提案相对 base 版本的完整对照：正文文本 diff + API 逐条变更（含字段级
+    差异，legacy 全量模式同样折算为 ops 视图）+ 规则逐条变更（modified 附
+    detail 文本 diff）。
+
+    human / agent key 均可用（人机共用）：agent 受项目隔离约束（与
+    get_proposal 一致）；参照系只取已发布版本快照，绝不回退草稿。"""
+    p = db.get(Proposal, proposal_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    block = db.get(Block, p.block_id)
+    if key.prefix == "agent" and block is not None:
+        _check_project_scope(key, _block_project_id(block))
+
+    base_bv, fallback = _proposal_base_snapshot(db, p, block)
+    if base_bv is not None:
+        base_content = base_bv.content_md
+        base_apis = json.loads(base_bv.apis_json or "[]")
+        base_rules = json.loads(base_bv.rules_json or "[]")
+        base_version = base_bv.version
+    else:  # base 与当前版本快照均不可用：按空基线计算
+        base_content, base_apis, base_rules, base_version = "", [], [], None
+
+    content_diff = None
+    if p.proposed_content_md is not None:
+        content_diff = diffing.text_diff(
+            base_content,
+            p.proposed_content_md,
+            fromfile=f"v{base_version}" if base_version else "base",
+            tofile="proposal",
+        )
+
+    api_changes = None
+    if p.proposed_api_ops_json is not None:
+        ops = json.loads(p.proposed_api_ops_json)
+        api_changes = [_enrich_op(base_apis, op) for op in ops]
+    elif p.proposed_apis_json is not None:
+        api_changes = _legacy_view(base_apis, json.loads(p.proposed_apis_json))
+
+    rule_changes = None
+    if p.proposed_rule_ops_json is not None:
+        rule_ops = json.loads(p.proposed_rule_ops_json)
+        rule_changes = [_enrich_rule_op(base_rules, op) for op in rule_ops]
+
+    return {
+        "proposal_id": p.id,
+        "block_id": p.block_id,
+        "base_version": base_version,
+        "base_is_recorded": base_version == p.base_version and not fallback,
+        "content_diff": content_diff,
+        "api_changes": api_changes,
+        "rule_changes": rule_changes,
+    }
