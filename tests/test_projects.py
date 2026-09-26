@@ -110,7 +110,8 @@ def test_scoped_agent_key_isolation(env):
     assert c.post(f"/api/v1/blocks/{bid_b}/ack",
                   json={"version": "1.0.0"}, headers=scoped).status_code == 201
     r = c.post("/api/v1/proposals",
-               json={"block_id": bid_b, "description": "d", "suggestion": "s"},
+               json={"block_id": bid_b, "description": "d", "suggestion": "s",
+                     "note_only": True},
                headers=scoped)
     assert r.status_code == 201
     assert c.get(f"/api/v1/proposals/{r.json()['id']}", headers=scoped).status_code == 200

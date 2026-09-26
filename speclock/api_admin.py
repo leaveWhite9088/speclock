@@ -1026,6 +1026,7 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
                 "proposed_apis_view": proposed_apis_view,
                 "proposed_api_ops": ops,
                 "base_version": p.base_version,
+                "note_only": p.note_only,
                 "status": p.status,
                 "resolution_note": p.resolution_note,
                 "published_version": p.published_version,

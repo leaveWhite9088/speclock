@@ -120,11 +120,40 @@ def test_admin_proposal_list_proposed_fields_nullable(env):
     """只提建议不带改写的提案：两个 proposed 字段为 null 而不是缺失。"""
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
-    pid = _submit(env, proposed_apis=None).json()["id"]
+    pid = _submit(env, proposed_apis=None, note_only=True).json()["id"]
 
     p = next(p for p in c.get("/api/v1/proposals", headers=h).json() if p["id"] == pid)
     assert p["proposed_content_md"] is None
     assert p["proposed_apis"] is None
+
+
+def test_empty_payload_proposal_rejected_422(env):
+    """空载荷提案（内容全写在 suggestion 里）默认 422，防止静默发布空版本。"""
+    publish_v1(env["client"], env["human"], env["block_id"])
+    r = _submit(env, proposed_apis=None)
+    assert r.status_code == 422
+    assert "note_only" in r.json()["detail"]
+
+
+def test_note_only_proposal_allowed_and_echoed(env):
+    """显式 note_only=true 的纯说明提案可正常创建，且标记在输出中可见。"""
+    c, h, a = env["client"], env["human"], env["agent"]
+    publish_v1(c, h, env["block_id"])
+    r = _submit(env, proposed_apis=None, note_only=True)
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+
+    p = c.get(f"/api/v1/proposals/{pid}", headers=a).json()
+    assert p["note_only"] is True
+    p = next(p for p in c.get("/api/v1/proposals", headers=h).json() if p["id"] == pid)
+    assert p["note_only"] is True
+
+
+def test_payload_proposal_defaults_note_only_false(env):
+    c, a = env["client"], env["agent"]
+    publish_v1(c, env["human"], env["block_id"])
+    pid = _submit(env).json()["id"]
+    assert c.get(f"/api/v1/proposals/{pid}", headers=a).json()["note_only"] is False
 
 
 def test_agent_get_proposal_echoes_proposed_fields(env):

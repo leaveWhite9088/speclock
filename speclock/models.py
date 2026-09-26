@@ -153,6 +153,7 @@ class Proposal(Base):
     proposed_apis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_api_ops_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_version: Mapped[str | None] = mapped_column(nullable=True)
+    note_only: Mapped[bool] = mapped_column(default=False)  # 纯说明提案：无载荷，发布只 bump 版本
     status: Mapped[str] = mapped_column(default="submitted")  # submitted|published|rejected
     resolution_note: Mapped[str] = mapped_column(Text, default="")
     published_version: Mapped[str | None] = mapped_column(nullable=True)

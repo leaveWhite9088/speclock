@@ -442,6 +442,21 @@ def submit_proposal(
     if block is None or block.status != "published":
         raise HTTPException(status_code=404, detail=f"block {body.block_id} not found")
     _check_project_scope(key, _block_project_id(block))
+    if (
+        body.proposed_content_md is None
+        and body.proposed_apis is None
+        and body.proposed_api_ops is None
+        and not body.note_only
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "提案不含任何内容载荷（proposed_content_md / proposed_apis / "
+                "proposed_api_ops 全为空）：suggestion 只是给审批人看的说明，"
+                "不会被应用，发布后将是一个没有任何内容变化的空版本。"
+                "如确为纯说明提案，请显式传 note_only=true。"
+            ),
+        )
     proposed_apis_json = None
     if body.proposed_apis is not None:
         try:
@@ -474,6 +489,7 @@ def submit_proposal(
         proposed_apis_json=proposed_apis_json,
         proposed_api_ops_json=proposed_api_ops_json,
         base_version=block.current_published_version,
+        note_only=body.note_only,
     )
     db.add(p)
     db.flush()
@@ -512,6 +528,7 @@ def get_proposal(
         if p.proposed_api_ops_json
         else None,
         base_version=p.base_version,
+        note_only=p.note_only,
         status=p.status,
         resolution_note=p.resolution_note,
         published_version=p.published_version,

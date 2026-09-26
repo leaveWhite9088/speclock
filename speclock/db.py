@@ -61,6 +61,7 @@ def _ensure_columns() -> None:
         "proposals": {
             "proposed_api_ops_json": "TEXT",
             "base_version": "TEXT",
+            "note_only": "INTEGER NOT NULL DEFAULT 0",
         },
     }
     dropped = {
