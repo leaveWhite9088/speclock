@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
+import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
@@ -19,10 +20,6 @@ const versions = ref([])
 const openManifest = ref({}) // version -> bool
 
 const STATUS_TEXT = { draft: '草稿', published: '已发布', archived: '已归档' }
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
 
 function errText(e) {
   const d = e?.detail ?? e

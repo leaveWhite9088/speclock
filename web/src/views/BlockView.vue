@@ -7,6 +7,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
+import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockStatusBadge from '../components/BlockStatusBadge.vue'
 import BlockMethodBadge from '../components/BlockMethodBadge.vue'
@@ -221,7 +222,7 @@ async function confirmVoid(v) {
           </div>
           <p class="muted seal-meta">
             {{ snap.change_note || '（无变更说明）' }} · 由 {{ keyName(snap.published_by) }} 发布于
-            {{ snap.published_at }}
+            {{ fmtTime(snap.published_at) }}
           </p>
 
           <div class="ops-row">
@@ -323,7 +324,7 @@ async function confirmVoid(v) {
                     <span v-if="v.version === selected" class="current-tag">当前查看</span>
                   </td>
                   <td>{{ v.change_note || '—' }}</td>
-                  <td class="muted mono ver-time">{{ v.published_at }}</td>
+                  <td class="muted mono ver-time">{{ fmtTime(v.published_at) }}</td>
                   <td class="ver-acks">
                     <span class="ack-badge" :class="`is-${v.ack_state}`">
                       {{ ACK_STATE_TEXT[v.ack_state] || v.ack_state }}

@@ -3,6 +3,7 @@
 // 下段回执记录。遮罩 + 居中卡片，点遮罩 / Esc / 关闭按钮关闭。
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useKeyNames } from '../api/keyNames.js'
+import { fmtTime, parseTs } from '../time.js'
 import VersionChip from './VersionChip.vue'
 
 const { keyName } = useKeyNames()
@@ -17,10 +18,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
-
 const supersededBy = computed(() => {
   const c = props.context
   return c?.current_version && c.version !== c.current_version ? c.current_version : null
@@ -29,7 +26,10 @@ const supersededBy = computed(() => {
 function intervalLabel(a) {
   const pub = props.context?.published_at
   if (!pub || !a.created_at) return ''
-  const hours = (new Date(a.created_at) - new Date(pub)) / 36e5
+  const created = parseTs(a.created_at)
+  const published = parseTs(pub)
+  if (!created || !published) return ''
+  const hours = (created - published) / 36e5
   if (!Number.isFinite(hours) || hours < 0) return ''
   return hours < 24 ? `${Math.round(hours)} 小时后` : `${Math.round(hours / 24)} 天后`
 }

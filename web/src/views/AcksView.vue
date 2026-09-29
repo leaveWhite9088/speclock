@@ -4,6 +4,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
+import { fmtTime, parseTs } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import AcksModal from '../components/AcksModal.vue'
 
@@ -14,10 +15,6 @@ const error = ref('')
 const tree = ref([])
 const acks = ref([])
 const acksModal = ref(null) // {title, acks, blockId, version, context, loading}
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
 
 function errText(e) {
   const d = e?.detail ?? e
@@ -30,8 +27,9 @@ function countable(b) {
 }
 
 function waitDays(publishedAt) {
-  if (!publishedAt) return 0
-  return Math.max(0, (Date.now() - new Date(publishedAt)) / 864e5)
+  const d = parseTs(publishedAt)
+  if (!d) return 0
+  return Math.max(0, (Date.now() - d) / 864e5)
 }
 
 function waitLabel(days) {

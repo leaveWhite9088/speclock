@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { marked } from 'marked'
 import { api } from '../api/client.js'
+import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockTextDiff from '../components/BlockTextDiff.vue'
 
@@ -28,10 +29,6 @@ const cardError = ref({}) // proposalId -> string
 const flash = ref('')
 
 const emptyText = computed(() => EMPTY_TEXT[activeTab.value])
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
 
 function errText(e) {
   const d = e?.detail ?? e

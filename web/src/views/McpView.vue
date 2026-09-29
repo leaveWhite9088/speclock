@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
+import { fmtTime } from '../time.js'
 import AiMeetingsView from './AiMeetingsView.vue'
 
 const route = useRoute()
@@ -127,10 +128,6 @@ async function copyText(text, which) {
   copyState.value = which
   copied.value = true
   setTimeout(() => (copied.value = false), 1500)
-}
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
 }
 
 function errText(e) {

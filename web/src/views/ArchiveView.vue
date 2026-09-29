@@ -2,6 +2,7 @@
 // 归档管理：已归档模块列表，支持恢复（回到已发布）与彻底删除（二次确认，不可恢复）。
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client.js'
+import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 
 const loading = ref(true)
@@ -10,10 +11,6 @@ const rows = ref([])
 const pending = ref(null) // { id, action: 'restore' | 'purge' }
 const busy = ref(false)
 const rowError = ref({})
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
 
 function errText(e) {
   const d = e?.detail ?? e

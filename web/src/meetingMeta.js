@@ -70,10 +70,6 @@ export const ADDABLE_TYPES = {
   facts: ['fact'],
 }
 
-export function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
-}
-
 export function errText(e) {
   const d = e && e.detail
   if (!d) return '请求失败，请检查网络后重试。'

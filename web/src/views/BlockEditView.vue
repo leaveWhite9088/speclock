@@ -7,6 +7,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
+import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockStatusBadge from '../components/BlockStatusBadge.vue'
 import BlockApiCard from '../components/BlockApiCard.vue'
@@ -468,7 +469,7 @@ const previewRulesDelta = computed(() =>
           <li v-for="v in versions" :key="v.version">
             <VersionChip :version="v.version" />
             <span class="ver-note">{{ v.change_note || '（无变更说明）' }}</span>
-            <span class="muted ver-time">{{ v.published_at }}</span>
+            <span class="muted ver-time">{{ fmtTime(v.published_at) }}</span>
           </li>
         </ul>
         <p v-else class="muted">还没有已发布版本。补齐内容后从上方「预览发布」开始。</p>

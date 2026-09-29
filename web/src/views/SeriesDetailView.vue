@@ -21,8 +21,8 @@ import {
   STATUS_LABELS,
   STATUS_OPTIONS,
   errText,
-  fmtTime,
 } from '../meetingMeta.js'
+import { fmtTime } from '../time.js'
 
 const route = useRoute()
 const sid = route.params.id

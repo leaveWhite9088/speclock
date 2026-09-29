@@ -3,6 +3,7 @@
 // 明文仅在创建时返回一次；删除立即生效；最后一把 human key 受后端保护。
 import { computed, onMounted, ref } from 'vue'
 import { api, keyHint } from '../api/client.js'
+import { fmtTime } from '../time.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -35,10 +36,6 @@ const projectNames = computed(() => {
 function projectLabel(k) {
   if (!k.project_id) return '全部'
   return projectNames.value[k.project_id] || '已删除项目'
-}
-
-function fmtTime(iso) {
-  return iso ? String(iso).replace('T', ' ').slice(0, 19) : '-'
 }
 
 function errText(e) {
