@@ -49,7 +49,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **两级版本** — 模块按自身 diff 独立递增 semver（破坏性 → MAJOR，新增 → MINOR，其余 PATCH）；任一模块发布时所属文档自动派生文档版本（manifest = 全部模块当前版本清单）
 - **字段级 diff 与破坏性判定** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；删除必填字段 / 删除整个 API / 类型或必填标志变更为破坏性，删除可选字段不算
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→文档→模块 三层概要树（模块节点带一句话摘要与完成标记），选中后再按需精读，上下文占用最小
-- **提案通道** — AI 发现文档有误或缺失时提交提案，收件箱一键"批准并发布"，小变更从提出到发布 ≤2 分钟；API 改写推荐 delta 模式（`proposed_api_ops`：upsert/delete 按 `api` 定位条目，只携带变更项），提交时记录基底版本 `base_version`，批准时若基底过期且 ops 触及其间已变更的 API 则 409 拒绝合并；旧的 `proposed_apis` 整体替换模式保留向后兼容
+- **提案通道** — AI 发现文档有误或缺失时提交提案，收件箱一键"批准并发布"，小变更从提出到发布 ≤2 分钟；API 改写用 delta 模式（`proposed_api_ops`：upsert/delete 按 `api` 定位条目，只携带变更项），提交时记录基底版本 `base_version`，批准时若基底过期且 ops 触及其间已变更的 API 则 409 拒绝合并
 - **完成状态跟踪** — 模块级 `completed` 标记（发布新版自动重置），agent 可过滤未完成模块，只做没做完的小业务；回执看板是「待回执清单（按大业务分组、按等待时长倒序）+ 最近回执」动态结构，文档树支持「只看待回执」筛选，模块页版本历史逐版本展示回执三态（已回执/待回执/已被取代）与回执明细
 - **全链路审计** — 发布 / 提案 / 拉取 / ack 全部落 `AuditLog`
 
@@ -203,7 +203,7 @@ MCP server 暴露 **7 个工具**：
 | `get_document` | 文档 manifest（模块→版本清单），可 pin 历史文档版本 |
 | `get_diff` | 两个已发布版本之间的结构化 + 文本 diff |
 | `ack_block` | 回执：声明「已按 模块@版本 实现」；回执当前最新发布版本即把模块标记为已完成 |
-| `submit_proposal` | 提交变更提案——AI 唯一的写出口；API 改写推荐 `proposed_api_ops` delta 模式（upsert/delete 按 `api` 匹配），`proposed_apis` 整体替换为 legacy 用法，二者互斥 |
+| `submit_proposal` | 提交变更提案——AI 唯一的写出口；API 改写用 `proposed_api_ops` delta 模式（upsert/delete 按 `api` 匹配） |
 | `get_proposal` | 轮询提案状态 |
 
 没有任何写文档的工具；为控制 AI 上下文占用，工具数保持精简。管理 SPA 的「AI 接入」页提供可直接复制的配置与给 agent 的完整接入说明，`SPECLOCK_URL` 按浏览器当前访问地址（`window.location.origin`）自动生成。

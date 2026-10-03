@@ -79,7 +79,6 @@ def test_delta_upsert_replaces_existing_keeps_others(env):
     p = c.get(f"/api/v1/proposals/{pid}", headers=env["agent"]).json()
     assert p["base_version"] == "1.0.0"
     assert p["proposed_api_ops"][0]["op"] == "upsert"
-    assert p["proposed_apis"] is None
 
     r = _approve(env, pid)
     assert r.status_code == 200, r.text
@@ -184,12 +183,6 @@ def test_delta_stale_but_disjoint_ops_merge(env):
     assert any(f["name"] == "finished_at" for f in apis[1]["response"])
 
 
-def test_ops_and_full_apis_mutually_exclusive_422(env):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    r = _submit_ops(env, [_upsert_daily()], proposed_apis=APIS_TWO)
-    assert r.status_code == 422
-
-
 def test_entry_api_mismatch_422(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     op = _upsert_daily()
@@ -213,31 +206,6 @@ def test_delete_rejects_entry_422(env):
     assert r.status_code == 422
 
 
-def test_legacy_full_mode_regression(env):
-    """旧 proposed_apis 全量替换路径不变，且同样记录 base_version。"""
-    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid, apis=APIS_TWO)
-
-    body = {
-        "block_id": bid,
-        "description": "只保留日报接口",
-        "suggestion": "整体替换",
-        "proposed_apis": APIS_V2_MINOR,
-    }
-    r = c.post("/api/v1/proposals", json=body, headers=a)
-    assert r.status_code == 201, r.text
-    pid = r.json()["id"]
-
-    p = c.get(f"/api/v1/proposals/{pid}", headers=a).json()
-    assert p["base_version"] == "1.0.0"  # 全量模式也记录基底版本
-    assert p["proposed_api_ops"] is None
-
-    r = _approve(env, pid)
-    assert r.status_code == 200, r.text
-    # 整体替换：未携带的 collect-status 被移除（旧语义不变）
-    assert [a["api"] for a in _apis(env)] == ["GET /api/daily-report"]
-
-
 def test_base_version_null_when_unpublished(env):
     """未发布过的模块对 agent 不可见；这里验证首次发布前的提案无从提交，
     以及发布前 base_version 语义由已发布版本号决定（见其他用例的 1.0.0）。"""
@@ -252,7 +220,6 @@ def test_admin_inbox_echoes_delta_fields(env):
 
     p = next(p for p in c.get("/api/v1/proposals", headers=h).json() if p["id"] == pid)
     assert p["base_version"] == "1.0.0"
-    assert p["proposed_apis"] is None
     assert p["proposed_api_ops"][0]["api"] == "GET /api/daily-report"
     assert p["proposed_api_ops"][0]["entry"]["response"][-1]["name"] == "extra_note"
 
@@ -338,110 +305,3 @@ def test_inbox_delete_op_has_current_entry_no_changes(env):
     assert op["current_entry"]["api"] == "GET /api/collect-status"
     assert op["current_entry"]["response"][0]["name"] == "status"
     assert op["changes"] is None
-
-
-def _submit_legacy(env, apis, **overrides):
-    body = {
-        "block_id": env["block_id"],
-        "description": "整体替换 API 列表",
-        "suggestion": "按提案列表整体替换",
-        "proposed_apis": apis,
-    }
-    body.update(overrides)
-    return env["client"].post("/api/v1/proposals", json=body, headers=env["agent"])
-
-
-def _inbox_item(env, pid, status=None):
-    url = "/api/v1/proposals" + (f"?status={status}" if status else "")
-    inbox = env["client"].get(url, headers=env["human"]).json()
-    return next(p for p in inbox if p["id"] == pid)
-
-
-def test_legacy_view_submitted(env):
-    """legacy submitted：view 按 API 分拆，upsert 对照当前 draft，
-    未携带的条目以显式 delete 出现；proposed_apis 原字段不变。"""
-    c, h = env["client"], env["human"]
-    publish_v1(c, h, env["block_id"], apis=APIS_TWO)
-
-    changed = copy.deepcopy(APIS_V1[0])
-    changed["desc"] = "改写后的端点语义（整体替换提案）"
-    pid = _submit_legacy(env, [changed]).json()["id"]
-
-    p = _inbox_item(env, pid)
-    assert [a["api"] for a in p["proposed_apis"]] == ["GET /api/daily-report"]
-    view = p["proposed_apis_view"]
-    assert [v["op"] for v in view] == ["upsert", "delete"]
-
-    up = view[0]
-    assert up["api"] == "GET /api/daily-report"
-    assert up["current_entry"]["desc"] == APIS_V1[0]["desc"]  # 当前 draft
-    desc_change = next(c for c in up["changes"]["text"] if c["path"] == "desc")
-    assert desc_change["old"] == APIS_V1[0]["desc"]
-    assert desc_change["new"] == "改写后的端点语义（整体替换提案）"
-
-    delete = view[1]
-    assert delete["api"] == "GET /api/collect-status"  # 隐含删除显式可见
-    assert delete["entry"] is None
-    assert delete["current_entry"]["response"][0]["name"] == "status"
-    assert delete["changes"] is None
-
-
-def test_legacy_view_published_references_previous_version(env):
-    """legacy published：参照系是 published_version 的前一个已发布版本（1.0.0），
-    不是当前 draft（批准已把 draft 改成提案内容）。"""
-    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid, apis=APIS_TWO)
-
-    changed = copy.deepcopy(APIS_V1[0])
-    changed["desc"] = "改写后的端点语义（整体替换提案）"
-    pid = _submit_legacy(env, [changed]).json()["id"]
-
-    r = _approve(env, pid)
-    assert r.status_code == 200, r.text
-    assert r.json()["published_version"] == "2.0.0"  # 删除 collect-status 为破坏性
-
-    p = _inbox_item(env, pid, status="published")
-    assert p["base_version"] == "1.0.0"
-    view = p["proposed_apis_view"]
-    assert [v["op"] for v in view] == ["upsert", "delete"]
-
-    up = view[0]
-    # 当前 draft 已是提案内容，current_entry 必须来自 1.0.0 快照（旧 desc）
-    assert up["current_entry"]["desc"] == APIS_V1[0]["desc"]
-    desc_change = next(c for c in up["changes"]["text"] if c["path"] == "desc")
-    assert desc_change["old"] == APIS_V1[0]["desc"]
-    assert desc_change["new"] == "改写后的端点语义（整体替换提案）"
-    assert view[1]["api"] == "GET /api/collect-status"
-    assert view[1]["current_entry"]["api"] == "GET /api/collect-status"
-
-    # agent 视角的已发布版本确认提案内容已生效
-    apis = c.get(f"/api/v1/blocks/{bid}", headers=a).json()["apis"]
-    assert [e["api"] for e in apis] == ["GET /api/daily-report"]
-
-
-def test_legacy_view_rejected_uses_current_draft(env):
-    """legacy rejected：参照系是当前 draft——拒绝后 draft 继续演进，
-    view 跟着最新 draft 走。"""
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    publish_v1(c, h, bid, apis=APIS_TWO)
-
-    changed = copy.deepcopy(APIS_V1[0])
-    changed["desc"] = "改写后的端点语义（整体替换提案）"
-    pid = _submit_legacy(env, [changed]).json()["id"]
-    r = c.post(f"/api/v1/proposals/{pid}/resolve",
-               json={"action": "reject", "resolution_note": "不采纳"}, headers=h)
-    assert r.status_code == 200, r.text
-
-    # 拒绝后 human 独立演进 draft 并发布（desc 文案改动 → patch）
-    human_edit = copy.deepcopy(APIS_TWO)
-    human_edit[0]["desc"] = "人工改写的端点语义"
-    publish_v1(c, h, bid, apis=human_edit)
-
-    p = _inbox_item(env, pid, status="rejected")
-    view = p["proposed_apis_view"]
-    up = next(v for v in view if v["op"] == "upsert")
-    assert up["current_entry"]["desc"] == "人工改写的端点语义"  # 最新 draft，非 1.0.0
-    desc_change = next(c for c in up["changes"]["text"] if c["path"] == "desc")
-    assert desc_change["old"] == "人工改写的端点语义"
-    assert desc_change["new"] == "改写后的端点语义（整体替换提案）"
-    assert any(v["op"] == "delete" and v["api"] == "GET /api/collect-status" for v in view)

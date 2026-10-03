@@ -43,7 +43,9 @@ def test_proposal_apis_without_desc_rejected(env):
     r = env["client"].post(
         "/api/v1/proposals",
         json={"block_id": env["block_id"], "description": "d", "suggestion": "s",
-              "proposed_apis": APIS_NO_DESC},
+              "proposed_api_ops": [
+                  {"op": "upsert", "api": APIS_NO_DESC[0]["api"], "entry": APIS_NO_DESC[0]}
+              ]},
         headers=env["agent"],
     )
     assert r.status_code == 422

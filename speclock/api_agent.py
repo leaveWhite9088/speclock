@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from speclock import diffing
-from speclock.api_admin import _enrich_op, _enrich_rule_op, _legacy_view
+from speclock.api_admin import _enrich_op, _enrich_rule_op
 from speclock.auth import audit, require_agent, require_reader
 from speclock.db import get_db
 from speclock.models import utcnow
@@ -445,7 +445,6 @@ def submit_proposal(
     _check_project_scope(key, _block_project_id(block))
     if (
         body.proposed_content_md is None
-        and body.proposed_apis is None
         and body.proposed_api_ops is None
         and body.proposed_rule_ops is None
         and not body.note_only
@@ -453,19 +452,12 @@ def submit_proposal(
         raise HTTPException(
             status_code=422,
             detail=(
-                "提案不含任何内容载荷（proposed_content_md / proposed_apis / "
+                "提案不含任何内容载荷（proposed_content_md / "
                 "proposed_api_ops / proposed_rule_ops 全为空）：suggestion 只是给审批人看的说明，"
                 "不会被应用，发布后将是一个没有任何内容变化的空版本。"
                 "如确为纯说明提案，请显式传 note_only=true。"
             ),
         )
-    proposed_apis_json = None
-    if body.proposed_apis is not None:
-        try:
-            normalized = diffing.validate_apis([e.model_dump() for e in body.proposed_apis])
-        except diffing.ApisValidationError as exc:
-            raise HTTPException(status_code=422, detail=f"API 列表不合法: {exc}") from exc
-        proposed_apis_json = json.dumps(normalized, ensure_ascii=False)
     proposed_api_ops_json = None
     if body.proposed_api_ops is not None:
         normalized_ops = []
@@ -504,7 +496,6 @@ def submit_proposal(
         suggestion=body.suggestion,
         scenario=body.scenario,
         proposed_content_md=body.proposed_content_md,
-        proposed_apis_json=proposed_apis_json,
         proposed_api_ops_json=proposed_api_ops_json,
         proposed_rule_ops_json=proposed_rule_ops_json,
         base_version=block.current_published_version,
@@ -542,7 +533,6 @@ def get_proposal(
         suggestion=p.suggestion,
         scenario=p.scenario,
         proposed_content_md=p.proposed_content_md,
-        proposed_apis=json.loads(p.proposed_apis_json) if p.proposed_apis_json else None,
         proposed_api_ops=json.loads(p.proposed_api_ops_json)
         if p.proposed_api_ops_json
         else None,
@@ -588,8 +578,7 @@ def get_proposal_diff(
     proposal_id: int, db: Session = Depends(get_db), key: ApiKey = Depends(require_reader)
 ):
     """提案相对 base 版本的完整对照：正文文本 diff + API 逐条变更（含字段级
-    差异，legacy 全量模式同样折算为 ops 视图）+ 规则逐条变更（modified 附
-    detail 文本 diff）。
+    差异）+ 规则逐条变更（modified 附 detail 文本 diff）。
 
     human / agent key 均可用（人机共用）：agent 受项目隔离约束（与
     get_proposal 一致）；参照系只取已发布版本快照，绝不回退草稿。"""
@@ -622,8 +611,6 @@ def get_proposal_diff(
     if p.proposed_api_ops_json is not None:
         ops = json.loads(p.proposed_api_ops_json)
         api_changes = [_enrich_op(base_apis, op) for op in ops]
-    elif p.proposed_apis_json is not None:
-        api_changes = _legacy_view(base_apis, json.loads(p.proposed_apis_json))
 
     rule_changes = None
     if p.proposed_rule_ops_json is not None:

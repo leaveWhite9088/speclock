@@ -266,24 +266,6 @@ def test_proposal_diff_requires_key(env):
     assert env["client"].get(f"/api/v1/proposals/{pid}/diff").status_code == 401
 
 
-def test_proposal_diff_legacy_full_apis(env):
-    """legacy proposed_apis 全量模式同样折算出 api_changes。"""
-    c, h = env["client"], env["human"]
-    publish_v1(c, h, env["block_id"])
-
-    changed = copy.deepcopy(APIS_V1[0])
-    changed["desc"] = "改写后的端点语义（整体替换提案）"
-    pid = _submit_rule_ops(
-        env, [_upsert_modified()], proposed_rule_ops=None, proposed_apis=[changed]
-    ).json()["id"]
-
-    d = c.get(f"/api/v1/proposals/{pid}/diff", headers=env["agent"]).json()
-    assert d["api_changes"][0]["op"] == "upsert"
-    assert d["api_changes"][0]["current_entry"]["desc"] == APIS_V1[0]["desc"]
-    assert d["rule_changes"] is None  # proposed_rule_ops 显式置空
-    assert d["content_diff"] is None
-
-
 def test_proposal_diff_base_fallback_after_void(env):
     """base_version 快照被作废：回退当前已发布版本作参照，并标注非原始 base。"""
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
@@ -362,37 +344,3 @@ def test_applied_ops_recorded_on_proposal_publish(env):
     assert detail["applied_ops"]["proposal_id"] == pid
     assert _version_entry(env, "1.0.0")["applied_ops"] == {}
 
-
-def test_applied_ops_legacy_full_apis(env):
-    """legacy 全量替换留痕：携带条目记 replace，未携带条目记隐含 delete。"""
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    apis_two = APIS_V1 + [
-        {
-            "name": "采集状态查询",
-            "api": "GET /api/collect-status",
-            "desc": "采集任务看板调用，只读无副作用",
-            "request": [],
-            "response": [
-                {"name": "status", "type": "string", "required": True, "description": "采集状态"},
-            ],
-        }
-    ]
-    publish_v1(c, h, bid, apis=apis_two)
-
-    body = {
-        "block_id": bid,
-        "description": "只保留日报接口",
-        "suggestion": "整体替换",
-        "proposed_apis": APIS_V1,
-    }
-    pid = c.post("/api/v1/proposals", json=body, headers=env["agent"]).json()["id"]
-    r = _approve(env, pid)
-    assert r.status_code == 200, r.text
-
-    ops = _version_entry(env, r.json()["published_version"])["applied_ops"]
-    assert ops["apis"] == [
-        {"op": "replace", "api": "GET /api/daily-report"},
-        {"op": "delete", "api": "GET /api/collect-status"},
-    ]
-    assert "rules" not in ops
-    assert "content_md_replaced" not in ops

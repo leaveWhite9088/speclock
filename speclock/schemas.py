@@ -191,15 +191,12 @@ class ProposalCreate(BaseModel):
     suggestion: str
     scenario: str = ""
     proposed_content_md: str | None = None
-    proposed_apis: list[ApiEntry] | None = None
     proposed_api_ops: list[ApiOp] | None = None
     proposed_rule_ops: list[RuleOp] | None = None
     note_only: bool = False  # 纯说明提案：无载荷时须显式置 true，否则 422
 
     @model_validator(mode="after")
     def _check_api_payload(self):
-        if self.proposed_apis is not None and self.proposed_api_ops is not None:
-            raise ValueError("proposed_apis 与 proposed_api_ops 互斥，只能二选一")
         for op in self.proposed_api_ops or []:
             if op.op == "upsert":
                 if op.entry is None:
@@ -308,7 +305,6 @@ class ProposalOut(BaseModel):
     suggestion: str
     scenario: str
     proposed_content_md: str | None
-    proposed_apis: list[dict] | None
     proposed_api_ops: list[dict] | None
     proposed_rule_ops: list[dict] | None
     base_version: str | None  # 提交时模块的已发布版本号（delta 提案的合并基底）

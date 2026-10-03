@@ -82,6 +82,21 @@ def _ensure_columns() -> None:
             for col in dropped.get(table, []):
                 if col in existing:
                     conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {col}"))
+        # proposals.proposed_apis_json（legacy 全量替换通道）已废弃：列内还有
+        # 未迁移数据时拒绝 DROP 并告警——先跑 scripts/migrate_legacy_proposals.py。
+        legacy_col = "proposed_apis_json"
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(proposals)"))}
+        if legacy_col in existing:
+            remaining = conn.execute(
+                text(f"SELECT count(*) FROM proposals WHERE {legacy_col} IS NOT NULL")
+            ).scalar()
+            if remaining:
+                print(
+                    f"WARNING: proposals.{legacy_col} 仍有 {remaining} 行未迁移数据，"
+                    f"跳过 DROP COLUMN；请先运行 scripts/migrate_legacy_proposals.py"
+                )
+            else:
+                conn.execute(text(f"ALTER TABLE proposals DROP COLUMN {legacy_col}"))
 
 
 def _backfill_draft_api_desc() -> None:

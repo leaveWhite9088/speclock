@@ -980,78 +980,6 @@ def _enrich_op(current_apis: list[dict], op: dict) -> dict:
     return enriched
 
 
-def _reference_apis(db: Session, block: Block | None, p: Proposal) -> list[dict]:
-    """legacy 全量提案的对照参照系：published 取发布前一版本的快照（优先
-    base_version），submitted/rejected 取当前草稿。取不到 → 空列表。"""
-    if p.status == "published":
-        if p.base_version:
-            base_bv = (
-                db.query(BlockVersion)
-                .filter(
-                    BlockVersion.block_id == p.block_id,
-                    BlockVersion.version == p.base_version,
-                    BlockVersion.voided_at.is_(None),
-                )
-                .first()
-            )
-            if base_bv is not None:
-                return json.loads(base_bv.apis_json or "[]")
-        if p.published_version:
-            cur = (
-                db.query(BlockVersion)
-                .filter(
-                    BlockVersion.block_id == p.block_id,
-                    BlockVersion.version == p.published_version,
-                )
-                .first()
-            )
-            if cur is not None:
-                prev = (
-                    db.query(BlockVersion)
-                    .filter(
-                        BlockVersion.block_id == p.block_id,
-                        BlockVersion.id < cur.id,
-                        BlockVersion.voided_at.is_(None),
-                    )
-                    .order_by(BlockVersion.id.desc())
-                    .first()
-                )
-                if prev is not None:
-                    return json.loads(prev.apis_json or "[]")
-        return []
-    return json.loads(block.draft_apis_json or "[]") if block else []
-
-
-def _legacy_view(reference: list[dict], proposed: list[dict]) -> list[dict]:
-    """把全量替换列表归一化为与 enriched ops 相同的结构：每条 proposed entry
-    一个 upsert；参照系中未被携带的条目追加显式 delete（全量替换的隐含删除）。"""
-    view = []
-    proposed_keys = set()
-    for entry in proposed:
-        proposed_keys.add(_normalize_api_key(entry["api"]))
-        view.append(
-            _enrich_op(
-                reference, {"op": "upsert", "api": entry["api"], "entry": entry}
-            )
-        )
-    for e in reference:
-        try:
-            key = _normalize_api_key(e.get("api", ""))
-        except diffing.ApisValidationError:
-            continue
-        if key not in proposed_keys:
-            view.append(
-                {
-                    "op": "delete",
-                    "api": key,
-                    "entry": None,
-                    "current_entry": e,
-                    "changes": None,
-                }
-            )
-    return view
-
-
 @router.get("/proposals")
 def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
     q = db.query(Proposal)
@@ -1064,12 +992,6 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
         if ops is not None:
             current_apis = json.loads(block.draft_apis_json or "[]") if block else []
             ops = [_enrich_op(current_apis, op) for op in ops]
-        proposed_apis = json.loads(p.proposed_apis_json) if p.proposed_apis_json else None
-        proposed_apis_view = None
-        if proposed_apis is not None:
-            proposed_apis_view = _legacy_view(
-                _reference_apis(db, block, p), proposed_apis
-            )
         rule_ops = json.loads(p.proposed_rule_ops_json) if p.proposed_rule_ops_json else None
         if rule_ops is not None:
             current_rules = json.loads(block.draft_rules_json or "[]") if block else []
@@ -1093,8 +1015,6 @@ def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
                 "scenario": p.scenario,
                 "proposed_content_md": p.proposed_content_md,
                 "content_diff": content_diff,
-                "proposed_apis": proposed_apis,
-                "proposed_apis_view": proposed_apis_view,
                 "proposed_api_ops": ops,
                 "proposed_rule_ops": rule_ops,
                 "base_version": p.base_version,
@@ -1136,21 +1056,7 @@ def resolve_proposal(
     if p.proposed_content_md is not None:
         block.draft_content_md = p.proposed_content_md
         applied_ops["content_md_replaced"] = True
-    if p.proposed_apis_json is not None:
-        # 留痕：全量替换折算为逐条 replace + 对未携带条目的隐含 delete
-        draft_keys = []
-        for e in json.loads(block.draft_apis_json or "[]"):
-            try:
-                draft_keys.append(_normalize_api_key(e.get("api", "")))
-            except diffing.ApisValidationError:
-                continue
-        proposed = json.loads(p.proposed_apis_json)
-        proposed_keys = [_normalize_api_key(e["api"]) for e in proposed]
-        applied_ops["apis"] = [{"op": "replace", "api": k} for k in proposed_keys] + [
-            {"op": "delete", "api": k} for k in draft_keys if k not in proposed_keys
-        ]
-        block.draft_apis_json = p.proposed_apis_json
-    elif p.proposed_api_ops_json is not None:
+    if p.proposed_api_ops_json is not None:
         ops = json.loads(p.proposed_api_ops_json)
         if p.base_version and p.base_version != block.current_published_version:
             _check_stale_ops(db, block, p, ops)
