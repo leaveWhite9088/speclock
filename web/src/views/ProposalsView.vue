@@ -56,29 +56,201 @@ function isEmptyPayload(p) {
   )
 }
 
-function entryText(e) {
-  if (!e) return ''
-  const parts = [e.name]
-  if (e.desc) parts.push(e.desc)
-  const req = (e.request || []).map((f) => f.name).join(', ')
-  const res = (e.response || []).map((f) => f.name).join(', ')
-  if (req) parts.push(`请求: ${req}`)
-  if (res) parts.push(`响应: ${res}`)
-  return parts.join(' · ')
+// 契约行里 "METHOD /path:" 段与卡片标题重复，削掉统一成短格式
+// （如 response:GET /a/b/{id}:f: string → response:f: string）；路径含 {} 无冒号，不误伤字段路径
+const API_PATH_RE = /^(request|response|api):(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\S+?:/
+
+function stripApiPath(s) {
+  return s.replace(API_PATH_RE, '$1:')
 }
 
-function contractChanges(op) {
+// 扁平变更字符串 → 字段键（"request:a.b: string required" → "request:a.b"）
+function flatKey(s) {
+  const t = stripApiPath(s)
+  const i = t.lastIndexOf(': ')
+  return i < 0 ? t : t.slice(0, i)
+}
+
+// 把 op.changes 整理成按键索引的状态表；desc/name 变更在标题下单独展示，不进表
+function changeMaps(op) {
+  const c = op.changes?.contract || {}
+  const maps = { added: new Set(), removed: new Set(), modified: new Set(), desc: {} }
+  for (const s of c.added || []) maps.added.add(flatKey(s))
+  for (const s of c.removed || []) maps.removed.add(flatKey(s))
+  for (const s of c.modified || []) maps.modified.add(flatKey(s))
+  for (const t of op.changes?.text || []) {
+    const m = /^(request|response):(.+)\.description$/.exec(t.path || '')
+    if (m) maps.desc[`${m[1]}:${m[2]}`] = t
+  }
+  return maps
+}
+
+// API 显示名/简介变更：卡片标题下红旧绿新两行
+function nameChange(op) {
+  return (op.changes?.text || []).find((t) => t.path === 'name') || null
+}
+
+function descChange(op) {
+  return (op.changes?.text || []).find((t) => t.path === 'desc') || null
+}
+
+// ---------- 字段树全景 diff（GitHub PR「全文 + 高亮」风格） ----------
+
+function fieldLine(f) {
+  const req = f.required ? ' required' : ''
+  const desc = f.description ? ` — ${f.description}` : ''
+  return `${f.name}: ${f.type}${req}${desc}`
+}
+
+// 整棵子树统一着色（新增子树全绿 / 删除子树全红）；parents 记录祖先行下标，供 hunk 保留结构上下文
+function pushSubtree(rows, f, depth, cls, parents) {
+  const idx = rows.length
+  rows.push({ text: fieldLine(f), cls, depth, parents })
+  for (const ch of f.children || []) pushSubtree(rows, ch, depth + 1, cls, [...parents, idx])
+}
+
+// 以提案树为主序对齐两棵字段树；removed 节点插回它在当前树同级中的位置
+function mergeLevel(rows, kind, prefix, curList, newList, depth, maps, parents = []) {
+  const news = newList || []
+  const cur = curList || []
+  const newNames = new Set(news.map((f) => f.name))
+  let ci = 0
+  for (const f of news) {
+    const key = `${kind}:${prefix}${f.name}`
+    while (ci < cur.length && cur[ci].name !== f.name) {
+      if (!newNames.has(cur[ci].name)) pushSubtree(rows, cur[ci], depth, 'is-del', parents)
+      ci++
+    }
+    const matched = ci < cur.length ? cur[ci] : null
+    if (matched) ci++
+    if (!matched) {
+      pushSubtree(rows, f, depth, 'is-add', parents)
+      continue
+    }
+    let idx
+    if (maps.modified.has(key) || key in maps.desc) {
+      // 类型/必填变化或 description 变化：红旧行 + 绿新行成对，原地展示
+      rows.push({ text: fieldLine(matched), cls: 'is-del', depth, parents })
+      idx = rows.length
+      rows.push({ text: fieldLine(f), cls: 'is-add', depth, parents })
+    } else {
+      idx = rows.length
+      rows.push({ text: fieldLine(f), cls: '', depth, parents })
+    }
+    mergeLevel(
+      rows,
+      kind,
+      `${prefix}${f.name}.`,
+      matched.children,
+      f.children,
+      depth + 1,
+      maps,
+      [...parents, idx]
+    )
+  }
+  while (ci < cur.length) {
+    if (!newNames.has(cur[ci].name)) pushSubtree(rows, cur[ci], depth, 'is-del', parents)
+    ci++
+  }
+}
+
+// 一个分组的行集：upsert 走树对齐；delete 整树红行；新增 API（无 current）整树绿行
+function treeRows(op, kind) {
+  const rows = []
+  if (op.op === 'delete') {
+    for (const f of op.current_entry?.[kind] || []) pushSubtree(rows, f, 0, 'is-del', [])
+    return rows
+  }
+  mergeLevel(rows, kind, '', op.current_entry?.[kind], op.entry?.[kind], 0, changeMaps(op))
+  return rows
+}
+
+// GitHub hunk 模式：变化行 ±HUNK_CTX 行上下文 + 变化行的祖先链可见，其余收进折叠条
+const HUNK_CTX = 3
+// 整 API 新增/删除（全树都是变化行）时退化为截断：超过 MAX 行只露前 HEAD 行
+const WHOLE_TREE_MAX = 25
+const WHOLE_TREE_HEAD = 10
+
+function treeSegments(op, kind) {
+  const rows = treeRows(op, kind)
+  const n = rows.length
+  if (!n) return []
+  const changed = []
+  rows.forEach((r, i) => {
+    if (r.cls !== '') changed.push(i)
+  })
+  if (changed.length === n && n > WHOLE_TREE_MAX) {
+    return [
+      { type: 'rows', rows: rows.slice(0, WHOLE_TREE_HEAD) },
+      { type: 'fold', rows: rows.slice(WHOLE_TREE_HEAD) },
+    ]
+  }
+  const visible = new Array(n).fill(false)
+  for (const i of changed) {
+    for (let k = Math.max(0, i - HUNK_CTX); k <= Math.min(n - 1, i + HUNK_CTX); k++) {
+      visible[k] = true
+    }
+    for (const p of rows[i].parents) visible[p] = true
+  }
+  const segs = []
+  let i = 0
+  while (i < n) {
+    let j = i
+    while (j < n && visible[j] === visible[i]) j++
+    segs.push({ type: visible[i] ? 'rows' : 'fold', rows: rows.slice(i, j) })
+    i = j
+  }
+  return segs
+}
+
+// 分组内是否有任何变化行（无变化的分组整体不渲染，避免空分组标题 + 全折叠条）
+function groupHasChange(op, kind) {
+  return treeRows(op, kind).some((r) => r.cls !== '')
+}
+
+function textLines(text) {
+  const arr = (text || '').split('\n')
+  while (arr.length && arr[arr.length - 1] === '') arr.pop()
+  return arr
+}
+
+// 删除规则：整块红行
+function ruleDelLines(op) {
+  return [
+    { kind: 'del', text: `− rule: ${op.name}` },
+    ...textLines(op.current_entry?.detail).map((l) => ({ kind: 'del', text: `− ${l}` })),
+  ]
+}
+
+// 新增规则：整块绿行
+function ruleAddLines(op) {
+  return [
+    { kind: 'add', text: `+ rule: ${op.name}` },
+    ...textLines(op.entry?.detail).map((l) => ({ kind: 'add', text: `+ ${l}` })),
+  ]
+}
+
+// 无任何可见变更的 op 不渲染（删除目标已不存在 / upsert 零差异）
+function apiOpHasChange(op) {
+  if (op.op === 'delete') return !!op.current_entry
+  if (!op.current_entry) return true // 新增 API
   const c = op.changes?.contract
-  if (!c) return []
-  return [...(c.added || []), ...(c.modified || []), ...(c.removed || [])]
+  const hasContract = !!(c && (c.added?.length || c.modified?.length || c.removed?.length))
+  return hasContract || (op.changes?.text || []).length > 0
 }
 
-function textChanges(op) {
-  return op.changes?.text || []
+function ruleOpHasChange(op) {
+  if (op.op === 'delete') return !!op.current_entry
+  if (!op.current_entry) return true // 新增规则
+  return !!op.detail_diff
 }
 
-function hasChanges(op) {
-  return contractChanges(op).length > 0 || textChanges(op).length > 0
+function visibleApiOps(p) {
+  return apiOps(p).filter(apiOpHasChange)
+}
+
+function visibleRuleOps(p) {
+  return (p.proposed_rule_ops || []).filter(ruleOpHasChange)
 }
 
 function ruleOpKindLabel(op) {
@@ -245,7 +417,7 @@ onMounted(load)
             <BlockTextDiff :text="p.content_diff" />
           </details>
         </div>
-        <div v-if="apiOps(p).length" class="p-ops">
+        <div v-if="visibleApiOps(p).length" class="p-ops">
           <p class="p-proposed-label">
             <template v-if="p.proposed_api_ops && p.proposed_api_ops.length">
               建议的 API 变更（delta，基于 {{ p.base_version ? `v${p.base_version}` : '未发布版本' }}）
@@ -255,82 +427,86 @@ onMounted(load)
             </template>
           </p>
           <ul class="p-op-list">
-            <li v-for="(op, i) in apiOps(p)" :key="i" class="p-op">
+            <li v-for="(op, i) in visibleApiOps(p)" :key="i" class="p-op">
               <div class="p-op-head">
                 <span class="p-op-badge" :class="`is-${op.op}`">
                   {{ op.op === 'upsert' ? '更新' : '删除' }}
                 </span>
                 <span class="mono p-op-api">{{ op.api }}</span>
+                <span v-if="(op.entry || op.current_entry)?.name" class="p-op-name">
+                  {{ (op.entry || op.current_entry).name }}
+                </span>
               </div>
 
-              <template v-if="op.op === 'delete'">
-                <p class="p-op-note muted">将删除以下当前定义：</p>
-                <p v-if="op.current_entry" class="p-op-summary muted">
-                  {{ entryText(op.current_entry) }}
-                </p>
-                <details v-if="op.current_entry" class="p-op-detail">
-                  <summary>当前定义 JSON</summary>
-                  <pre class="mono">{{ JSON.stringify(op.current_entry, null, 2) }}</pre>
-                </details>
-              </template>
+              <!-- 显示名 / 简介变更：紧跟标题，红旧绿新 -->
+              <div v-if="nameChange(op) || descChange(op)" class="p-diff mono p-desc-diff">
+                <template v-if="nameChange(op)">
+                  <span v-if="nameChange(op).old" class="p-diff-line is-del"
+                    >− name: {{ nameChange(op).old }}</span
+                  >
+                  <span v-if="nameChange(op).new" class="p-diff-line is-add"
+                    >+ name: {{ nameChange(op).new }}</span
+                  >
+                </template>
+                <template v-if="descChange(op)">
+                  <span v-if="descChange(op).old" class="p-diff-line is-del"
+                    >− desc: {{ descChange(op).old }}</span
+                  >
+                  <span v-if="descChange(op).new" class="p-diff-line is-add"
+                    >+ desc: {{ descChange(op).new }}</span
+                  >
+                </template>
+              </div>
 
-              <template v-else>
-                <div class="p-op-compare">
-                  <div class="p-op-side">
-                    <p class="p-op-side-label">当前定义</p>
-                    <template v-if="op.current_entry">
-                      <p class="p-op-summary muted">{{ entryText(op.current_entry) }}</p>
-                      <details class="p-op-detail">
-                        <summary>字段详情</summary>
-                        <pre class="mono">{{ JSON.stringify(op.current_entry, null, 2) }}</pre>
+              <!-- 字段树全景（GitHub hunk 模式）：变化行 ±3 上下文 + 祖先链，其余折叠 -->
+              <div
+                v-if="groupHasChange(op, 'request') || groupHasChange(op, 'response')"
+                class="p-diff mono p-tree"
+              >
+                <template
+                  v-for="sec in [
+                    ['请求字段', 'request'],
+                    ['响应字段', 'response'],
+                  ]"
+                  :key="sec[1]"
+                >
+                  <template v-if="groupHasChange(op, sec[1])">
+                    <span class="p-diff-line is-group">{{ sec[0] }}</span>
+                    <template v-for="(seg, k) in treeSegments(op, sec[1])" :key="k">
+                      <template v-if="seg.type === 'rows'">
+                        <span
+                          v-for="(r, m) in seg.rows"
+                          :key="m"
+                          class="p-diff-line"
+                          :class="r.cls"
+                          :style="{ paddingLeft: `calc(var(--sp-3) + ${r.depth * 1.2}em)` }"
+                          >{{ r.text }}</span
+                        >
+                      </template>
+                      <details v-else class="p-fold">
+                        <summary class="p-diff-line is-fold">… {{ seg.rows.length }} 行无变化 …</summary>
+                        <span
+                          v-for="(r, m) in seg.rows"
+                          :key="m"
+                          class="p-diff-line"
+                          :style="{ paddingLeft: `calc(var(--sp-3) + ${r.depth * 1.2}em)` }"
+                          >{{ r.text }}</span
+                        >
                       </details>
                     </template>
-                    <p v-else class="p-op-new muted">新增 API（当前不存在）</p>
-                  </div>
-                  <div class="p-op-side">
-                    <p class="p-op-side-label">提案定义</p>
-                    <p class="p-op-summary muted">{{ entryText(op.entry) }}</p>
-                    <details class="p-op-detail">
-                      <summary>字段详情</summary>
-                      <pre class="mono">{{ JSON.stringify(op.entry, null, 2) }}</pre>
-                    </details>
-                  </div>
-                </div>
-
-                <div class="p-op-changes">
-                  <p class="p-op-side-label">变更摘要</p>
-                  <template v-if="hasChanges(op)">
-                    <div v-if="contractChanges(op).length" class="p-change-group">
-                      <p class="p-change-title">契约变更</p>
-                      <ul>
-                        <li v-for="(c, j) in contractChanges(op)" :key="j" class="mono">
-                          {{ c }}
-                        </li>
-                      </ul>
-                    </div>
-                    <div v-if="textChanges(op).length" class="p-change-group">
-                      <p class="p-change-title">文案变更</p>
-                      <ul>
-                        <li v-for="(c, j) in textChanges(op)" :key="j">
-                          <span class="mono">{{ c.path }}</span>：{{ c.old ?? '（无）' }} →
-                          {{ c.new ?? '（无）' }}
-                        </li>
-                      </ul>
-                    </div>
                   </template>
-                  <p v-else class="muted p-op-nochange">无差异</p>
-                </div>
-              </template>
+                </template>
+              </div>
             </li>
           </ul>
         </div>
 
-        <div v-if="p.proposed_rule_ops && p.proposed_rule_ops.length" class="p-ops">
+        <div v-if="visibleRuleOps(p).length" class="p-ops">
           <p class="p-proposed-label">
             建议的规则变更（delta，基于 {{ p.base_version ? `v${p.base_version}` : '未发布版本' }}）
           </p>
           <ul class="p-op-list">
-            <li v-for="(op, i) in p.proposed_rule_ops" :key="i" class="p-op">
+            <li v-for="(op, i) in visibleRuleOps(p)" :key="i" class="p-op">
               <div class="p-op-head">
                 <span class="p-op-badge" :class="`is-${op.op}`">
                   {{ op.op === 'upsert' ? '更新' : '删除' }}
@@ -343,31 +519,31 @@ onMounted(load)
 
               <template v-if="op.op === 'delete'">
                 <p class="p-op-note muted">将删除以下当前规则：</p>
-                <p v-if="op.current_entry" class="p-op-summary muted">
-                  {{ op.current_entry.detail }}
-                </p>
-                <p v-else class="p-op-summary muted">（当前草稿中已不存在该规则）</p>
+                <div class="p-diff mono">
+                  <span
+                    v-for="(l, j) in ruleDelLines(op)"
+                    :key="j"
+                    class="p-diff-line"
+                    :class="`is-${l.kind}`"
+                    >{{ l.text || ' ' }}</span
+                  >
+                </div>
               </template>
 
               <template v-else>
-                <div class="p-op-compare">
-                  <div class="p-op-side">
-                    <p class="p-op-side-label">当前详述</p>
-                    <p v-if="op.current_entry" class="p-op-summary muted">
-                      {{ op.current_entry.detail }}
-                    </p>
-                    <p v-else class="p-op-new muted">新增规则（当前不存在）</p>
-                  </div>
-                  <div class="p-op-side">
-                    <p class="p-op-side-label">提案详述</p>
-                    <p class="p-op-summary muted">{{ op.entry.detail }}</p>
-                  </div>
+                <div v-if="!op.current_entry" class="p-diff mono">
+                  <span
+                    v-for="(l, j) in ruleAddLines(op)"
+                    :key="j"
+                    class="p-diff-line"
+                    :class="`is-${l.kind}`"
+                    >{{ l.text || ' ' }}</span
+                  >
                 </div>
-
-                <div v-if="op.detail_diff" class="p-op-changes">
-                  <p class="p-op-side-label">详述文本差异</p>
+                <template v-else>
+                  <p class="p-op-side-label p-diff-label">详述文本差异</p>
                   <BlockTextDiff :text="op.detail_diff" />
-                </div>
+                </template>
               </template>
             </li>
           </ul>
@@ -409,8 +585,16 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* 提案收件箱放宽到约 80% 屏宽，左对齐（覆盖全局 .page 的 960px 上限，仅本页生效） */
 .proposals-page {
-  max-width: 860px;
+  width: 80%;
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  .proposals-page {
+    width: auto;
+  }
 }
 
 .state-card {
@@ -699,25 +883,9 @@ onMounted(load)
   font-size: var(--text-xs);
 }
 
-.p-op-summary {
-  margin: var(--sp-1) 0 0;
-  font-size: var(--text-xs);
-}
-
 .p-op-note {
   margin: var(--sp-2) 0 0;
   font-size: var(--text-xs);
-}
-
-.p-op-compare {
-  margin-top: var(--sp-2);
-  display: flex;
-  gap: var(--sp-3);
-}
-
-.p-op-side {
-  flex: 1;
-  min-width: 0;
 }
 
 .p-op-side-label {
@@ -727,47 +895,71 @@ onMounted(load)
   margin-bottom: var(--sp-1);
 }
 
-.p-op-new {
-  font-size: var(--text-xs);
-}
+/* ---------- diff 行展示（与 BlockTextDiff 同观感：绿底新增 / 红底删除，等宽折行） ---------- */
 
-.p-op-changes {
+.p-diff {
   margin-top: var(--sp-2);
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--hairline);
+  padding: var(--sp-2) 0;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  line-height: 1.6;
 }
 
-.p-change-group {
+.p-diff-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0 var(--sp-3);
+}
+
+.p-diff-line.is-add {
+  color: var(--success);
+  background: rgba(21, 122, 78, 0.08);
+}
+
+.p-diff-line.is-del {
+  color: var(--danger);
+  background: rgba(196, 53, 28, 0.08);
+}
+
+/* 字段树全景：分组标题与折叠段 */
+.p-diff-line.is-group {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.p-fold summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  list-style: none;
+}
+
+.p-fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.p-fold summary::before {
+  content: '▸ ';
+}
+
+.p-fold[open] summary::before {
+  content: '▾ ';
+}
+
+.p-diff-label {
+  margin-top: var(--sp-2);
+}
+
+/* desc 变更紧跟标题 */
+.p-desc-diff {
   margin-top: var(--sp-1);
 }
 
-.p-change-title {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
-.p-change-group ul {
-  margin: var(--sp-1) 0 0;
-  padding-left: var(--sp-4);
-  list-style: disc;
+.p-op-name {
   font-size: var(--text-xs);
   color: var(--ink-2);
-}
-
-.p-change-group li {
-  margin: 1px 0;
-  word-break: break-all;
-}
-
-.p-op-nochange {
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 640px) {
-  .p-op-compare {
-    flex-direction: column;
-  }
 }
 
 .p-op-detail {
@@ -777,16 +969,6 @@ onMounted(load)
 .p-op-detail summary {
   cursor: pointer;
   color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-
-.p-op-detail pre {
-  margin-top: var(--sp-1);
-  background: var(--card);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: var(--sp-2) var(--sp-3);
-  overflow-x: auto;
   font-size: var(--text-xs);
 }
 
