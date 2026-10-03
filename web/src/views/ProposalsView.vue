@@ -95,17 +95,13 @@ function descChange(op) {
 }
 
 // ---------- 字段树全景 diff（GitHub PR「全文 + 高亮」风格） ----------
-
-function fieldLine(f) {
-  const req = f.required ? ' required' : ''
-  const desc = f.description ? ` — ${f.description}` : ''
-  return `${f.name}: ${f.type}${req}${desc}`
-}
+// 行结构：{ f: 字段对象, cls: '' | 'is-add' | 'is-del', depth, parents: 祖先行下标 }
+// 模板按 f 的结构化字段渲染（名/类型徽章/必填徽章/说明），不再拼字符串
 
 // 整棵子树统一着色（新增子树全绿 / 删除子树全红）；parents 记录祖先行下标，供 hunk 保留结构上下文
 function pushSubtree(rows, f, depth, cls, parents) {
   const idx = rows.length
-  rows.push({ text: fieldLine(f), cls, depth, parents })
+  rows.push({ f, cls, depth, parents })
   for (const ch of f.children || []) pushSubtree(rows, ch, depth + 1, cls, [...parents, idx])
 }
 
@@ -130,12 +126,12 @@ function mergeLevel(rows, kind, prefix, curList, newList, depth, maps, parents =
     let idx
     if (maps.modified.has(key) || key in maps.desc) {
       // 类型/必填变化或 description 变化：红旧行 + 绿新行成对，原地展示
-      rows.push({ text: fieldLine(matched), cls: 'is-del', depth, parents })
+      rows.push({ f: matched, cls: 'is-del', depth, parents })
       idx = rows.length
-      rows.push({ text: fieldLine(f), cls: 'is-add', depth, parents })
+      rows.push({ f, cls: 'is-add', depth, parents })
     } else {
       idx = rows.length
-      rows.push({ text: fieldLine(f), cls: '', depth, parents })
+      rows.push({ f, cls: '', depth, parents })
     }
     mergeLevel(
       rows,
@@ -166,7 +162,7 @@ function treeRows(op, kind) {
 }
 
 // GitHub hunk 模式：变化行 ±HUNK_CTX 行上下文 + 变化行的祖先链可见，其余收进折叠条
-const HUNK_CTX = 3
+const HUNK_CTX = 1
 // 整 API 新增/删除（全树都是变化行）时退化为截断：超过 MAX 行只露前 HEAD 行
 const WHOLE_TREE_MAX = 25
 const WHOLE_TREE_HEAD = 10
@@ -206,6 +202,13 @@ function treeSegments(op, kind) {
 // 分组内是否有任何变化行（无变化的分组整体不渲染，避免空分组标题 + 全折叠条）
 function groupHasChange(op, kind) {
   return treeRows(op, kind).some((r) => r.cls !== '')
+}
+
+// 上下文行的超长说明截断（变化行给全文）
+function ctxDesc(r) {
+  const d = r.f.description
+  if (!d) return ''
+  return r.cls === '' && d.length > 80 ? `${d.slice(0, 80)}…` : d
 }
 
 function textLines(text) {
@@ -409,12 +412,13 @@ onMounted(load)
         </p>
 
         <div v-if="p.proposed_content_md" class="p-proposed">
-          <p class="p-proposed-label">建议改写后的内容预览</p>
+          <p class="p-proposed-label">建议的正文变更</p>
+          <!-- diff 是审批焦点，直接展开；整篇新正文默认折叠，需要时再翻看 -->
+          <BlockTextDiff v-if="p.content_diff" :text="p.content_diff" />
           <!-- markdown 渲染结果包在容器内，样式由下方 :deep 控制 -->
-          <div class="md-body" v-html="renderMd(p.proposed_content_md)"></div>
-          <details v-if="p.content_diff" class="p-op-detail p-content-diff">
-            <summary>与当前正文的文本差异</summary>
-            <BlockTextDiff :text="p.content_diff" />
+          <details class="p-op-detail p-content-preview" :open="!p.content_diff">
+            <summary>查看完整新正文（{{ p.proposed_content_md.length }} 字）</summary>
+            <div class="md-body" v-html="renderMd(p.proposed_content_md)"></div>
           </details>
         </div>
         <div v-if="visibleApiOps(p).length" class="p-ops">
@@ -438,64 +442,89 @@ onMounted(load)
                 </span>
               </div>
 
-              <!-- 显示名 / 简介变更：紧跟标题，红旧绿新 -->
-              <div v-if="nameChange(op) || descChange(op)" class="p-diff mono p-desc-diff">
-                <template v-if="nameChange(op)">
-                  <span v-if="nameChange(op).old" class="p-diff-line is-del"
-                    >− name: {{ nameChange(op).old }}</span
-                  >
-                  <span v-if="nameChange(op).new" class="p-diff-line is-add"
-                    >+ name: {{ nameChange(op).new }}</span
-                  >
-                </template>
-                <template v-if="descChange(op)">
-                  <span v-if="descChange(op).old" class="p-diff-line is-del"
-                    >− desc: {{ descChange(op).old }}</span
-                  >
-                  <span v-if="descChange(op).new" class="p-diff-line is-add"
-                    >+ desc: {{ descChange(op).new }}</span
-                  >
-                </template>
+              <!-- 分区 1：接口简介变更（name/desc 红旧绿新） -->
+              <div v-if="nameChange(op) || descChange(op)" class="p-sec">
+                <p class="p-sec-label">接口简介变更</p>
+                <div class="p-diff mono">
+                  <template v-if="nameChange(op)">
+                    <span v-if="nameChange(op).old" class="p-diff-line is-del"
+                      >− name: {{ nameChange(op).old }}</span
+                    >
+                    <span v-if="nameChange(op).new" class="p-diff-line is-add"
+                      >+ name: {{ nameChange(op).new }}</span
+                    >
+                  </template>
+                  <template v-if="descChange(op)">
+                    <span v-if="descChange(op).old" class="p-diff-line is-del"
+                      >− desc: {{ descChange(op).old }}</span
+                    >
+                    <span v-if="descChange(op).new" class="p-diff-line is-add"
+                      >+ desc: {{ descChange(op).new }}</span
+                    >
+                  </template>
+                </div>
               </div>
 
-              <!-- 字段树全景（GitHub hunk 模式）：变化行 ±3 上下文 + 祖先链，其余折叠 -->
+              <!-- 分区 2：字段结构变更（GitHub hunk 模式：变化行 ±3 上下文 + 祖先链，其余折叠） -->
               <div
                 v-if="groupHasChange(op, 'request') || groupHasChange(op, 'response')"
-                class="p-diff mono p-tree"
+                class="p-sec"
               >
-                <template
-                  v-for="sec in [
-                    ['请求字段', 'request'],
-                    ['响应字段', 'response'],
-                  ]"
-                  :key="sec[1]"
-                >
-                  <template v-if="groupHasChange(op, sec[1])">
-                    <span class="p-diff-line is-group">{{ sec[0] }}</span>
-                    <template v-for="(seg, k) in treeSegments(op, sec[1])" :key="k">
-                      <template v-if="seg.type === 'rows'">
-                        <span
-                          v-for="(r, m) in seg.rows"
-                          :key="m"
-                          class="p-diff-line"
-                          :class="r.cls"
-                          :style="{ paddingLeft: `calc(var(--sp-3) + ${r.depth * 1.2}em)` }"
-                          >{{ r.text }}</span
-                        >
+                <p class="p-sec-label">字段结构变更</p>
+                <div class="p-diff p-tree">
+                  <template
+                    v-for="sec in [
+                      ['请求字段', 'request'],
+                      ['响应字段', 'response'],
+                    ]"
+                    :key="sec[1]"
+                  >
+                    <template v-if="groupHasChange(op, sec[1])">
+                      <span class="p-diff-line is-group">{{ sec[0] }}</span>
+                      <template v-for="(seg, k) in treeSegments(op, sec[1])" :key="k">
+                        <template v-if="seg.type === 'rows'">
+                          <div
+                            v-for="(r, m) in seg.rows"
+                            :key="m"
+                            class="p-diff-line prow"
+                            :class="r.cls"
+                          >
+                            <span class="pgut">
+                              <span class="psign mono">{{ r.cls === 'is-add' ? '+' : r.cls === 'is-del' ? '−' : '' }}</span>
+                              <span class="pgd"><i v-for="d in r.depth" :key="d" class="pgd-line"></i></span>
+                            </span>
+                            <span class="pbody">
+                              <span class="pname mono">{{ r.f.name }}</span>
+                              <span class="ptype mono">{{ r.f.type }}</span>
+                              <span v-if="r.f.required" class="preq">必填</span>
+                              <span v-if="r.f.description" class="pfd">{{ ctxDesc(r) }}</span>
+                            </span>
+                          </div>
+                        </template>
+                        <details v-else class="p-fold">
+                          <summary class="p-diff-line is-fold">… {{ seg.rows.length }} 行无变化 …</summary>
+                          <div
+                            v-for="(r, m) in seg.rows"
+                            :key="m"
+                            class="p-diff-line prow"
+                            :class="r.cls"
+                          >
+                            <span class="pgut">
+                              <span class="psign mono">{{ r.cls === 'is-add' ? '+' : r.cls === 'is-del' ? '−' : '' }}</span>
+                              <span class="pgd"><i v-for="d in r.depth" :key="d" class="pgd-line"></i></span>
+                            </span>
+                            <span class="pbody">
+                              <span class="pname mono">{{ r.f.name }}</span>
+                              <span class="ptype mono">{{ r.f.type }}</span>
+                              <span v-if="r.f.required" class="preq">必填</span>
+                              <span v-if="r.f.description" class="pfd">{{ ctxDesc(r) }}</span>
+                            </span>
+                          </div>
+                        </details>
                       </template>
-                      <details v-else class="p-fold">
-                        <summary class="p-diff-line is-fold">… {{ seg.rows.length }} 行无变化 …</summary>
-                        <span
-                          v-for="(r, m) in seg.rows"
-                          :key="m"
-                          class="p-diff-line"
-                          :style="{ paddingLeft: `calc(var(--sp-3) + ${r.depth * 1.2}em)` }"
-                          >{{ r.text }}</span
-                        >
-                      </details>
                     </template>
                   </template>
-                </template>
+                </div>
               </div>
             </li>
           </ul>
@@ -875,7 +904,7 @@ onMounted(load)
   font-size: var(--text-sm);
 }
 
-.p-content-diff {
+.p-content-preview .md-body {
   margin-top: var(--sp-2);
 }
 
@@ -953,12 +982,95 @@ onMounted(load)
 }
 
 /* desc 变更紧跟标题 */
-.p-desc-diff {
-  margin-top: var(--sp-1);
-}
-
 .p-op-name {
   font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+/* ---------- API 卡片分区（接口简介变更 / 字段结构变更） ---------- */
+
+.p-sec {
+  margin-top: var(--sp-2);
+}
+
+.p-sec-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: var(--sp-1);
+}
+
+/* ---------- 字段行结构化排版：gutter + 缩进参考线 + 名/类型/必填/说明 ---------- */
+
+.prow {
+  display: flex;
+  align-items: stretch;
+}
+
+/* 上下文行（无变化）淡化文字与徽章；gutter 缩进参考线在 .pgut 里，不受影响保持可见 */
+.prow:not(.is-add):not(.is-del) .pbody {
+  opacity: 0.5;
+}
+
+.pgut {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+
+.psign {
+  width: 1.1em;
+  flex: none;
+  text-align: center;
+}
+
+.pgd {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+  margin-right: var(--sp-1);
+}
+
+.pgd-line {
+  width: 1.1em;
+  border-left: 1px solid var(--hairline);
+}
+
+.pbody {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
+}
+
+.pname {
+  font-weight: 600;
+}
+
+.ptype {
+  font-size: 10px;
+  padding: 0 5px;
+  margin-left: var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: var(--contract);
+  background: color-mix(in srgb, var(--contract) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--contract) 25%, var(--card));
+  vertical-align: 1px;
+}
+
+.preq {
+  font-size: 10px;
+  padding: 0 5px;
+  margin-left: var(--sp-1);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--card));
+  vertical-align: 1px;
+}
+
+.pfd {
+  margin-left: var(--sp-2);
+  font-family: var(--font-body);
   color: var(--ink-2);
 }
 
