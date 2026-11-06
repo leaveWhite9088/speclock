@@ -1,4 +1,5 @@
-"""FastAPI application assembly: admin (write) + agent (read) JSON APIs.
+"""FastAPI application assembly: admin (read / manage) + change-request (the only
+write channel) + agent (read) JSON APIs.
 
 When the Vue SPA has been built (``web/dist/`` next to the package), it is
 served from the same process: static bundles under ``/assets`` and every
@@ -15,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from speclock import api_admin, api_agent, api_meetings
+from speclock import api_admin, api_agent, api_cr
 from speclock.db import init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,16 +28,15 @@ def create_app() -> FastAPI:
         title="SpecLock",
         version="0.1.0",
         description=(
-            "Single source of truth for business docs. Agents read published "
-            "versions through a physically read-only API; the only write "
-            "outlet is the proposal channel."
+            "Single source of truth for business specs. Agents read published "
+            "versions; the only write channel is a human-approved Change Request "
+            "followed by Commits from a requirements agent."
         ),
     )
     init_db()
     app.include_router(api_admin.router)
+    app.include_router(api_cr.router)
     app.include_router(api_agent.router)
-    app.include_router(api_meetings.admin_router)
-    app.include_router(api_meetings.share_router)
 
     if DIST_DIR.is_dir():
         index_html = DIST_DIR / "index.html"

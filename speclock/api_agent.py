@@ -1,9 +1,8 @@
-"""Agent (read-only + proposal) API — requires an ``agent-*`` key.
+"""Agent 读接口（规格索引 / 小业务 / 模块 / diff）+ 实现回执。
 
-There is deliberately NO write endpoint here that can alter documents. The
-only mutations an agent can cause are Proposal and Ack rows, which live
-outside the published document store. Drafts are never reachable from this
-router.
+按权限放行：读规格要 ``spec.read``，提交回执要 ``ack.write``。这里刻意没有任何能改规格
+内容的接口——规格库唯一的写入通道是审核单下的 Commit（见 ``api_cr.py``）。草稿
+（Block.draft_*）永远够不着。
 """
 
 from __future__ import annotations
@@ -17,29 +16,26 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from speclock import diffing
-from speclock.api_admin import _enrich_op, _enrich_rule_op
-from speclock.auth import audit, require_agent, require_reader
+from speclock.auth import audit
 from speclock.db import get_db
-from speclock.models import utcnow
 from speclock.models import (
     Ack,
     ApiKey,
     Block,
     BlockVersion,
-    Document,
-    DocumentVersion,
-    Proposal,
+    Capability,
+    CapabilityVersion,
+    utcnow,
 )
+from speclock.permissions import require_permission
 from speclock.schemas import (
     AckRequest,
     BlockOut,
-    DocumentIndexEntry,
-    DocumentOut,
+    CapabilityIndexEntry,
+    CapabilityOut,
     IndexBlock,
-    IndexDocument,
-    IndexDomain,
-    ProposalCreate,
-    ProposalOut,
+    IndexCapability,
+    IndexBusiness,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
@@ -96,7 +92,7 @@ def download_client_package(filename: str):
 
 
 def _check_project_scope(key: ApiKey, project_id: int) -> None:
-    """项目隔离：绑定了项目的 agent key 只能访问本项目的文档/模块。
+    """项目隔离：绑定了项目的 agent key 只能访问本项目的小业务/模块。
     跨项目访问一律 404（与不存在同样表现，不泄露其他项目的存在）。
     project_id 为 None 的 key 是全局 key，不做隔离。"""
     if key.project_id is not None and key.project_id != project_id:
@@ -104,7 +100,7 @@ def _check_project_scope(key: ApiKey, project_id: int) -> None:
 
 
 def _block_project_id(block: Block) -> int:
-    return block.document.domain.project_id
+    return block.capability.business.project_id
 
 
 def _published_snapshot(db: Session, block: Block, version: str | None) -> BlockVersion:
@@ -136,26 +132,35 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         version=bv.version,
         content_md=bv.content_md,
         rules=json.loads(bv.rules_json or "[]"),
+        acceptance=json.loads(bv.acceptance_json or "[]"),
         apis=json.loads(bv.apis_json or "[]"),
         openapi_yaml=bv.openapi_yaml,
-        nfr_md=bv.nfr_md,
         change_note=bv.change_note,
+        level=bv.level,
+        # 派生状态：不是最新未作废版本就是 deprecated（pin 旧版本的 agent 由此得知已过期）
+        status="current" if bv.version == block.current_published_version else "deprecated",
+        superseded_by=(
+            None if bv.version == block.current_published_version
+            else block.current_published_version
+        ),
         delta=json.loads(bv.delta_json),
         published_at=bv.published_at,
         completed=block.completed,
         completed_version=block.completed_version,
+        cr_id=bv.cr_id,
+        commit_id=bv.commit_id,
     )
 
 
-@router.get("/index", response_model=list[IndexDomain])
+@router.get("/index", response_model=list[IndexBusiness])
 def get_index(
-    domain: str | None = None,
+    business: str | None = None,
     incomplete: bool = False,
     db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_agent),
+    key: ApiKey = Depends(require_permission("spec.read")),
 ):
-    """三层嵌套索引：大业务 → 小业务（文档）→ 模块。一次调用拿全图后在树里选模块。
-    只含已发布模块；可选过滤：domain（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
+    """三层嵌套索引：大业务 → 小业务→ 模块。一次调用拿全图后在树里选模块。
+    只含已发布模块；可选过滤：business（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
     模块节点带 completed/completed_version——后端 AI 据此只做未完成的小业务。"""
     tree: dict[str, dict[int, dict]] = {}
     count = 0
@@ -163,14 +168,14 @@ def get_index(
         if block.current_published_version is None:
             # 全部版本已作废：按未发布处理，不出现在索引
             continue
-        doc = block.document
-        if key.project_id is not None and doc.domain.project_id != key.project_id:
+        doc = block.capability
+        if key.project_id is not None and doc.business.project_id != key.project_id:
             continue
-        if domain is not None and doc.domain.name != domain:
+        if business is not None and doc.business.name != business:
             continue
         if incomplete and block.completed:
             continue
-        docs = tree.setdefault(doc.domain.name, {})
+        docs = tree.setdefault(doc.business.name, {})
         slot = docs.setdefault(doc.id, {"doc": doc, "blocks": []})
         slot["blocks"].append(
             IndexBlock(
@@ -184,12 +189,13 @@ def get_index(
         )
         count += 1
     result = [
-        IndexDomain(
-            domain=dom_name,
-            documents=[
-                IndexDocument(
-                    document_id=doc_id,
+        IndexBusiness(
+            business=dom_name,
+            capabilities=[
+                IndexCapability(
+                    capability_id=doc_id,
                     title=slot["doc"].title,
+                    summary=slot["doc"].summary,
                     version=slot["doc"].current_version,
                     blocks=slot["blocks"],
                 )
@@ -199,13 +205,13 @@ def get_index(
         for dom_name, docs in tree.items()
     ]
     audit(db, key.hint, "pull", "index", {"entries": count,
-                                         "domain": domain, "incomplete": incomplete})
+                                         "business": business, "incomplete": incomplete})
     db.commit()
     return result
 
 
 @router.get("/blocks/{ref}", response_model=BlockOut)
-def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
+def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("spec.read"))):
     """Read a published module snapshot. ``ref`` is ``{id}`` or ``{id}@{x.y.z}`` (pin)."""
     m = REF_RE.match(ref)
     if not m:
@@ -265,10 +271,15 @@ def compute_block_diff(
     if new is None:
         raise HTTPException(status_code=404, detail=f"block {block.id} has no version {to}")
     d = diffing.delta(json.loads(old.apis_json or "[]"), json.loads(new.apis_json or "[]"))
-    # 规则清单 delta 一并带给 agent（按 rule name 匹配；不算破坏性）
+    # 规则 / 验收条件 delta 一并带给 agent（按稳定 id 匹配）
     d.update(
         diffing.rules_delta(
             json.loads(old.rules_json or "[]"), json.loads(new.rules_json or "[]")
+        )
+    )
+    d.update(
+        diffing.acceptance_delta(
+            json.loads(old.acceptance_json or "[]"), json.loads(new.acceptance_json or "[]")
         )
     )
     return {
@@ -282,7 +293,8 @@ def compute_block_diff(
             old.openapi_yaml, new.openapi_yaml, fromfile=from_, tofile=to
         ),
         "delta": d,
-        "breaking": diffing.is_breaking(d),
+        # 机械算出的版本级别标签，仅供参考（与 to 版本发布时记录的标签一致）
+        "level": diffing.bump_level(d),
     }
 
 
@@ -292,7 +304,7 @@ def get_diff(
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_reader),
+    key: ApiKey = Depends(require_permission("spec.read")),
 ):
     """版本间 diff。from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布
     版本时返回友好提示（200）而非报错。
@@ -316,10 +328,10 @@ def get_diff(
     return result
 
 
-# ---------- document-level reads (两级版本的文档侧) ----------
+# ---------- capability-level reads (两级版本的小业务侧) ----------
 
 
-def _document_out(db: Session, dv: DocumentVersion) -> DocumentOut:
+def _capability_out(db: Session, dv: CapabilityVersion) -> CapabilityOut:
     """manifest 快照 + 实时完成状态（完成标记是当前状态，不随历史版本冻结）。"""
     manifest = json.loads(dv.manifest_json)
     entries = []
@@ -334,71 +346,72 @@ def _document_out(db: Session, dv: DocumentVersion) -> DocumentOut:
                 "completed_version": block.completed_version if block else None,
             }
         )
-    return DocumentOut(
-        document_id=dv.document_id,
-        title=dv.document.title,
+    return CapabilityOut(
+        capability_id=dv.capability_id,
+        title=dv.capability.title,
+        summary=dv.capability.summary,
         version=dv.version,
         manifest=entries,
         published_at=dv.published_at,
     )
 
 
-@router.get("/documents", response_model=list[DocumentIndexEntry])
-def get_documents(
-    domain: str | None = None,
+@router.get("/capabilities", response_model=list[CapabilityIndexEntry])
+def get_capabilities(
+    business: str | None = None,
     db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_agent),
+    key: ApiKey = Depends(require_permission("spec.read")),
 ):
-    """文档列表 + 当前文档版本。没有任何已发布模块的文档对 agent 不可见。
-    可选过滤：domain（大业务名称精确匹配）。"""
+    """小业务列表 + 当前小业务版本。没有任何已发布模块的小业务对 agent 不可见。
+    可选过滤：business（大业务名称精确匹配）。"""
     out = []
-    for doc in db.query(Document).all():
+    for doc in db.query(Capability).all():
         if doc.current_version is None:
             continue
-        if key.project_id is not None and doc.domain.project_id != key.project_id:
+        if key.project_id is not None and doc.business.project_id != key.project_id:
             continue
-        if domain is not None and doc.domain.name != domain:
+        if business is not None and doc.business.name != business:
             continue
         out.append(
-            DocumentIndexEntry(
-                document_id=doc.id,
+            CapabilityIndexEntry(
+                capability_id=doc.id,
                 title=doc.title,
-                domain=doc.domain.name,
-                doc_type=doc.doc_type,
+                summary=doc.summary,
+                business=doc.business.name,
                 version=doc.current_version,
             )
         )
-    audit(db, key.hint, "pull", "documents", {"entries": len(out), "domain": domain})
+    audit(db, key.hint, "pull", "capabilities", {"entries": len(out), "business": business})
     db.commit()
     return out
 
 
-@router.get("/documents/{ref}", response_model=DocumentOut)
-def get_document(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)):
-    """文档 manifest：该文档全部模块当前已发布版本清单。支持 ``{id}@{x.y.z}`` pin。"""
+@router.get("/capabilities/{ref}", response_model=CapabilityOut)
+def get_capability(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("spec.read"))):
+    """小业务 manifest：该小业务全部模块当前已发布版本清单。支持 ``{id}@{x.y.z}`` pin。"""
     m = REF_RE.match(ref)
     if not m:
         raise HTTPException(
             status_code=400, detail="ref must be '{id}' or '{id}@{MAJOR.MINOR.PATCH}'"
         )
-    doc = db.get(Document, int(m.group("id")))
+    doc = db.get(Capability, int(m.group("id")))
     if doc is None or doc.current_version is None:
-        raise HTTPException(status_code=404, detail=f"document {ref} not found")
-    _check_project_scope(key, doc.domain.project_id)
+        raise HTTPException(status_code=404, detail=f"capability {ref} not found")
+    _check_project_scope(key, doc.business.project_id)
     target = m.group("version") or doc.current_version
     dv = (
-        db.query(DocumentVersion)
-        .filter(DocumentVersion.document_id == doc.id, DocumentVersion.version == target)
+        db.query(CapabilityVersion)
+        .filter(CapabilityVersion.capability_id == doc.id, CapabilityVersion.version == target)
         .first()
     )
     if dv is None:
-        raise HTTPException(status_code=404, detail=f"document {doc.id} has no version {target}")
-    audit(db, key.hint, "pull", f"document:{doc.id}@{dv.version}", {})
+        raise HTTPException(status_code=404, detail=f"capability {doc.id} has no version {target}")
+    audit(db, key.hint, "pull", f"capability:{doc.id}@{dv.version}", {})
     db.commit()
-    return _document_out(db, dv)
+    return _capability_out(db, dv)
 
 
-# ---------- ack & proposals (agent's only writes) ----------
+# ---------- ack（agent 唯一的写：实现回执，不改规格） ----------
 
 
 @router.post("/blocks/{block_id}/ack", status_code=201)
@@ -406,7 +419,7 @@ def ack_block(
     block_id: int,
     body: AckRequest,
     db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_agent),
+    key: ApiKey = Depends(require_permission("ack.write")),
 ):
     """Agent receipt: 'implemented against this exact published version'.
 
@@ -429,200 +442,3 @@ def ack_block(
     db.commit()
     return {"id": ack.id, "block_id": block_id, "version": body.version,
             "marked_completed": marked_completed}
-
-
-@router.post("/proposals", status_code=201)
-def submit_proposal(
-    body: ProposalCreate,
-    db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_agent),
-):
-    """The ONLY write outlet for agents. Proposals never touch the main store
-    until a human approves and publishes them via the admin API."""
-    block = db.get(Block, body.block_id)
-    if block is None or block.status != "published":
-        raise HTTPException(status_code=404, detail=f"block {body.block_id} not found")
-    _check_project_scope(key, _block_project_id(block))
-    if (
-        body.proposed_content_md is None
-        and body.proposed_api_ops is None
-        and body.proposed_rule_ops is None
-        and not body.note_only
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "提案不含任何内容载荷（proposed_content_md / "
-                "proposed_api_ops / proposed_rule_ops 全为空）：suggestion 只是给审批人看的说明，"
-                "不会被应用，发布后将是一个没有任何内容变化的空版本。"
-                "如确为纯说明提案，请显式传 note_only=true。"
-            ),
-        )
-    proposed_api_ops_json = None
-    if body.proposed_api_ops is not None:
-        normalized_ops = []
-        for op in body.proposed_api_ops:
-            try:
-                method, path = diffing.parse_api_name(op.api)
-                entry = None
-                if op.entry is not None:
-                    entry = diffing.validate_apis([op.entry.model_dump()])[0]
-            except diffing.ApisValidationError as exc:
-                raise HTTPException(status_code=422, detail=f"API 变更不合法: {exc}") from exc
-            normalized_ops.append(
-                {"op": op.op, "api": f"{method} {path}", "entry": entry}
-            )
-        proposed_api_ops_json = json.dumps(normalized_ops, ensure_ascii=False)
-    proposed_rule_ops_json = None
-    if body.proposed_rule_ops is not None:
-        normalized_rule_ops = []
-        for op in body.proposed_rule_ops:
-            entry = None
-            if op.entry is not None:
-                try:
-                    entry = diffing.validate_rules([op.entry.model_dump()])[0]
-                except diffing.ApisValidationError as exc:
-                    raise HTTPException(
-                        status_code=422, detail=f"规则变更不合法: {exc}"
-                    ) from exc
-            normalized_rule_ops.append(
-                {"op": op.op, "name": op.name.strip(), "entry": entry}
-            )
-        proposed_rule_ops_json = json.dumps(normalized_rule_ops, ensure_ascii=False)
-    p = Proposal(
-        block_id=body.block_id,
-        author_type="agent",
-        description=body.description,
-        suggestion=body.suggestion,
-        scenario=body.scenario,
-        proposed_content_md=body.proposed_content_md,
-        proposed_api_ops_json=proposed_api_ops_json,
-        proposed_rule_ops_json=proposed_rule_ops_json,
-        base_version=block.current_published_version,
-        note_only=body.note_only,
-    )
-    db.add(p)
-    db.flush()
-    audit(
-        db,
-        key.hint,
-        "proposal_submit",
-        f"proposal:{p.id}",
-        {"block_id": body.block_id, "description": body.description},
-    )
-    db.commit()
-    return {"id": p.id, "status": p.status}
-
-
-@router.get("/proposals/{proposal_id}", response_model=ProposalOut)
-def get_proposal(
-    proposal_id: int, db: Session = Depends(get_db), key: ApiKey = Depends(require_agent)
-):
-    """Polling endpoint for agents awaiting a decision."""
-    p = db.get(Proposal, proposal_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="proposal not found")
-    block = db.get(Block, p.block_id)
-    if block is not None:
-        _check_project_scope(key, _block_project_id(block))
-    return ProposalOut(
-        id=p.id,
-        block_id=p.block_id,
-        author_type=p.author_type,
-        description=p.description,
-        suggestion=p.suggestion,
-        scenario=p.scenario,
-        proposed_content_md=p.proposed_content_md,
-        proposed_api_ops=json.loads(p.proposed_api_ops_json)
-        if p.proposed_api_ops_json
-        else None,
-        proposed_rule_ops=json.loads(p.proposed_rule_ops_json)
-        if p.proposed_rule_ops_json
-        else None,
-        base_version=p.base_version,
-        note_only=p.note_only,
-        status=p.status,
-        resolution_note=p.resolution_note,
-        published_version=p.published_version,
-        created_at=p.created_at,
-        resolved_at=p.resolved_at,
-    )
-
-
-def _proposal_base_snapshot(db: Session, p: Proposal, block: Block | None):
-    """提案 diff 的参照快照：优先提案记录的 base_version（未作废），取不到
-    （已作废/不存在）回退模块当前已发布版本。刻意不回退草稿——本端点
-    agent 可读，草稿内容永不外泄。返回 (BlockVersion | None, fallback_used)。"""
-    candidates = [p.base_version]
-    if block is not None and block.current_published_version != p.base_version:
-        candidates.append(block.current_published_version)
-    for i, version in enumerate(candidates):
-        if not version:
-            continue
-        bv = (
-            db.query(BlockVersion)
-            .filter(
-                BlockVersion.block_id == p.block_id,
-                BlockVersion.version == version,
-                BlockVersion.voided_at.is_(None),
-            )
-            .first()
-        )
-        if bv is not None:
-            return bv, i > 0
-    return None, False
-
-
-@router.get("/proposals/{proposal_id}/diff")
-def get_proposal_diff(
-    proposal_id: int, db: Session = Depends(get_db), key: ApiKey = Depends(require_reader)
-):
-    """提案相对 base 版本的完整对照：正文文本 diff + API 逐条变更（含字段级
-    差异）+ 规则逐条变更（modified 附 detail 文本 diff）。
-
-    human / agent key 均可用（人机共用）：agent 受项目隔离约束（与
-    get_proposal 一致）；参照系只取已发布版本快照，绝不回退草稿。"""
-    p = db.get(Proposal, proposal_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="proposal not found")
-    block = db.get(Block, p.block_id)
-    if key.prefix == "agent" and block is not None:
-        _check_project_scope(key, _block_project_id(block))
-
-    base_bv, fallback = _proposal_base_snapshot(db, p, block)
-    if base_bv is not None:
-        base_content = base_bv.content_md
-        base_apis = json.loads(base_bv.apis_json or "[]")
-        base_rules = json.loads(base_bv.rules_json or "[]")
-        base_version = base_bv.version
-    else:  # base 与当前版本快照均不可用：按空基线计算
-        base_content, base_apis, base_rules, base_version = "", [], [], None
-
-    content_diff = None
-    if p.proposed_content_md is not None:
-        content_diff = diffing.text_diff(
-            base_content,
-            p.proposed_content_md,
-            fromfile=f"v{base_version}" if base_version else "base",
-            tofile="proposal",
-        )
-
-    api_changes = None
-    if p.proposed_api_ops_json is not None:
-        ops = json.loads(p.proposed_api_ops_json)
-        api_changes = [_enrich_op(base_apis, op) for op in ops]
-
-    rule_changes = None
-    if p.proposed_rule_ops_json is not None:
-        rule_ops = json.loads(p.proposed_rule_ops_json)
-        rule_changes = [_enrich_rule_op(base_rules, op) for op in rule_ops]
-
-    return {
-        "proposal_id": p.id,
-        "block_id": p.block_id,
-        "base_version": base_version,
-        "base_is_recorded": base_version == p.base_version and not fallback,
-        "content_diff": content_diff,
-        "api_changes": api_changes,
-        "rule_changes": rule_changes,
-    }

@@ -28,59 +28,23 @@ class ApiEntry(BaseModel):
     response: list[ApiField] = []
 
 
-class RuleEntry(BaseModel):
-    """结构化业务规则：规则名 + 规则详述。"""
+class ItemEntry(BaseModel):
+    """带稳定 id 的条目（业务规则 / 验收条件同构）：名称 + 详述。
+    id 形如 R-1 / AC-1，创建时缺省由服务端分配，之后不变、编号不复用。"""
 
+    id: str | None = None
     name: str
     detail: str
 
 
-# ---------- admin (human) requests ----------
+RuleEntry = ItemEntry
+AcceptanceEntry = ItemEntry
 
 
-class BlockCreate(BaseModel):
-    document_id: int
-    title: str
-    summary: str = ""
-    content_md: str = ""
-    rules: list[RuleEntry] = []
-    apis: list[ApiEntry] = []
-    nfr_md: str = ""
-
-
-class BlockUpdate(BaseModel):
-    title: str | None = None
-    summary: str | None = None
-    content_md: str | None = None
-    rules: list[RuleEntry] | None = None
-    apis: list[ApiEntry] | None = None
-    nfr_md: str | None = None
-
-
-class PublishRequest(BaseModel):
-    change_note: str = ""
-    fastTrack: bool = False
-    confirm: bool = False  # required when the diff is breaking
-    dryRun: bool = False  # 预览：返回将发布的版本/delta/破坏性，不落库
-
-
-class ResolveRequest(BaseModel):
-    action: str = Field(pattern="^(approve|reject)$")
-    resolution_note: str = ""
+# ---------- 管理：项目 / 密钥 / 角色 ----------
 
 
 class RenameRequest(BaseModel):
-    name: str
-
-
-class DocumentCreate(BaseModel):
-    domain_id: int
-    title: str
-    doc_type: str = "business"
-
-
-class DomainCreate(BaseModel):
-    project_id: int
     name: str
 
 
@@ -88,80 +52,71 @@ class ProjectCreate(BaseModel):
     name: str
 
 
-# ---------- 会议记录 ----------
-
-
-class MeetingSeriesCreate(BaseModel):
-    project_id: int
-    name: str
-
-
-class MeetingCreate(BaseModel):
-    series_id: int
-    name: str
-    dir_name: str = ""  # 原始目录名；带 YYMMDD- 前缀时自动解析出会议日期
-    date: str | None = None  # 显式指定（YYYY-MM-DD）优先于目录名解析
-
-
-class FileRename(BaseModel):
-    filename: str
-
-
-class MeetingUpdate(BaseModel):
-    name: str | None = None
-    date: str | None = None  # YYYY-MM-DD；显式传 null 清空日期
-    dir_name: str | None = None
-
-
-class ShareKindsUpdate(BaseModel):
-    kinds: list[str]
-
-
-class MeetingChunkIn(BaseModel):
-    """切块编辑提交的一个块：条目块带 ref_id（新增可空，服务端分配），
-    prose 块 fields 里只需 raw 原文。"""
-
-    ref_id: str | None = None
-    chunk_type: str  # req|fact|con|act|q|prose
-    section: str = ""
-    fields: dict = {}
-
-
-class ChunkUpdate(BaseModel):
-    chunks: list[MeetingChunkIn]
-    change_note: str = ""
-
-
-class SeriesItemIn(MeetingChunkIn):
-    """汇总文档条目提交：origin_* 仅用于展示回显，服务端以库内值为准
-    （新条目 origin 全空 = 业务级增加）。"""
-
-    origin_chunk_id: int | None = None
-    origin_meeting_id: int | None = None
-    origin_ref_id: str | None = None
-    origin_meeting_name: str = ""
-
-
-class SeriesItemsUpdate(BaseModel):
-    items: list[SeriesItemIn]
-    change_note: str = ""
-
-
-class ContentUpdate(BaseModel):
-    content: str
-    bump: str = Field(default="patch", pattern="^(major|minor|patch)$")
-    change_note: str = ""
-
-
 class KeyCreate(BaseModel):
-    prefix: str = Field(pattern="^(human|agent)$")
+    role: str  # 角色名（见 GET /roles）；key 的类别（human / agent）由角色的 kind 决定
     label: str = ""
-    # 项目隔离：绑定项目后 agent key 只能读该项目文档；None = 全局可见。
-    # 仅对 agent key 生效（human key 是管理端，始终全局）。
+    # 项目隔离：绑定项目后该 key 只能访问该项目的内容；None = 全局。
     project_id: int | None = None
 
 
-# ---------- agent requests ----------
+class RoleCreate(BaseModel):
+    name: str
+    kind: str = Field(pattern="^(human|agent)$")
+    description: str = ""
+    permissions: list[str] = []
+
+
+class RoleUpdate(BaseModel):
+    description: str | None = None
+    permissions: list[str] | None = None
+
+
+# ---------- 审核单（Change Request）与 Commit ----------
+
+
+class CRCreate(BaseModel):
+    """新建审核单（草稿，可以先不完整；提交时才校验完备性）。"""
+
+    project_id: int | None = None  # 项目绑定的 key 可省略
+    title: str
+    intent: str = ""  # 为什么变
+    expected_outcome: str = ""  # 变成什么样
+    obsolete: list[str] = []  # 哪些旧认知不再成立
+    acceptance: list[ItemEntry] = []  # 验收条件（id 形如 AC-n，缺省由服务端分配）
+    impact_note: str = ""  # 影响说明（需求 Agent 写给人看）
+    supersedes_id: int | None = None  # 取代一个已批准但未完成的审核单
+
+
+class CRUpdate(BaseModel):
+    """编辑草稿审核单：只传要改的字段；acceptance 是整体替换（带 id 的条目保留 id）。"""
+
+    title: str | None = None
+    intent: str | None = None
+    expected_outcome: str | None = None
+    obsolete: list[str] | None = None
+    acceptance: list[ItemEntry] | None = None
+    impact_note: str | None = None
+    supersedes_id: int | None = None
+
+
+class CRApprove(BaseModel):
+    content_hash: str  # 批准的就是人看到的那一版：必须与审核单当前内容哈希一致
+    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    evidence: str = ""  # via=natural_language 时必填：人的原话
+    note: str = ""
+
+
+class CRReject(BaseModel):
+    reason: str  # 驳回理由（必填）：需求 Agent 据此另开新审核单
+    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    evidence: str = ""
+
+
+class CommitCreate(BaseModel):
+    ops: list[dict]  # 见 commits.py 顶部的 op 清单
+    covers: list[str] = []  # 本 Commit 满足审核单的哪些验收条件（AC-n）
+    change_note: str = ""
+    dryRun: bool = False  # 预览：完整执行后回滚，返回会得到的版本 / 级别标签 / delta
 
 
 class AckRequest(BaseModel):
@@ -170,54 +125,26 @@ class AckRequest(BaseModel):
 
 
 class ApiOp(BaseModel):
-    """delta 提案的一条变更：按 api 字段（方法 + 路径）定位目标条目。"""
+    """api_ops 的一条变更：按 api 字段（方法 + 路径）定位目标条目。"""
 
     op: str = Field(pattern="^(upsert|delete)$")
     api: str  # 定位键，如 "GET /api/daily-report"
     entry: ApiEntry | None = None  # upsert 必填，delete 必须为 null
 
 
-class RuleOp(BaseModel):
-    """rules delta 提案的一条变更：按规则名定位目标条目。"""
+class ItemOp(BaseModel):
+    """rule_ops / acceptance_ops 的一条变更：按稳定 id 定位目标条目。
+    - upsert + id：修改该条（id 不存在 → 409）；
+    - upsert 不带 id：新增一条（id 由服务端分配）；
+    - delete + id：删除该条。"""
 
     op: str = Field(pattern="^(upsert|delete)$")
-    name: str  # 定位键：规则名
-    entry: RuleEntry | None = None  # upsert 必填，delete 必须为 null
+    id: str | None = None
+    entry: ItemEntry | None = None  # upsert 必填，delete 必须为 null
 
 
-class ProposalCreate(BaseModel):
-    block_id: int
-    description: str
-    suggestion: str
-    scenario: str = ""
-    proposed_content_md: str | None = None
-    proposed_api_ops: list[ApiOp] | None = None
-    proposed_rule_ops: list[RuleOp] | None = None
-    note_only: bool = False  # 纯说明提案：无载荷时须显式置 true，否则 422
-
-    @model_validator(mode="after")
-    def _check_api_payload(self):
-        for op in self.proposed_api_ops or []:
-            if op.op == "upsert":
-                if op.entry is None:
-                    raise ValueError(f"upsert 必须携带 entry（api={op.api}）")
-                if op.entry.api != op.api:
-                    raise ValueError(
-                        f"upsert 的 entry.api（{op.entry.api}）必须与顶层 api（{op.api}）一致"
-                    )
-            elif op.entry is not None:
-                raise ValueError(f"delete 不能携带 entry（api={op.api}）")
-        for op in self.proposed_rule_ops or []:
-            if op.op == "upsert":
-                if op.entry is None:
-                    raise ValueError(f"upsert 必须携带 entry（规则名={op.name}）")
-                if op.entry.name != op.name:
-                    raise ValueError(
-                        f"upsert 的 entry.name（{op.entry.name}）必须与顶层 name（{op.name}）一致"
-                    )
-            elif op.entry is not None:
-                raise ValueError(f"delete 不能携带 entry（规则名={op.name}）")
-        return self
+RuleOp = ItemOp
+AcceptanceOp = ItemOp
 
 
 # ---------- responses ----------
@@ -232,26 +159,32 @@ class IndexBlock(BaseModel):
     completed_version: str | None  # 上次完成对应的版本号
 
 
-class IndexDocument(BaseModel):
-    document_id: int
+class IndexCapability(BaseModel):
+    capability_id: int
     title: str
-    version: str | None  # 当前文档版本
+    summary: str = ""
+    version: str | None  # 当前小业务版本
     blocks: list[IndexBlock]
 
 
-class IndexDomain(BaseModel):
-    domain: str
-    documents: list[IndexDocument]
+class IndexBusiness(BaseModel):
+    business: str
+    capabilities: list[IndexCapability]
 
 
 class Delta(BaseModel):
     added: list[str] = []
     modified: list[str] = []
     removed: list[str] = []
-    # 规则清单 delta（按 rule name 匹配；rules 变化不算破坏性）
+    # 规则 / 验收条件 delta（按稳定 id 匹配；modified = 详述变了，renamed = 只改了名称）
     rules_added: list[str] = []
     rules_removed: list[str] = []
     rules_modified: list[str] = []
+    rules_renamed: list[str] = []
+    acceptance_added: list[str] = []
+    acceptance_removed: list[str] = []
+    acceptance_modified: list[str] = []
+    acceptance_renamed: list[str] = []
 
 
 class BlockOut(BaseModel):
@@ -259,58 +192,47 @@ class BlockOut(BaseModel):
     title: str
     version: str
     content_md: str
-    rules: list[dict]  # 结构化业务规则清单 [{name, detail}]
+    rules: list[dict]  # 结构化业务规则清单 [{id, name, detail}]
+    acceptance: list[dict]  # 结构化验收条件清单 [{id, name, detail}]
     apis: list[dict]  # 结构化 API 列表（真相源，条目带 desc 端点语义）
     openapi_yaml: str  # 发布时生成的 OpenAPI 3.x（机器消费）
-    nfr_md: str
     change_note: str
+    # 机械算出的版本级别标签（initial|major|minor|patch），仅供参考
+    level: str = ""
+    # 派生状态：current = 最新未作废版本；deprecated = 已被更新版本取代
+    status: str = "current"
+    superseded_by: str | None = None
     delta: Delta
     published_at: datetime | None
     completed: bool
     completed_version: str | None
+    # 溯源：产生这个版本的审核单与 Commit（灌入的示例数据为空）
+    cr_id: int | None = None
+    commit_id: int | None = None
 
 
 class PublishResult(BaseModel):
     block_id: int
     version: str
-    document_id: int
-    document_version: str  # 本次发布派生的文档版本（dryRun 时为预测值）
+    capability_id: int
+    capability_version: str  # 本次发布派生的小业务版本（dryRun 时为预测值；Commit 内为空，由 Commit 统一派生）
     delta: Delta
-    breaking: bool
-    affected: list[str] = []
-    groups: list[dict] = []  # 按 API 分组的结构化 delta（确认视图用）
+    level: str = ""  # 机械算出的版本级别标签（initial|major|minor|patch）
+    groups: list[dict] = []  # 按 API 分组的结构化 delta（预览 / diff 页用）
 
 
-class DocumentIndexEntry(BaseModel):
-    document_id: int
+class CapabilityIndexEntry(BaseModel):
+    capability_id: int
     title: str
-    domain: str
-    doc_type: str
-    version: str  # 当前文档版本
+    summary: str = ""
+    business: str
+    version: str  # 当前小业务版本
 
 
-class DocumentOut(BaseModel):
-    document_id: int
+class CapabilityOut(BaseModel):
+    capability_id: int
     title: str
+    summary: str = ""
     version: str
     manifest: list[dict]  # [{block_id, title, version}]
     published_at: datetime | None
-
-
-class ProposalOut(BaseModel):
-    id: int
-    block_id: int
-    author_type: str
-    description: str
-    suggestion: str
-    scenario: str
-    proposed_content_md: str | None
-    proposed_api_ops: list[dict] | None
-    proposed_rule_ops: list[dict] | None
-    base_version: str | None  # 提交时模块的已发布版本号（delta 提案的合并基底）
-    note_only: bool
-    status: str
-    resolution_note: str
-    published_version: str | None
-    created_at: datetime
-    resolved_at: datetime | None

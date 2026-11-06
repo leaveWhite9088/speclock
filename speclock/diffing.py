@@ -15,12 +15,12 @@ The source of truth for a module's API section is a structured list
 
 - ``children`` is only allowed under ``object`` / ``array`` types (for array it
   describes the element structure). Nesting depth is not artificially limited.
-- ``flatten_apis`` / ``delta`` / ``is_breaking``: recursive field-level diff —
+- ``flatten_apis`` / ``delta`` / ``has_api_removal_or_change``: recursive field-level diff —
   paths are dotted (e.g. ``response:GET /x:data.items.id: number``); added /
-  removed / type-changed nested fields are detected; removed fields and type
-  changes are breaking.
+  removed / type-changed nested fields are detected; any removal and any
+  type / required-flag change counts as a MAJOR-level change.
 - ``apis_to_openapi``: recursively generates nested OpenAPI 3.x schemas.
-- Versioning helpers: module semver + derived document semver.
+- Versioning helpers: module semver + derived capability semver.
 """
 
 from __future__ import annotations
@@ -128,39 +128,129 @@ def validate_apis(apis: object, require_desc: bool = True) -> list[dict]:
     return normalized
 
 
-def validate_rules(rules: object) -> list[dict]:
-    """Validate and normalize a structured rule list. Returns normalized list."""
-    if rules is None:
+ITEM_KINDS = {
+    # kind -> (id 前缀, 中文名)
+    "rules": ("R", "规则"),
+    "acceptance": ("AC", "验收条件"),
+}
+
+
+def _item_id_no(item_id: str, prefix: str) -> int | None:
+    """'R-12' -> 12；格式不符返回 None。"""
+    head, _, tail = str(item_id or "").partition("-")
+    if head != prefix or not tail.isdigit():
+        return None
+    return int(tail)
+
+
+def validate_items(items: object, kind: str) -> list[dict]:
+    """校验并规范化带稳定 ID 的条目清单（规则 / 验收条件同构）：
+    [{id, name, detail}]。id 可缺省（由服务端分配），给了就必须形如 R-1 / AC-1
+    且在清单内唯一。"""
+    prefix, label = ITEM_KINDS[kind]
+    if items is None:
         return []
-    if not isinstance(rules, list):
-        raise ApisValidationError("业务规则清单必须是数组")
+    if not isinstance(items, list):
+        raise ApisValidationError(f"{label}清单必须是数组")
     normalized = []
-    for i, entry in enumerate(rules):
-        where = f"第 {i + 1} 条规则"
+    seen: set[str] = set()
+    for i, entry in enumerate(items):
+        where = f"第 {i + 1} 条{label}"
         if not isinstance(entry, dict):
             raise ApisValidationError(f"{where} 必须是对象")
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():
-            raise ApisValidationError(f"{where} 缺少规则名 name")
+            raise ApisValidationError(f"{where} 缺少名称 name")
         detail = entry.get("detail")
         if not isinstance(detail, str) or not detail.strip():
-            raise ApisValidationError(f"{where}（{name.strip()}）缺少规则详述 detail")
-        normalized.append({"name": name.strip(), "detail": detail.strip()})
+            raise ApisValidationError(f"{where}（{name.strip()}）缺少详述 detail")
+        item_id = str(entry.get("id") or "").strip()
+        if item_id:
+            if _item_id_no(item_id, prefix) is None:
+                raise ApisValidationError(
+                    f"{where}（{name.strip()}）的 id {item_id!r} 不合法，应形如 {prefix}-1"
+                )
+            if item_id in seen:
+                raise ApisValidationError(f"{label} id {item_id} 重复")
+            seen.add(item_id)
+        normalized.append({"id": item_id, "name": name.strip(), "detail": detail.strip()})
     return normalized
 
 
-def rules_delta(old_rules: list, new_rules: list) -> dict[str, list[str]]:
-    """规则清单 delta：按 rule name 匹配，detail 变了算 modified。
-    rules 变化不算破坏性（is_breaking 只看 apis 侧的 added/modified/removed）。"""
-    old = {r["name"]: r.get("detail", "") for r in validate_rules(old_rules)}
-    new = {r["name"]: r.get("detail", "") for r in validate_rules(new_rules)}
+def validate_rules(rules: object) -> list[dict]:
+    """Validate and normalize a structured rule list. Returns normalized list."""
+    return validate_items(rules, "rules")
+
+
+def validate_acceptance(items: object) -> list[dict]:
+    """Validate and normalize a structured acceptance-criteria list."""
+    return validate_items(items, "acceptance")
+
+
+def taken_item_numbers(kind: str, *lists: list) -> set[int]:
+    """从若干条目清单里收集已用过的编号（草稿 + 全部历史快照），分配新 id 时
+    取其最大值 + 1，保证编号不复用（即使旧条目已被删除）。"""
+    prefix, _ = ITEM_KINDS[kind]
+    nums: set[int] = set()
+    for items in lists:
+        for entry in items or []:
+            n = _item_id_no(entry.get("id", ""), prefix) if isinstance(entry, dict) else None
+            if n is not None:
+                nums.add(n)
+    return nums
+
+
+def assign_item_ids(items: list[dict], kind: str, taken: set[int] | None = None) -> list[dict]:
+    """给缺 id 的条目按出现顺序分配新 id（R-n / AC-n），返回新列表。
+    taken 是已用编号集合（含历史快照），新编号从其最大值 + 1 起。"""
+    prefix, _ = ITEM_KINDS[kind]
+    used = set(taken or set()) | taken_item_numbers(kind, items)
+    nxt = max(used, default=0) + 1
+    out = []
+    for entry in items:
+        entry = dict(entry)
+        if not entry.get("id"):
+            entry["id"] = f"{prefix}-{nxt}"
+            nxt += 1
+        out.append(entry)
+    return out
+
+
+def items_delta(old_items: list, new_items: list, kind: str) -> dict[str, list[str]]:
+    """条目清单 delta：按 id 匹配（老快照无 id 时退回按名称）。
+    - modified：详述（detail）变了；
+    - renamed：只有名称变了、详述没变（名称只是标签，不算业务变更）；
+    条目形如 'R-1 销售额口径'。键：{kind}_added / _removed / _modified / _renamed。"""
+    def key(e: dict) -> str:
+        return e.get("id") or e["name"]
+
+    old = {key(e): e for e in validate_items(old_items, kind)}
+    new = {key(e): e for e in validate_items(new_items, kind)}
+
+    def label(e: dict) -> str:
+        return f"{e['id']} {e['name']}" if e.get("id") else e["name"]
+
+    modified, renamed = [], []
+    for k in old.keys() & new.keys():
+        o, n = old[k], new[k]
+        if o["detail"] != n["detail"]:
+            modified.append(label(n))
+        elif o["name"] != n["name"]:
+            renamed.append(label(n))
     return {
-        "rules_added": sorted(new.keys() - old.keys()),
-        "rules_removed": sorted(old.keys() - new.keys()),
-        "rules_modified": sorted(
-            name for name in old.keys() & new.keys() if old[name] != new[name]
-        ),
+        f"{kind}_added": sorted(label(new[k]) for k in new.keys() - old.keys()),
+        f"{kind}_removed": sorted(label(old[k]) for k in old.keys() - new.keys()),
+        f"{kind}_modified": sorted(modified),
+        f"{kind}_renamed": sorted(renamed),
     }
+
+
+def rules_delta(old_rules: list, new_rules: list) -> dict[str, list[str]]:
+    return items_delta(old_rules, new_rules, "rules")
+
+
+def acceptance_delta(old_items: list, new_items: list) -> dict[str, list[str]]:
+    return items_delta(old_items, new_items, "acceptance")
 
 
 def _flatten_fields(flat: dict[str, str], key: str, prefix: str, fields: list[dict]) -> None:
@@ -218,20 +308,10 @@ def changed_api_keys(old_apis: list, new_apis: list) -> set[str]:
     return out
 
 
-def is_breaking(d: dict[str, list[str]]) -> bool:
-    """破坏性判定：
-    - 删除整个 API、删除必填字段、任何类型/必填标志变更（modified）→ 破坏性；
-    - 删除可选字段（required=false）→ 非破坏性（客户端本就不依赖它），
-      这是演练确认的细化规则：仅删可选字段可走 fastTrack。
-    """
-    if d["modified"]:
-        return True
-    for entry in d["removed"]:
-        if entry.startswith("api:"):
-            return True
-        if entry.rstrip().endswith("required"):
-            return True
-    return False
+def has_api_removal_or_change(d: dict[str, list[str]]) -> bool:
+    """API 侧是否有删除（整个 API / 任何字段，含可选字段）或修改（类型 / 必填
+    标志变更）。只有新增不算。仅用于版本级别标签，不再有任何发布闸门。"""
+    return bool(d.get("modified") or d.get("removed"))
 
 
 def _field_to_schema(f: dict) -> dict:
@@ -411,10 +491,27 @@ def semver_key(v: str) -> tuple[int, int, int]:
 
 
 def bump_level(d: dict[str, list[str]]) -> str:
-    """major | minor | patch for a non-first publish."""
-    if is_breaking(d):
+    """版本级别标签（major | minor | patch），完全由结构化 diff 机械算出，
+    不依赖任何人或 Agent 的判断。它是给外部 Agent 的参考，Core 不规定它们
+    据此该做什么：
+
+    - MAJOR：有任何删除或修改——API（删 API / 字段、类型或必填标志变更）、
+      规则、验收条件；
+    - MINOR：只有新增（API、字段、规则、验收条件）；
+    - PATCH：其余（只改背景、API 的文字说明、条目仅改名等）。
+
+    规则与验收条件是自然语言，机器分不清「改措辞」与「改语义」，因此按保守
+    一侧归类：标得偏重只是让下游多核对一次，标得偏轻却可能掩盖不兼容变更。
+    条目只改名称（详述不变）算 renamed，不影响级别。
+    """
+    def has(*keys: str) -> bool:
+        return any(d.get(k) for k in keys)
+
+    if has_api_removal_or_change(d) or has(
+        "rules_removed", "rules_modified", "acceptance_removed", "acceptance_modified",
+    ):
         return "major"
-    if d["added"]:
+    if has("added", "rules_added", "acceptance_added"):
         return "minor"
     return "patch"
 
@@ -429,7 +526,7 @@ def bump_version(current: str, level: str) -> str:
 
 
 def next_module_version(current: str | None, d: dict[str, list[str]]) -> tuple[str, str]:
-    """First publish is 1.0.0 (level 'initial'); then breaking -> MAJOR,
+    """First publish is 1.0.0 (level 'initial'); then any removal/modification -> MAJOR,
     additions -> MINOR, anything else -> PATCH. Returns (version, level)."""
     if current is None:
         return INITIAL_VERSION, "initial"
@@ -437,9 +534,9 @@ def next_module_version(current: str | None, d: dict[str, list[str]]) -> tuple[s
     return bump_version(current, level), level
 
 
-def derive_document_version(current: str | None, module_level: str) -> str:
-    """文档版本是模块发布的派生物：任一模块 MAJOR -> 文档 MAJOR；否则任一
-    模块 MINOR（含模块首次发布）-> 文档 MINOR；否则 PATCH。首个文档版本 1.0.0。"""
+def derive_capability_version(current: str | None, module_level: str) -> str:
+    """小业务版本是模块发布的派生物：任一模块 MAJOR -> 文档 MAJOR；否则任一
+    模块 MINOR（含模块首次发布）-> 文档 MINOR；否则 PATCH。首个小业务版本 1.0.0。"""
     if current is None:
         return INITIAL_VERSION
     level = "minor" if module_level == "initial" else module_level

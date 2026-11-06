@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speclock"
-version = "0.3.7"
+version = "0.5.0"
 description = "SpecLock — single source of truth for business docs, read-only to coding agents"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,6 +25,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 speclock-seed = "speclock.seed:main"
 speclock-mcp = "speclock.mcp_server:main"
+speclock-cli = "speclock.cli:main"
 speclock-server = "speclock.main:run"
 
 [tool.setuptools.packages.find]

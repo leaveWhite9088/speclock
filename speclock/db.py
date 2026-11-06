@@ -39,8 +39,8 @@ def configure(url: str) -> None:
 
 
 def _ensure_columns() -> None:
-    """SQLite 增量迁移（幂等）：老库缺列时 ALTER TABLE ADD COLUMN；
-    已废弃的 edge_md 列存在时 DROP COLUMN（SQLite ≥ 3.35）。
+    """SQLite 增量迁移（幂等）：老库缺列时 ALTER TABLE ADD COLUMN；已废弃的列
+    DROP COLUMN（SQLite ≥ 3.35）。
 
     create_all 对已有表不会补列/删列，这里用 PRAGMA table_info 检测后处理；
     列定义必须与 models.py 的默认值保持一致。
@@ -50,25 +50,31 @@ def _ensure_columns() -> None:
     wanted = {
         "blocks": {
             "draft_rules_json": "TEXT NOT NULL DEFAULT '[]'",
+            "draft_acceptance_json": "TEXT NOT NULL DEFAULT '[]'",
+        },
+        "capabilities": {
+            "summary": "TEXT NOT NULL DEFAULT ''",
         },
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
             "voided_at": "DATETIME",
-            "applied_ops_json": "TEXT NOT NULL DEFAULT '{}'",
+            "acceptance_json": "TEXT NOT NULL DEFAULT '[]'",
+            "level": "TEXT NOT NULL DEFAULT ''",
+            "cr_id": "INTEGER REFERENCES change_requests(id)",
+            "commit_id": "INTEGER REFERENCES commits(id)",
         },
-        "meeting_series": {
-            "share_token": "TEXT",
+        "capability_versions": {
+            "cr_id": "INTEGER REFERENCES change_requests(id)",
+            "commit_id": "INTEGER REFERENCES commits(id)",
         },
-        "proposals": {
-            "proposed_api_ops_json": "TEXT",
-            "proposed_rule_ops_json": "TEXT",
-            "base_version": "TEXT",
-            "note_only": "INTEGER NOT NULL DEFAULT 0",
+        "api_keys": {
+            "role_id": "INTEGER REFERENCES roles(id)",
         },
     }
     dropped = {
-        "blocks": ["draft_edge_md"],
-        "block_versions": ["edge_md"],
+        "capabilities": ["doc_type"],
+        "blocks": ["draft_edge_md", "draft_nfr_md"],
+        "block_versions": ["edge_md", "nfr_md", "applied_ops_json"],
     }
     engine = get_engine()
     with engine.begin() as conn:
@@ -82,77 +88,57 @@ def _ensure_columns() -> None:
             for col in dropped.get(table, []):
                 if col in existing:
                     conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {col}"))
-        # proposals.proposed_apis_json（legacy 全量替换通道）已废弃：列内还有
-        # 未迁移数据时拒绝 DROP 并告警——先跑 scripts/migrate_legacy_proposals.py。
-        legacy_col = "proposed_apis_json"
-        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(proposals)"))}
-        if legacy_col in existing:
-            remaining = conn.execute(
-                text(f"SELECT count(*) FROM proposals WHERE {legacy_col} IS NOT NULL")
-            ).scalar()
-            if remaining:
-                print(
-                    f"WARNING: proposals.{legacy_col} 仍有 {remaining} 行未迁移数据，"
-                    f"跳过 DROP COLUMN；请先运行 scripts/migrate_legacy_proposals.py"
-                )
-            else:
-                conn.execute(text(f"ALTER TABLE proposals DROP COLUMN {legacy_col}"))
 
 
-def _backfill_draft_api_desc() -> None:
-    """存量数据迁移（幂等）：草稿里缺 desc 的 API 回填 desc = name，
-    保证旧模块下次发布不会被 desc 校验卡死。rules_json 刻意不回填
-    （保持 []），作者下次发布时会被 422 引导补规则——这是设计意图。"""
-    import json
+def _rename_legacy_tables() -> None:
+    """存量迁移（幂等）：Domain/Document 改名为 Business/Capability。
 
-    from speclock.models import Block
+    表 domains→businesses、documents→capabilities、document_versions→
+    capability_versions，外键列 domain_id→business_id、document_id→
+    capability_id。必须在 create_all 之前执行，否则会建出空的新表。
+    RENAME 不动数据，SQLite 会同步改写其他表里指向它们的外键。
+    """
+    from sqlalchemy import text
 
-    db = SessionLocal()
-    try:
-        dirty = False
-        for block in db.query(Block).all():
-            apis = json.loads(block.draft_apis_json or "[]")
-            touched = False
-            for entry in apis:
-                if isinstance(entry, dict) and not str(entry.get("desc", "") or "").strip():
-                    entry["desc"] = str(entry.get("name", "") or "")
-                    touched = True
-            if touched:
-                block.draft_apis_json = json.dumps(apis, ensure_ascii=False)
-                dirty = True
-        if dirty:
-            db.commit()
-    finally:
-        db.close()
+    def tables(conn) -> set[str]:
+        return {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
 
+    def columns(conn, table: str) -> set[str]:
+        return {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))}
 
-def _backfill_meeting_series_tokens() -> None:
-    """存量迁移（幂等）：老库里的 MeetingSeries 没有 share_token 列，
-    _ensure_columns 补列后这里给空 token 的行回填 ms- 前缀哈希码。"""
-    import secrets
-
-    from speclock.models import MeetingSeries
-
-    db = SessionLocal()
-    try:
-        dirty = False
-        for s in db.query(MeetingSeries).all():
-            if not s.share_token:
-                s.share_token = f"ms-{secrets.token_hex(16)}"
-                dirty = True
-        if dirty:
-            db.commit()
-    finally:
-        db.close()
+    table_renames = [
+        ("domains", "businesses"),
+        ("documents", "capabilities"),
+        ("document_versions", "capability_versions"),
+    ]
+    column_renames = [
+        ("capabilities", "domain_id", "business_id"),
+        ("capability_versions", "document_id", "capability_id"),
+        ("blocks", "document_id", "capability_id"),
+    ]
+    with get_engine().begin() as conn:
+        for old, new in table_renames:
+            have = tables(conn)
+            if old in have and new not in have:
+                conn.execute(text(f"ALTER TABLE {old} RENAME TO {new}"))
+        for table, old, new in column_renames:
+            if table in tables(conn) and old in columns(conn, table):
+                conn.execute(text(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}"))
 
 
 def init_db() -> None:
     from speclock import models  # noqa: F401  (register tables)
 
+    _rename_legacy_tables()
     Base.metadata.create_all(get_engine())
     _ensure_columns()
-    _backfill_draft_api_desc()
-    _backfill_meeting_series_tokens()
+    from speclock.permissions import seed_roles
+
+    db = SessionLocal()
+    try:
+        seed_roles(db)
+    finally:
+        db.close()
 
 
 def get_db():
