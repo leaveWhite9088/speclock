@@ -5,7 +5,6 @@
  * 用法：
  *   <VersionChip version="1.2.0" />                    已发布（契约蓝实线）
  *   <VersionChip version="1.3.0" status="draft" />     草稿（灰虚线）
- *   <VersionChip version="2.0.0" status="breaking" />  破坏性变更（红实线）
  *
  * version 传 "1.2.0" 或 "v1.2.0" 均可，展示统一补 v 前缀。
  */
@@ -16,7 +15,7 @@ const props = defineProps({
   status: {
     type: String,
     default: 'published',
-    validator: (v) => ['published', 'draft', 'breaking'].includes(v),
+    validator: (v) => ['published', 'draft'].includes(v),
   },
 })
 
@@ -27,7 +26,6 @@ const label = computed(() =>
 const statusText = {
   published: '已发布',
   draft: '草稿',
-  breaking: '破坏性变更',
 }
 </script>
 
@@ -77,9 +75,4 @@ const statusText = {
   border: 1px solid currentColor;
 }
 
-.is-breaking {
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  background: transparent;
-}
 </style>

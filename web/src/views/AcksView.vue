@@ -40,8 +40,8 @@ const stats = computed(() => {
   let total = 0
   let done = 0
   for (const p of tree.value) {
-    for (const d of p.domains) {
-      for (const doc of d.documents) {
+    for (const d of p.businesses) {
+      for (const doc of d.capabilities) {
         for (const b of doc.blocks || []) {
           if (!countable(b)) continue
           total += 1
@@ -53,12 +53,12 @@ const stats = computed(() => {
   return { total, done, pending: total - done }
 })
 
-const pendingByDomain = computed(() => {
+const pendingByBusiness = computed(() => {
   const out = []
   for (const p of tree.value) {
-    for (const d of p.domains) {
+    for (const d of p.businesses) {
       const items = []
-      for (const doc of d.documents) {
+      for (const doc of d.capabilities) {
         for (const b of doc.blocks || []) {
           if (!countable(b) || b.completed) continue
           items.push({
@@ -162,15 +162,15 @@ onMounted(load)
         {{ stats.done }} 个已完成（口径：排除已归档与从未发布过的草稿模块）
       </p>
 
-      <p v-if="!pendingByDomain.length" class="card state-card muted">
+      <p v-if="!pendingByBusiness.length" class="card state-card muted">
         全部模块当前版本均已回执。
       </p>
 
-      <section v-for="d in pendingByDomain" :key="d.id" class="card domain-card">
-        <header class="domain-head">
-          <span class="domain-name">{{ d.name }}</span>
-          <span class="muted domain-project">{{ d.project }}</span>
-          <span class="muted domain-count">{{ d.items.length }} 个待回执</span>
+      <section v-for="d in pendingByBusiness" :key="d.id" class="card business-card">
+        <header class="business-head">
+          <span class="business-name">{{ d.name }}</span>
+          <span class="muted business-project">{{ d.project }}</span>
+          <span class="muted business-count">{{ d.items.length }} 个待回执</span>
         </header>
         <ul class="pending-list">
           <li v-for="b in d.items" :key="b.id" class="pending-item">
@@ -253,12 +253,12 @@ onMounted(load)
 
 /* ---------- 待回执清单 ---------- */
 
-.domain-card {
+.business-card {
   margin-top: var(--sp-4);
   padding: var(--sp-4) var(--sp-5);
 }
 
-.domain-head {
+.business-head {
   display: flex;
   align-items: baseline;
   gap: var(--sp-3);
@@ -266,16 +266,16 @@ onMounted(load)
   border-bottom: 1px solid var(--hairline);
 }
 
-.domain-name {
+.business-name {
   font-weight: 600;
   font-size: var(--text-md);
 }
 
-.domain-project {
+.business-project {
   font-size: var(--text-xs);
 }
 
-.domain-count {
+.business-count {
   margin-left: auto;
   font-size: var(--text-xs);
   white-space: nowrap;

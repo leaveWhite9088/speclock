@@ -58,14 +58,14 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [d, vs] = await Promise.all([
-      api.get(`/blocks/${bid}/draft`),
-      api.get(`/blocks/${bid}/versions`),
-    ])
-    title.value = d.title
+    const vs = await api.get(`/blocks/${bid}/versions`)
     versions.value = [...vs].sort((a, b) =>
       String(a.published_at || '').localeCompare(String(b.published_at || '')),
     )
+    if (versions.value.length) {
+      const snap = await api.get(`/blocks/${bid}/versions/${versions.value.at(-1).version}`)
+      title.value = snap.title
+    }
     const q = route.query
     const last = versions.value.at(-1)?.version || ''
     const prev = versions.value.at(-2)?.version || ''
@@ -92,23 +92,15 @@ const sameVersion = computed(
   () => fromV.value && toV.value && fromV.value === toV.value,
 )
 
-const rulesDelta = computed(() =>
-  diffData.value
-    ? {
-        rules_added: diffData.value.delta.rules_added || [],
-        rules_modified: diffData.value.delta.rules_modified || [],
-        rules_removed: diffData.value.delta.rules_removed || [],
-      }
-    : null,
-)
+const itemsDelta = computed(() => (diffData.value ? diffData.value.delta : null))
 
-const hasRulesDelta = computed(
-  () =>
-    rulesDelta.value &&
-    (rulesDelta.value.rules_added.length ||
-      rulesDelta.value.rules_modified.length ||
-      rulesDelta.value.rules_removed.length),
-)
+const hasItemsDelta = computed(() => {
+  const d = itemsDelta.value
+  if (!d) return false
+  return ['rules', 'acceptance'].some((k) =>
+    ['added', 'modified', 'renamed', 'removed'].some((x) => (d[`${k}_${x}`] || []).length),
+  )
+})
 
 // diff 接口只返回字符串 delta；分组表需要结构化的 groups，由后端 publish 预览提供。
 // 这里从 delta 字符串重建最简分组（键形如 "response:GET /x:a.b: string required"）。
@@ -189,13 +181,10 @@ const groups = computed(() => {
       <!-- 单版本 / 无可对比版本：引导空状态（后端原文 message） -->
       <div v-if="singleMessage" class="card empty">
         <p class="empty-title">{{ singleMessage }}</p>
-        <p class="muted">再发布一版后即可查看差异。</p>
+        <p class="muted">模块有第二个版本后即可查看差异。</p>
         <div class="empty-vers">
           <VersionChip v-for="v in versions" :key="v.version" :version="v.version" />
         </div>
-        <RouterLink class="btn btn-primary" :to="`/blocks/${bid}/edit`">
-          去编辑并发布新版本
-        </RouterLink>
       </div>
 
       <p v-else-if="sameVersion" class="muted hint">
@@ -209,8 +198,9 @@ const groups = computed(() => {
           <VersionChip :version="diffData.from" />
           <span class="arrow mono">→</span>
           <VersionChip :version="diffData.to" />
-          <span v-if="diffData.breaking" class="badge-breaking">破坏性变更</span>
-          <span v-else class="badge-safe">非破坏性</span>
+          <span v-if="diffData.level" class="level-tag mono" title="由 diff 机械算出，仅供参考">
+            级别 {{ diffData.level }}
+          </span>
           <span class="cnt cnt-add">新增 {{ diffData.delta.added.length }}</span>
           <span class="cnt cnt-mod">修改 {{ diffData.delta.modified.length }}</span>
           <span class="cnt cnt-del">删除 {{ diffData.delta.removed.length }}</span>
@@ -218,8 +208,8 @@ const groups = computed(() => {
 
         <section class="sec">
           <h2 class="sec-title">API 结构变更</h2>
-          <BlockDeltaGroups :groups="groups" :rules-delta="rulesDelta" />
-          <p v-if="!hasRulesDelta" class="muted">业务规则无变更。</p>
+          <BlockDeltaGroups :groups="groups" :items-delta="itemsDelta" />
+          <p v-if="!hasItemsDelta" class="muted">业务规则与验收条件无变更。</p>
         </section>
 
         <section class="sec">
@@ -312,22 +302,6 @@ const groups = computed(() => {
   margin-bottom: var(--sp-4);
 }
 
-.badge-breaking {
-  font-size: var(--text-xs);
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-sm);
-  padding: 1px 7px;
-}
-
-.badge-safe {
-  font-size: var(--text-xs);
-  color: var(--success);
-  border: 1px solid var(--success);
-  border-radius: var(--radius-sm);
-  padding: 1px 7px;
-}
-
 .cnt {
   font-size: var(--text-xs);
   font-family: var(--font-mono);
@@ -357,5 +331,12 @@ const groups = computed(() => {
 
 .textdiff summary {
   cursor: pointer;
+}
+.level-tag {
+  font-size: var(--text-xs);
+  padding: 0 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
 }
 </style>

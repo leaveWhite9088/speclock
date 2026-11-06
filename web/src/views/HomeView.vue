@@ -1,7 +1,7 @@
 <script setup>
 /**
- * HomeView（/）—— 文档树导航页：项目 → 大业务 → 文档 → 模块 四级可展开树，
- * 每级带 新建 / 重命名 / 删除 操作；模块节点显示版本印章与状态徽标。
+ * HomeView（/）—— 文档树导航页：项目 → 大业务 → 小业务 → 模块 四级可展开树，
+ * 纯展示（没有任何修改操作）；模块节点显示版本印章与状态徽标。
  */
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api/client.js'
@@ -12,11 +12,6 @@ const PROJECT_KEY = 'speclock_project'
 const tree = ref([])
 const loading = ref(true)
 const pageError = ref('')
-const nodeError = ref(null)
-const pending = ref(false)
-
-const addingProject = ref(false)
-const projectName = ref('')
 
 const selectedProjectId = ref(Number(localStorage.getItem(PROJECT_KEY)) || null)
 const onlyPending = ref(false)
@@ -46,15 +41,14 @@ function toNode(p) {
     kind: 'project',
     id: p.id,
     name: p.name,
-    children: (p.domains || []).map((d) => ({
-      kind: 'domain',
+    children: (p.businesses || []).map((d) => ({
+      kind: 'business',
       id: d.id,
       name: d.name,
-      children: (d.documents || []).map((doc) => ({
-        kind: 'document',
+      children: (d.capabilities || []).map((doc) => ({
+        kind: 'capability',
         id: doc.id,
         name: doc.title,
-        docType: doc.doc_type,
         version: doc.current_version,
         children: (doc.blocks || []).map((b) => ({
           kind: 'block',
@@ -91,53 +85,7 @@ onMounted(load)
 function fmtErr(e) {
   const d = e && e.detail
   if (!d) return '请求失败，请检查网络后重试。'
-  if (typeof d === 'string') return d
-  let text = d.error || JSON.stringify(d)
-  if (Array.isArray(d.published_blocks) && d.published_blocks.length) {
-    text += `（已发布模块：${d.published_blocks.map((b) => b.title).join('、')}）`
-  }
-  if (Array.isArray(d.missing) && d.missing.length) {
-    text += `：${d.missing.join('；')}`
-  }
-  return text
-}
-
-const CREATE = {
-  project: (p) => api.post('/projects', { name: p.name }),
-  domain: (p) => api.post('/domains', { project_id: p.parentId, name: p.name }),
-  document: (p) => api.post('/documents', { domain_id: p.parentId, title: p.name }),
-  block: (p) => api.post('/blocks', { document_id: p.parentId, title: p.name }),
-}
-
-async function onOp(payload) {
-  nodeError.value = null
-  pageError.value = ''
-  pending.value = true
-  try {
-    let res = null
-    if (payload.action === 'create') res = await CREATE[payload.kind](payload)
-    else if (payload.action === 'rename')
-      await api.put(`/${payload.kind}s/${payload.id}`, { name: payload.name })
-    else if (payload.action === 'delete')
-      await api.delete(`/${payload.kind}s/${payload.id}`)
-    await load()
-    return res
-  } catch (e) {
-    // 409 守卫等错误：展示后端原文，定位到发起操作的节点下
-    nodeError.value = { key: payload.errorKey, text: fmtErr(e) }
-    return null
-  } finally {
-    pending.value = false
-  }
-}
-
-async function submitProject() {
-  const name = projectName.value.trim()
-  if (!name) return
-  addingProject.value = false
-  const res = await onOp({ action: 'create', kind: 'project', name, errorKey: 'project-new' })
-  if (res && res.id) pickProject(res.id)
-  projectName.value = ''
+  return typeof d === 'string' ? d : d.error || JSON.stringify(d)
 }
 </script>
 
@@ -160,18 +108,11 @@ async function submitProject() {
         >
           <option v-for="p in tree" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
-        <button
-          type="button"
-          class="btn btn-primary"
-          @click="((addingProject = true), (projectName = ''))"
-        >
-          新建项目
-        </button>
       </div>
     </div>
     <p class="page-desc">
-      项目是文档隔离单元：每个项目有自己独立的一套 大业务 → 文档 → 模块；在「密钥管理」页把
-      agent key 绑定到项目后，该 key 只能读取本项目文档。
+      项目是文档隔离单元：每个项目有自己独立的一套 大业务 → 小业务 → 模块。这里只做展示，
+      所有修改都由 Agent 经「审核单」完成。
     </p>
 
     <p v-if="pageError" class="error-text page-err" role="alert">{{ pageError }}</p>
@@ -179,81 +120,16 @@ async function submitProject() {
     <div v-if="loading" class="muted loading">正在加载文档树…</div>
 
     <div v-else-if="!tree.length" class="card empty">
-      <p class="empty-title">还没有项目</p>
+      <p class="empty-title">还没有内容</p>
       <p class="muted">
-        项目是文档树的第一层。先建一个项目，再往里加 大业务 → 文档 → 模块。
-      </p>
-      <button
-        type="button"
-        class="btn btn-primary"
-        @click="((addingProject = true), (projectName = ''))"
-      >
-        新建第一个项目
-      </button>
-      <div v-if="addingProject" class="composer">
-        <input
-          class="input"
-          v-model="projectName"
-          placeholder="项目名称"
-          @keyup.enter="submitProject"
-          @keyup.esc="addingProject = false"
-        />
-        <button
-          type="button"
-          class="btn btn-primary"
-          :disabled="pending"
-          @click="submitProject"
-        >
-          创建项目
-        </button>
-        <button type="button" class="btn" @click="addingProject = false">取消</button>
-      </div>
-      <p
-        v-if="nodeError && nodeError.key === 'project-new'"
-        class="error-text"
-        role="alert"
-      >
-        {{ nodeError.text }}
+        文档树是空的。让 Agent 创建审核单、你确认后，由它提交 Commit 来建立 大业务 → 小业务 → 模块。
       </p>
     </div>
 
     <div v-else class="tree">
       <ul class="tree-root">
-        <TreeNode
-          v-for="n in visibleTree"
-          :key="`project-${n.id}`"
-          :node="n"
-          :node-error="nodeError"
-          :pending="pending"
-          @op="onOp"
-        />
-        <li v-if="addingProject" class="trow-new">
-          <span class="caret-sp"></span>
-          <input
-            class="input"
-            v-model="projectName"
-            placeholder="项目名称"
-            @keyup.enter="submitProject"
-            @keyup.esc="addingProject = false"
-          />
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="pending"
-            @click="submitProject"
-          >
-            创建项目
-          </button>
-          <button type="button" class="btn" @click="addingProject = false">取消</button>
-        </li>
+        <TreeNode v-for="n in visibleTree" :key="`project-${n.id}`" :node="n" />
       </ul>
-      <p
-        v-if="nodeError && nodeError.key === 'project-new'"
-        class="error-text"
-        role="alert"
-      >
-        {{ nodeError.text }}
-      </p>
     </div>
   </div>
 </template>

@@ -1,7 +1,7 @@
-/* 树状导航样式（文档树 / 会议记录共用）。
+/* 树状导航样式（文档树）。
    原 TreeNode.vue scoped 样式原样搬出，数值不变（搬家不是重设计）：
    行式节点 .trow、caret 展开收起、缩进引导线 .tkids、悬停行内操作 .tops、
-   层级字号梯度 .k-project/.k-domain/.k-document。
+   层级字号梯度 .k-project/.k-business/.k-capability。
    注意：.btn-mini / .rename-input 限定在树上下文（.trow / .confirm-strip）内，
    避免影响其他页面同名 class 的既有局部样式。 */
 
@@ -72,12 +72,12 @@ a.tname:hover {
   font-weight: 600;
 }
 
-.k-domain > .trow .tname {
+.k-business > .trow .tname {
   font-size: var(--text-md);
   font-weight: 600;
 }
 
-.k-document > .trow .tname {
+.k-capability > .trow .tname {
   font-size: var(--text-md);
 }
 
@@ -86,14 +86,6 @@ a.tname:hover {
   align-items: center;
   gap: var(--sp-2);
   flex: none;
-}
-
-.doc-type {
-  font-size: var(--text-xs);
-  color: var(--ink-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 0 5px;
 }
 
 .done-badge {

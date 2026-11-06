@@ -3,20 +3,14 @@ import { getKey } from './api/client.js'
 
 import LoginView from './views/LoginView.vue'
 import HomeView from './views/HomeView.vue'
-import DocumentView from './views/DocumentView.vue'
+import CapabilityView from './views/CapabilityView.vue'
 import BlockView from './views/BlockView.vue'
-import BlockEditView from './views/BlockEditView.vue'
 import BlockDiffView from './views/BlockDiffView.vue'
-import ProposalsView from './views/ProposalsView.vue'
+import CRListView from './views/CRListView.vue'
+import CRDetailView from './views/CRDetailView.vue'
 import AcksView from './views/AcksView.vue'
 import ArchiveView from './views/ArchiveView.vue'
-import KeysView from './views/KeysView.vue'
 import McpView from './views/McpView.vue'
-import MeetingsView from './views/MeetingsView.vue'
-import MeetingDetailView from './views/MeetingDetailView.vue'
-import MeetingFileView from './views/MeetingFileView.vue'
-import MeetingSearchView from './views/MeetingSearchView.vue'
-import SeriesDetailView from './views/SeriesDetailView.vue'
 
 const routes = [
   {
@@ -27,22 +21,16 @@ const routes = [
   },
   { path: '/', name: 'home', component: HomeView, meta: { title: '文档树' } },
   {
-    path: '/documents/:id',
-    name: 'document',
-    component: DocumentView,
-    meta: { title: '文档' },
+    path: '/capabilities/:id',
+    name: 'capability',
+    component: CapabilityView,
+    meta: { title: '小业务' },
   },
   {
     path: '/blocks/:id',
     name: 'block',
     component: BlockView,
-    meta: { title: '接口块' },
-  },
-  {
-    path: '/blocks/:id/edit',
-    name: 'block-edit',
-    component: BlockEditView,
-    meta: { title: '编辑接口块' },
+    meta: { title: '模块' },
   },
   {
     path: '/blocks/:id/diff',
@@ -51,10 +39,16 @@ const routes = [
     meta: { title: '版本对比' },
   },
   {
-    path: '/proposals',
-    name: 'proposals',
-    component: ProposalsView,
-    meta: { title: '提案' },
+    path: '/change-requests',
+    name: 'change-requests',
+    component: CRListView,
+    meta: { title: '审核单' },
+  },
+  {
+    path: '/change-requests/:id',
+    name: 'change-request',
+    component: CRDetailView,
+    meta: { title: '审核单详情' },
   },
   { path: '/acks', name: 'acks', component: AcksView, meta: { title: '回执' } },
   {
@@ -63,39 +57,7 @@ const routes = [
     component: ArchiveView,
     meta: { title: '归档' },
   },
-  { path: '/keys', name: 'keys', component: KeysView, meta: { title: '密钥管理' } },
   { path: '/mcp', name: 'mcp', component: McpView, meta: { title: 'AI 接入' } },
-  {
-    path: '/meetings',
-    name: 'meetings',
-    component: MeetingsView,
-    meta: { title: '会议记录' },
-  },
-  {
-    // 必须放在 /meetings/:id 之前，否则 "search" 会被当成会议 id 吞掉
-    path: '/meetings/search',
-    name: 'meeting-search',
-    component: MeetingSearchView,
-    meta: { title: '会议搜索' },
-  },
-  {
-    path: '/meetings/series/:id',
-    name: 'series-detail',
-    component: SeriesDetailView,
-    meta: { title: '业务线详情' },
-  },
-  {
-    path: '/meetings/:id',
-    name: 'meeting-detail',
-    component: MeetingDetailView,
-    meta: { title: '会议详情' },
-  },
-  {
-    path: '/meetings/:id/files/:fileId',
-    name: 'meeting-file',
-    component: MeetingFileView,
-    meta: { title: '会议文件' },
-  },
 ]
 
 export const router = createRouter({
@@ -120,5 +82,5 @@ router.beforeEach((to) => {
 router.afterEach((to) => {
   document.title = to.meta.title
     ? `${to.meta.title} · SpecLock`
-    : 'SpecLock · 接口契约文档平台'
+    : 'SpecLock · 需求规格'
 })

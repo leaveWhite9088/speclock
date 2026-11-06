@@ -1,7 +1,8 @@
 <script setup>
 /**
  * BlockView（/blocks/:id）—— 已发布模块只读页：完整快照渲染、版本切换、
- * 完成状态展示（由后端 ack 驱动，页面只读）、「编辑」「查看 diff」入口。
+ * 完成状态展示（由后端 ack 驱动）、「查看 diff」入口、版本溯源到审核单。
+ * 本页纯展示，不提供任何修改操作（所有写入都由 Agent 经审核单 + Commit 完成）。
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -23,13 +24,11 @@ const { keyName } = useKeyNames()
 
 const loading = ref(true)
 const loadError = ref('')
-const meta = ref(null) // 草稿侧的实时元信息（title/status/document_id）
+const meta = ref(null) // 模块元信息（title/status/capability_id/current_published_version），取自 /tree
 const versions = ref([])
 const snap = ref(null) // 当前查看的版本快照
 const selected = ref('')
 const opError = ref('')
-const voidPending = ref('') // 正在二次确认作废的版本号
-const voidBusy = ref(false)
 const acksModal = ref(null) // {context, acks}：「查看回执」弹窗内容
 
 function errText(e) {
@@ -60,10 +59,15 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [d, vs] = await Promise.all([
-      api.get(`/blocks/${bid}/draft`),
-      api.get(`/blocks/${bid}/versions`),
-    ])
+    const [tree, vs] = await Promise.all([api.get('/tree'), api.get(`/blocks/${bid}/versions`)])
+    let d = null
+    for (const p of tree)
+      for (const biz of p.businesses)
+        for (const cap of biz.capabilities)
+          for (const b of cap.blocks)
+            if (String(b.id) === String(bid))
+              d = { ...b, capability_id: cap.id, current_published_version: b.current_published_version }
+    if (!d) throw { detail: '没有找到这个模块（或当前密钥无权访问它所在的项目）。' }
     meta.value = d
     versions.value = sorted(vs)
     const pinned =
@@ -120,6 +124,7 @@ watch(
 
 const apis = computed(() => snap.value?.apis || [])
 const rules = computed(() => snap.value?.rules || [])
+const acceptance = computed(() => snap.value?.acceptance || [])
 
 const latestDiff = computed(() => {
   const vs = versions.value
@@ -145,37 +150,6 @@ function openAcks(v) {
     acks: v.acks || [],
   }
 }
-
-function askVoid(v) {
-  voidPending.value = v
-  opError.value = ''
-}
-
-function cancelVoid() {
-  voidPending.value = ''
-}
-
-async function confirmVoid(v) {
-  if (voidBusy.value) return
-  voidBusy.value = true
-  opError.value = ''
-  try {
-    await api.post(`/blocks/${bid}/versions/${v}/void`)
-    voidPending.value = ''
-    if (selected.value === v) {
-      // 正在查看的版本被作废：清掉 URL pin，load 会回落到最新未作废版本
-      // （全部作废则显示「尚未发布」空状态）
-      snap.value = null
-      selected.value = ''
-      await router.replace({ query: {} })
-    }
-    await load()
-  } catch (e) {
-    opError.value = errText(e)
-  } finally {
-    voidBusy.value = false
-  }
-}
 </script>
 
 <template>
@@ -193,10 +167,7 @@ async function confirmVoid(v) {
       <!-- 尚未发布：引导空状态 -->
       <div v-if="!versions.length" class="card empty">
         <h1 class="page-title">{{ meta.title }}</h1>
-        <p class="muted">该模块尚未发布，没有可查看的内容。</p>
-        <RouterLink class="btn btn-primary" :to="`/blocks/${bid}/edit`">
-          打开编辑器，补齐内容后发布第一版
-        </RouterLink>
+        <p class="muted">该模块还没有可查看的已发布版本（可能版本都已被作废）。</p>
       </div>
 
       <template v-else-if="snap">
@@ -223,10 +194,14 @@ async function confirmVoid(v) {
           <p class="muted seal-meta">
             {{ snap.change_note || '（无变更说明）' }} · 由 {{ keyName(snap.published_by) }} 发布于
             {{ fmtTime(snap.published_at) }}
+            <template v-if="snap.level"> · 版本级别 {{ snap.level }}（机械标签，仅供参考）</template>
+            <template v-if="snap.cr_id">
+              · 来自 <RouterLink :to="`/change-requests/${snap.cr_id}`">审核单 #{{ snap.cr_id }}</RouterLink>
+              的 Commit #{{ snap.commit_id }}
+            </template>
           </p>
 
           <div class="ops-row">
-            <RouterLink class="btn" :to="`/blocks/${bid}/edit`">编辑</RouterLink>
             <RouterLink class="btn" :to="`/blocks/${bid}/diff`">查看 diff</RouterLink>
             <RouterLink
               v-if="latestDiff"
@@ -267,14 +242,14 @@ async function confirmVoid(v) {
           <table v-if="rules.length" class="rules-table">
             <thead>
               <tr>
-                <th class="col-idx">#</th>
+                <th class="col-idx">编号</th>
                 <th class="col-name">规则名</th>
                 <th>规则详述</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in rules" :key="i">
-                <td class="muted mono">{{ i + 1 }}</td>
+                <td class="muted mono">{{ r.id || i + 1 }}</td>
                 <td>{{ r.name }}</td>
                 <td>{{ r.detail }}</td>
               </tr>
@@ -299,9 +274,24 @@ async function confirmVoid(v) {
         </section>
 
         <section class="card sec">
-          <h2 class="sec-title">非功能性需求</h2>
-          <BlockMd v-if="snap.nfr_md" :source="snap.nfr_md" />
-          <p v-else class="muted">无非功能性需求。</p>
+          <h2 class="sec-title">验收条件（{{ acceptance.length }} 条）</h2>
+          <table v-if="acceptance.length" class="rules-table">
+            <thead>
+              <tr>
+                <th class="col-idx">编号</th>
+                <th class="col-name">验收条件名</th>
+                <th>验收条件详述</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in acceptance" :key="i">
+                <td class="muted mono">{{ r.id || i + 1 }}</td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="muted">无验收条件。</p>
         </section>
 
         <section class="card sec">
@@ -312,6 +302,7 @@ async function confirmVoid(v) {
                 <th>版本</th>
                 <th>变更说明</th>
                 <th>发布时间</th>
+                <th>审核单</th>
                 <th>回执</th>
                 <th>操作</th>
               </tr>
@@ -325,6 +316,10 @@ async function confirmVoid(v) {
                   </td>
                   <td>{{ v.change_note || '—' }}</td>
                   <td class="muted mono ver-time">{{ fmtTime(v.published_at) }}</td>
+                  <td class="muted mono">
+                    <RouterLink v-if="v.cr_id" :to="`/change-requests/${v.cr_id}`">#{{ v.cr_id }}</RouterLink>
+                    <template v-else>—</template>
+                  </td>
                   <td class="ver-acks">
                     <span class="ack-badge" :class="`is-${v.ack_state}`">
                       {{ ACK_STATE_TEXT[v.ack_state] || v.ack_state }}
@@ -346,41 +341,6 @@ async function confirmVoid(v) {
                         >与上一版对比</RouterLink
                       >
                     </template>
-                    <template v-if="voidPending !== v.version">
-                      ·
-                      <a
-                        href="#"
-                        class="void-link"
-                        @click.prevent="askVoid(v.version)"
-                        >作废此版本</a
-                      >
-                    </template>
-                  </td>
-                </tr>
-                <tr v-if="voidPending === v.version" class="void-confirm-row">
-                  <td colspan="5">
-                    <span class="confirm-text is-danger">
-                      作废 v{{ v.version }}？作废后该版本对 AI 与本页面均不可见，
-                      仅数据库保留记录，不提供恢复。
-                    </span>
-                    <span class="confirm-btns">
-                      <button
-                        type="button"
-                        class="btn btn-danger"
-                        :disabled="voidBusy"
-                        @click="confirmVoid(v.version)"
-                      >
-                        {{ voidBusy ? '处理中…' : '确认作废' }}
-                      </button>
-                      <button
-                        type="button"
-                        class="btn"
-                        :disabled="voidBusy"
-                        @click="cancelVoid"
-                      >
-                        取消
-                      </button>
-                    </span>
                   </td>
                 </tr>
               </template>

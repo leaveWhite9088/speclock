@@ -14,16 +14,12 @@ const hint = computed(() => keyHint())
 
 const mainNav = [
   { to: '/', label: '文档树' },
-  { to: '/meetings', label: '会议记录' },
-  { to: '/proposals', label: '提案' },
+  { to: '/change-requests', label: '审核单' },
   { to: '/acks', label: '回执' },
   { to: '/archive', label: '归档' },
 ]
 
-const bottomNav = [
-  { to: '/mcp', label: 'AI 接入' },
-  { to: '/keys', label: '密钥管理' },
-]
+const bottomNav = [{ to: '/mcp', label: 'AI 接入' }]
 
 function logout() {
   clearKey()
@@ -66,7 +62,7 @@ function logout() {
       <header class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
-          <VersionChip version="0.3.4" />
+          <VersionChip version="0.5.0" />
         </div>
         <div class="topbar-right">
           <span class="key-hint mono" :title="hint">{{ keyName(hint) }}</span>

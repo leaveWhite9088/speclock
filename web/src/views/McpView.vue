@@ -1,45 +1,42 @@
 <script setup>
-// AI 接入：Tab 切换 ——「接口契约 MCP」（文档树，MCP stdio）/「会议记录分享」
-//（哈希码只读链接，面板组件 AiMeetingsView）。tab 状态放在 route query
-//（/mcp?tab=meetings），可分享直达。
+// AI 接入：接口契约 MCP（文档树，MCP stdio）的接入说明与 agent 活动。
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
-import AiMeetingsView from './AiMeetingsView.vue'
 
-const route = useRoute()
-const router = useRouter()
-
-const tab = computed(() => (route.query.tab === 'meetings' ? 'meetings' : 'mcp'))
-
-function setTab(t) {
-  router.replace({ query: { ...route.query, tab: t === 'mcp' ? undefined : t } })
-}
-
-// 与后端 ui.py 的 MCP_TOOLS 保持一致的一句话说明
+// 与后端 mcp_server.py 的工具保持一致的一句话说明
 const TOOLS = [
-  ['get_index', '大业务→小业务→模块 三层索引树，模块节点带 completed 完成标记（先取索引树选块，再按需拉块；迭代时只做 completed=false 的模块）'],
-  ['get_block', '读取一个模块的已发布版本，可 pin 版本号锁定快照'],
-  ['get_document', '读取文档 manifest（模块→版本清单），可 pin 历史文档版本回放快照'],
-  ['get_diff', '两个已发布版本之间的结构化 + 文本 diff'],
-  ['ack_block', '回执：声明「该模块当前版本的全部契约（所有 API + 所有规则）均已实现」；仅在全部完成时调用，部分完成不打；回执当前最新发布版本即把模块标记为已完成'],
-  ['submit_proposal', '提交变更提案——AI 唯一的写出口，需人审批发布后才生效'],
-  ['get_proposal', '轮询提案状态（submitted / published / rejected）'],
+  ['whoami', '当前 key 的角色与权限'],
+  ['get_index', '大业务→小业务→模块 三层索引树，模块节点带 completed 完成标记'],
+  ['get_block', '读取一个模块的已发布版本（背景 / 规则 / 验收条件 / API，规则与验收条件带稳定 id），可 pin 版本；响应带 cr_id / commit_id 溯源'],
+  ['get_capability', '读取小业务 manifest（模块→版本清单），可 pin 历史小业务版本'],
+  ['get_diff', '两个已发布版本之间的结构化 + 文本 diff，带机械算出的 level 标签'],
+  ['ack_block', '回执：声明「该模块当前版本的全部契约均已实现」；仅在全部完成时调用'],
+  ['list_change_requests', '列出审核单，可按状态过滤'],
+  ['get_change_request', '读取审核单：状态、验收条件覆盖情况、人的决定、全部 Commit'],
+  ['create_change_request', '创建审核单草稿：只写业务意图（为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明）'],
+  ['update_change_request', '编辑草稿审核单'],
+  ['submit_change_request', '提交审核单给人确认（内容冻结并生成内容哈希）'],
+  ['withdraw_change_request', '把待审核的审核单撤回成草稿'],
+  ['approve_change_request', '代人批准：必须带人看过的 content_hash 和人的原话 evidence'],
+  ['reject_change_request', '代人驳回：必须写理由'],
+  ['submit_commit', '在已批准的审核单下写规格库：一组原子 ops，成功即发布（支持 dry_run 预览）'],
+  ['complete_change_request', '报告审核单已落地；每条验收条件必须被某个 Commit 覆盖'],
 ]
 
 const RULES = [
-  '先调用 get_index 拿 大业务→小业务→模块 的三层索引树，在树里选中目标模块后用 get_block 拉取，不要逐个全量拉取。',
-  '索引树每个模块节点都带 completed 完成标记：迭代时只做 completed=false 的模块（也可用 get_index(incomplete_only=true) 直接过滤），不要重做已完成模块。',
-  '实现前用 get_document / get_block 的版本参数 pin 住快照；实现完成后调用 ack_block 回执——ack 的语义是「该模块当前版本的全部契约（所有 API + 所有规则）均已实现」，只在全部完成时才打；做到一半不要打，completed 是是非题、不是进度百分比（completed 只由后端写入，页面只读展示）。',
-  '如果一个模块经常无法作为整体做完，说明模块边界太大：用 submit_proposal 提议拆分模块，而不是对部分实现打回执。',
-  '只能读到已发布版本；草稿与已归档内容不可见。',
-  '没有任何修改文档的工具。发现文档有误或缺失时，用 submit_proposal 提交变更提案（唯一的写出口），经人审批发布后才生效；用 get_proposal 轮询提案状态。',
-  '需要对比两个版本时调用 get_diff，按结构化 diff 增量调整实现。',
+  '先调用 get_index 拿三层索引树，选中目标模块后用 get_block 拉取，不要逐个全量拉取。',
+  '规格库只有一条写入通道：create_change_request → 把内容讲给人听 → 人明确同意后 approve_change_request（带人的原话）→ submit_commit → complete_change_request。没有任何直接改模块的工具。',
+  '审核单只写业务意图，不要写“改哪个模块”；拆成哪些模块、哪些 ops 是你在 Commit 里自己决定的。',
+  '没有人在对话里的明确同意，不得调用 approve_change_request；evidence 必须是人的原话。',
+  '规则和验收条件按稳定 id（R-n / AC-n）定位；Commit 里用 covers 声明本次满足了审核单的哪些验收条件。',
+  '提交 Commit 前可先 dry_run 预览版本号和级别标签；任何一条 op 失败整个 Commit 回滚。',
+  '实现前用 get_block 的版本参数 pin 住快照；实现完成后用 ack_block 回执（只在整个模块完成时才打）。',
+  '只能读到已发布版本；归档内容不可见。',
 ]
 
-const KEY_PLACEHOLDER = 'agent-…（到「密钥管理」新建 agent key 后填入）'
+const KEY_PLACEHOLDER = '<admin key——seed / inject_ops 打印的那一把>'
 
 // 客户端包（speclock wheel）下载信息，来自 GET /agent/client-package；
 // 服务端未构建 wheel 时接口 404，pkg 保持 null，安装命令退化为占位形式
@@ -74,7 +71,7 @@ const brief = computed(
   () =>
     `# SpecLock · AI 接入说明
 
-你是一名开发 AI agent。SpecLock 是本项目的业务文档单一事实源：所有业务文档在这里维护并版本化。你将通过它的 MCP server 以 stdio 方式接入，只读获取已发布版本的文档（支持版本 pin 锁定快照）。你没有任何修改文档的工具；发现文档有误时通过提案通道提交建议，经人审批发布后才生效。
+你是一名 AI agent。SpecLock 是本项目的业务规格单一事实源：所有业务规格在这里维护并版本化。你通过它的 MCP server 以 stdio 方式接入：读取已发布版本的规格（支持版本 pin 锁定快照），并通过「审核单 → 人确认 → Commit」这一条通道修改规格。
 
 请按以下步骤自行完成接入。
 
@@ -140,15 +137,7 @@ async function load() {
   error.value = ''
   try {
     ;[activities.value] = await Promise.all([
-      api.get('/activity?limit=50&actor_prefix=agent'),
-      // 顺带查已有 agent key，给配置占位一个参照
-      api
-        .get('/keys')
-        .then((ks) => {
-          const agent = ks.find((k) => k.prefix === 'agent')
-          if (agent) agentHint.value = agent.hint
-        })
-        .catch(() => {}),
+      api.get('/activity?limit=50'),
       // 客户端包下载信息（wheel 未构建时 404，忽略即可，安装命令用占位形式）
       api
         .get('/agent/client-package')
@@ -172,30 +161,6 @@ onMounted(load)
     <p class="page-eyebrow">AI Access</p>
     <h1 class="page-title">AI 接入</h1>
 
-    <div class="tab-bar" role="tablist">
-      <button
-        type="button"
-        class="tab"
-        :class="{ 'is-active': tab === 'mcp' }"
-        role="tab"
-        :aria-selected="tab === 'mcp'"
-        @click="setTab('mcp')"
-      >
-        接口契约 MCP
-      </button>
-      <button
-        type="button"
-        class="tab"
-        :class="{ 'is-active': tab === 'meetings' }"
-        role="tab"
-        :aria-selected="tab === 'meetings'"
-        @click="setTab('meetings')"
-      >
-        会议记录分享
-      </button>
-    </div>
-
-    <template v-if="tab === 'mcp'">
     <p class="page-desc">
       本页面向开发 agent。点「复制接入说明」得到一份完整的 Markdown 接入指南，直接发给 agent，它会自行完成配置。
     </p>
@@ -236,8 +201,7 @@ onMounted(load)
           MCP server 以 stdio 启动：<code>python -m speclock.mcp_server</code>。
         </p>
         <p class="step-text">
-          把 <code>SPECLOCK_KEY</code> 替换为你的 agent key——到
-          <RouterLink to="/keys">密钥管理</RouterLink> 页新建（仅此一次可见，系统只存哈希，丢失只能重新生成）<template v-if="agentHint">；当前已有一把 agent key：<code>{{ agentHint }}</code></template>。
+          把 <code>SPECLOCK_KEY</code> 替换为 admin key（<code>python -m speclock.seed</code> 或 <code>inject_ops.py</code> 打印的那一把；系统只存哈希，丢失只能重新生成）。
         </p>
         <pre class="config-pre mono">{{ configJson }}</pre>
         <button type="button" class="btn" @click="copyText(configJson, 'config')">
@@ -312,47 +276,12 @@ onMounted(load)
         </table>
       </div>
     </section>
-    </template>
-
-    <AiMeetingsView v-else />
   </div>
 </template>
 
 <style scoped>
 .mcp-page {
   max-width: 860px;
-}
-
-.tab-bar {
-  display: flex;
-  gap: var(--sp-1);
-  margin-top: var(--sp-4);
-  border-bottom: 1px solid var(--hairline);
-}
-
-.tab {
-  appearance: none;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 7px var(--sp-3);
-  font: inherit;
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-  cursor: pointer;
-  transition:
-    color var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
-}
-
-.tab:hover {
-  color: var(--ink);
-}
-
-.tab.is-active {
-  color: var(--contract);
-  border-bottom-color: var(--contract);
-  font-weight: 500;
 }
 
 .section {

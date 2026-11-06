@@ -2,25 +2,50 @@
 /**
  * BlockDeltaGroups —— 结构化 delta 分组表（发布预览与 diff 页共用）。
  * groups: [{api_key, api_name, changes:[{kind, scope, path, detail, description}]}]
- * rulesDelta: {rules_added, rules_modified, rules_removed}（无规则变更时不渲染该节）
+ * itemsDelta: 规则 / 验收条件的 delta（delta 里的 rules_* 与 acceptance_* 数组，
+ *   条目形如 "R-1 销售额口径"；没有任何变更的节不渲染）
  */
 import { computed } from 'vue'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
-  rulesDelta: { type: Object, default: null },
+  itemsDelta: { type: Object, default: null },
 })
 
 const KIND_LABEL = { added: '新增', modified: '修改', removed: '删除' }
 const SCOPE_LABEL = { api: 'API', request: '请求体', response: '响应体' }
 
-const hasRules = computed(
-  () =>
-    props.rulesDelta &&
-    (props.rulesDelta.rules_added?.length ||
-      props.rulesDelta.rules_modified?.length ||
-      props.rulesDelta.rules_removed?.length),
-)
+const ITEM_SECTIONS = [
+  { key: 'rules', title: '业务规则变更' },
+  { key: 'acceptance', title: '验收条件变更' },
+]
+const ITEM_KINDS = [
+  { kind: 'added', cls: 'added', label: '新增' },
+  { kind: 'modified', cls: 'modified', label: '修改' },
+  { kind: 'renamed', cls: 'modified', label: '改名' },
+  { kind: 'removed', cls: 'removed', label: '删除' },
+]
+
+// "R-1 销售额口径" → { id: 'R-1', name: '销售额口径' }（老快照无 id 时整串当名称）
+function splitItem(text) {
+  const m = /^((?:R|AC)-\d+)\s+(.*)$/.exec(text)
+  return m ? { id: m[1], name: m[2] } : { id: '', name: text }
+}
+
+const itemSections = computed(() => {
+  const d = props.itemsDelta
+  if (!d) return []
+  return ITEM_SECTIONS.map((sec) => ({
+    ...sec,
+    rows: ITEM_KINDS.flatMap((k) =>
+      (d[`${sec.key}_${k.kind}`] || []).map((text) => ({
+        ...k,
+        ...splitItem(text),
+        rowKey: `${k.kind}:${text}`,
+      })),
+    ),
+  })).filter((sec) => sec.rows.length)
+})
 </script>
 
 <template>
@@ -58,35 +83,23 @@ const hasRules = computed(
     </template>
     <p v-else class="muted">API 无结构变更。</p>
 
-    <template v-if="hasRules">
-      <h4 class="rules-head">业务规则变更</h4>
+    <template v-for="sec in itemSections" :key="sec.key">
+      <h4 class="rules-head">{{ sec.title }}</h4>
       <table class="delta-table rules-table">
         <thead>
           <tr>
             <th>变更</th>
-            <th>规则名</th>
+            <th>编号</th>
+            <th>名称</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="name in rulesDelta.rules_added" :key="'a' + name" class="chg-added">
-            <td><span class="chg-tag chg-tag-added">新增</span></td>
-            <td>{{ name }}</td>
-          </tr>
-          <tr
-            v-for="name in rulesDelta.rules_modified"
-            :key="'m' + name"
-            class="chg-modified"
-          >
-            <td><span class="chg-tag chg-tag-modified">修改</span></td>
-            <td>{{ name }}</td>
-          </tr>
-          <tr
-            v-for="name in rulesDelta.rules_removed"
-            :key="'r' + name"
-            class="chg-removed"
-          >
-            <td><span class="chg-tag chg-tag-removed">删除</span></td>
-            <td>{{ name }}</td>
+          <tr v-for="row in sec.rows" :key="row.rowKey" :class="`chg-${row.cls}`">
+            <td>
+              <span class="chg-tag" :class="`chg-tag-${row.cls}`">{{ row.label }}</span>
+            </td>
+            <td class="mono">{{ row.id }}</td>
+            <td>{{ row.name }}</td>
           </tr>
         </tbody>
       </table>

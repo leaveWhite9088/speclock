@@ -1,8 +1,8 @@
 <script setup>
 /**
  * AppBreadcrumb —— 全局面包屑 + 返回上一页。
- * 从 GET /tree 推导完整路径：项目 › 大业务 › 文档 › 模块（› 附加页）。
- * 项目/大业务没有独立页面，点击跳到文档树并选中该项目；文档进文档页；
+ * 从 GET /tree 推导完整路径：项目 › 大业务 › 小业务 › 模块（› 附加页）。
+ * 项目/大业务没有独立页面，点击跳到文档树并选中该项目；小业务进小业务页；
  * 当前级展示为纯文本。append 用于编辑/版本对比这类模块的子页面。
  */
 import { ref, onMounted } from 'vue'
@@ -11,7 +11,7 @@ import { api } from '../api/client.js'
 
 const props = defineProps({
   blockId: { type: Number, default: null },
-  documentId: { type: Number, default: null },
+  capabilityId: { type: Number, default: null },
   append: { type: String, default: '' },
 })
 
@@ -28,11 +28,11 @@ onMounted(async () => {
 })
 
 function findTrail(tree) {
-  const wantDoc = Number(props.documentId)
+  const wantDoc = Number(props.capabilityId)
   const wantBlock = Number(props.blockId)
   for (const p of tree) {
-    for (const d of p.domains || []) {
-      for (const doc of d.documents || []) {
+    for (const d of p.businesses || []) {
+      for (const doc of d.capabilities || []) {
         const head = [
           { label: p.name, projectId: p.id },
           { label: d.name, projectId: p.id },
@@ -40,7 +40,7 @@ function findTrail(tree) {
         if (wantDoc && doc.id === wantDoc) {
           const trail = [...head, { label: doc.title, to: null }]
           if (props.append) {
-            trail[trail.length - 1].to = `/documents/${doc.id}`
+            trail[trail.length - 1].to = `/capabilities/${doc.id}`
             trail.push({ label: props.append, to: null })
           }
           return trail
@@ -50,7 +50,7 @@ function findTrail(tree) {
           if (b) {
             const trail = [
               ...head,
-              { label: doc.title, to: `/documents/${doc.id}` },
+              { label: doc.title, to: `/capabilities/${doc.id}` },
               { label: b.title, to: props.append ? `/blocks/${b.id}` : null },
             ]
             if (props.append) trail.push({ label: props.append, to: null })

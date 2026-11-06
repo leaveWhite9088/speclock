@@ -1,5 +1,5 @@
 <script setup>
-// 归档管理：已归档模块列表，支持恢复（回到已发布）与彻底删除（二次确认，不可恢复）。
+// 归档：已归档模块列表（只读）。恢复由 Agent 经审核单 + Commit（restore_block）完成。
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client.js'
 import { fmtTime } from '../time.js'
@@ -8,41 +8,9 @@ import VersionChip from '../components/VersionChip.vue'
 const loading = ref(true)
 const error = ref('')
 const rows = ref([])
-const pending = ref(null) // { id, action: 'restore' | 'purge' }
-const busy = ref(false)
-const rowError = ref({})
-
 function errText(e) {
   const d = e?.detail ?? e
   return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
-
-function ask(row, action) {
-  pending.value = { id: row.id, action }
-  rowError.value = { ...rowError.value, [row.id]: '' }
-}
-
-function cancel() {
-  pending.value = null
-}
-
-async function confirm(row) {
-  const action = pending.value?.action
-  if (!action) return
-  busy.value = true
-  try {
-    if (action === 'restore') {
-      await api.post(`/blocks/${row.id}/restore`)
-    } else {
-      await api.delete(`/blocks/${row.id}/purge`)
-    }
-    pending.value = null
-    await load()
-  } catch (e) {
-    rowError.value = { ...rowError.value, [row.id]: errText(e) }
-  } finally {
-    busy.value = false
-  }
 }
 
 async function load() {
@@ -65,7 +33,7 @@ onMounted(load)
     <p class="page-eyebrow">Archive</p>
     <h1 class="page-title">归档管理</h1>
     <p class="page-desc">
-      归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。归档与恢复都会立即派生所属文档的新版本（MINOR）。
+      归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。归档与恢复都由 Agent 经审核单的 Commit 完成，并立即派生所属小业务的新版本（MINOR）。
     </p>
 
     <p v-if="loading" class="muted">加载中…</p>
@@ -77,7 +45,7 @@ onMounted(load)
 
     <div v-else-if="!rows.length" class="card state-card">
       <p class="muted">
-        没有已归档的模块。在模块页面对已发布模块执行「删除」即归档——归档后历史版本仍然保留，可随时恢复。
+        没有已归档的模块。模块下线由 Agent 经审核单归档——归档后历史版本仍然保留，可随时恢复。
       </p>
       <RouterLink to="/" class="btn">回到文档树</RouterLink>
     </div>
@@ -86,9 +54,9 @@ onMounted(load)
       <article v-for="row in rows" :key="row.id" class="card arch-row">
         <div class="arch-main">
           <p class="arch-path mono muted">
-            {{ row.project_name }} / {{ row.domain_name }} /
-            <RouterLink :to="`/documents/${row.document_id}`">{{
-              row.document_title
+            {{ row.project_name }} / {{ row.business_name }} /
+            <RouterLink :to="`/capabilities/${row.capability_id}`">{{
+              row.capability_title
             }}</RouterLink>
           </p>
           <div class="arch-title-line">
@@ -104,38 +72,6 @@ onMounted(load)
           <p class="muted arch-time">归档于 {{ fmtTime(row.archived_at) }}</p>
         </div>
 
-        <div class="arch-ops">
-          <template v-if="pending?.id === row.id">
-            <p class="confirm-text" :class="{ 'is-danger': pending.action === 'purge' }">
-              <template v-if="pending.action === 'restore'">
-                恢复「{{ row.title }}」为已发布状态？所属文档将派生新版本（MINOR），模块回到 manifest。
-              </template>
-              <template v-else>
-                彻底删除「{{ row.title }}」？其全部版本历史将被一并删除，不可恢复。
-              </template>
-            </p>
-            <div class="confirm-btns">
-              <button
-                type="button"
-                class="btn"
-                :class="{ 'btn-danger': pending.action === 'purge' }"
-                :disabled="busy"
-                @click="confirm(row)"
-              >
-                {{ busy ? '处理中…' : pending.action === 'restore' ? '确认恢复' : '确认彻底删除' }}
-              </button>
-              <button type="button" class="btn" :disabled="busy" @click="cancel">取消</button>
-            </div>
-          </template>
-          <template v-else>
-            <button type="button" class="btn" @click="ask(row, 'restore')">恢复</button>
-            <button type="button" class="btn btn-danger" @click="ask(row, 'purge')">
-              彻底删除
-            </button>
-          </template>
-        </div>
-
-        <p v-if="rowError[row.id]" class="error-text arch-error">{{ rowError[row.id] }}</p>
       </article>
     </div>
   </div>

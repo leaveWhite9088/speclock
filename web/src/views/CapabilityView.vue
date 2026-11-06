@@ -1,5 +1,5 @@
 <script setup>
-// 文档详情：模块清单 + 文档版本时间线（每版可展开 manifest 快照）。
+// 小业务详情：模块清单 + 小业务版本时间线（每版可展开 manifest 快照）。
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api/client.js'
@@ -15,7 +15,7 @@ const docId = computed(() => Number(route.params.id))
 
 const loading = ref(true)
 const error = ref('')
-const doc = ref(null) // { id, title, current_version, blocks, projectName, domainName }
+const doc = ref(null) // { id, title, current_version, blocks, projectName, businessName }
 const versions = ref([])
 const openManifest = ref({}) // version -> bool
 
@@ -58,20 +58,20 @@ async function load() {
   try {
     const [tree, vers] = await Promise.all([
       api.get('/tree'),
-      api.get(`/documents/${docId.value}/versions`),
+      api.get(`/capabilities/${docId.value}/versions`),
     ])
     let found = null
     for (const p of tree) {
-      for (const d of p.domains) {
-        for (const dc of d.documents) {
+      for (const d of p.businesses) {
+        for (const dc of d.capabilities) {
           if (dc.id === docId.value) {
-            found = { ...dc, projectName: p.name, domainName: d.name }
+            found = { ...dc, projectName: p.name, businessName: d.name }
           }
         }
       }
     }
     if (!found) {
-      throw { status: 404, detail: `文档 ${docId.value} 不存在或已被删除。回到文档树选择一份文档。` }
+      throw { status: 404, detail: `小业务 ${docId.value} 不存在或已被删除。回到文档树选择一个小业务。` }
     }
     doc.value = found
     versions.value = [...vers].sort((a, b) => cmpVersion(b.version, a.version))
@@ -97,13 +97,17 @@ watch(docId, load, { immediate: true })
     </div>
 
     <template v-else-if="doc">
-      <AppBreadcrumb :document-id="docId" />
+      <AppBreadcrumb :capability-id="docId" />
       <h1 class="page-title">
         {{ doc.title }}
         <VersionChip v-if="doc.current_version" :version="doc.current_version" />
       </h1>
+      <div class="summary-box">
+        <p v-if="doc.summary" class="summary-text">{{ doc.summary }}</p>
+        <p v-else class="summary-text muted">暂无简述。简述会随索引下发给 agent，帮助它判断这个小业务是否相关。</p>
+      </div>
       <p class="page-desc">
-        模块独立发布；每次模块发布都会为本文档派生一个新的文档版本（manifest 快照）。
+        模块独立发布；一个 Commit 会为本小业务派生一个新的小业务版本（manifest 快照）。
       </p>
 
       <section class="section">
@@ -127,7 +131,7 @@ watch(docId, load, { immediate: true })
           </div>
         </div>
         <div v-else class="card state-card">
-          <p class="muted">本文档还没有模块。在文档树里为「{{ doc.title }}」新建第一个模块。</p>
+          <p class="muted">本小业务还没有模块（模块由 Agent 经审核单创建）。</p>
         </div>
       </section>
 
@@ -145,7 +149,9 @@ watch(docId, load, { immediate: true })
                 </button>
               </header>
               <p class="tl-meta muted">
-                {{ fmtTime(v.published_at) }} · {{ keyName(v.published_by) }} 发布 · 触发模块
+                {{ fmtTime(v.published_at) }} · {{ keyName(v.published_by) }} 发布
+                <template v-if="v.cr_id"> · 审核单 <RouterLink :to="`/change-requests/${v.cr_id}`">#{{ v.cr_id }}</RouterLink></template>
+                · 触发模块
                 <RouterLink :to="`/blocks/${v.triggered_by_block_id}`">{{
                   triggerTitle(v)
                 }}</RouterLink>
@@ -168,7 +174,7 @@ watch(docId, load, { immediate: true })
         </div>
         <div v-else class="card state-card">
           <p class="muted">
-            还没有文档版本。发布任一模块后，这里会自动派生第一个文档版本。
+            还没有小业务版本。发布任一模块后，这里会自动派生第一个小业务版本。
           </p>
         </div>
       </section>
@@ -183,6 +189,38 @@ watch(docId, load, { immediate: true })
 
 .section {
   margin-top: var(--sp-6);
+}
+
+.summary-box {
+  margin-top: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.summary-text {
+  font-size: var(--text-sm);
+}
+
+.summary-btn {
+  padding: 3px var(--sp-3);
+  font-size: var(--text-xs);
+}
+
+.summary-input {
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.summary-actions {
+  display: flex;
+  gap: var(--sp-2);
 }
 
 .section-title {
