@@ -40,7 +40,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 
 1. **去掉非功能性需求 `nfr_md`**（模型、接口、MCP、前端、数据全部移除，不迁移）。
 2. **新增验收条件 `acceptance`**：结构化列表，每条 `{id, name, detail}`，与规则同构；发布时必填至少 1 条；逐条 diff；提案通道有 `proposed_acceptance_ops`。
-3. **规则与验收条件带稳定 id**（`R-n` / `AC-n`）：服务端分配（缺 id 的条目在保存 / 发布时补），编号取当前草稿与全部历史快照（含已作废版本）已用最大编号 + 1，**不复用**；提案 ops 与 delta 都按 id 匹配，不再按名称。
+3. **规则与验收条件带稳定 id**（`R-n` / `AC-n`）：服务端分配（缺 id 的条目在保存 / 发布时补），编号取当前草稿与全部历史快照已用最大编号 + 1，**不复用**；提案 ops 与 delta 都按 id 匹配，不再按名称。
 4. **Block 独立语义化版本**：背景、规则、API、验收条件四部分的任何改动都是业务变更。
 5. **版本级别标签由代码机械算出，不让 Agent 判断，也不强制外部 Agent 怎么用**（`diffing.bump_level`）：
    - MAJOR：有任何删除或修改——API（删 API / 字段含可选字段、类型或必填标志变更）、规则、验收条件；
@@ -48,7 +48,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
    - PATCH：其余（只改背景、API 文字说明、条目只改名——名称只是标签，详述不变算 `renamed`）。
    - 规则 / 验收条件是自然语言，机器分不清改措辞与改语义，按保守一侧归类。
    - 标签存入 `BlockVersion.level`（`initial|major|minor|patch`），随 `get_block` / `get_diff` / 发布预览下发。**已移除**原有的「破坏性变更」闸门（`breaking` / `affected` / `fastTrack` / `confirm`）：需求数据由 Agent 维护、人只通过审核单与需求 Agent 沟通，不再有人在界面上点确认；发布只保留 `dryRun` 预览。
-6. **版本状态**：`Deprecated` 是**派生状态**，不存库——agent 读到不是最新未作废版本的快照时，响应带 `status: deprecated` 与 `superseded_by`；`voided`（撤回）、`archived`（模块下线）、`Deprecated`（被取代）是三回事，不要混。`Approved` 等审核单做出来时一起做。
+6. **版本状态**：`Deprecated` 是**派生状态**，不存库——agent 读到不是最新版本的快照时，响应带 `status: deprecated` 与 `superseded_by`；`archived`（模块下线）和 `Deprecated`（被取代）是两回事，不要混。**没有作废功能**：发布错了就再提审核单往前改。`Approved` 等审核单做出来时一起做。
 
 ## 5. 审核机制（已实施，0.5.0；尚未提交）
 
@@ -81,12 +81,28 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - **所有操作都由 Agent 通过 MCP 完成**，包括批准 / 驳回：MCP 提供 `approve_change_request` / `reject_change_request`。因为 Agent 持有 admin key，"Agent 不能批准"在此阶段只是约定，不再是物理约束；为了事后可查，MCP 的批准工具**必须带 `content_hash`（批准的是哪一版）和 `evidence`（人的原话）**，Core 照常留痕（`decision_via=natural_language`）。
 - **网页只做展示**（参考实现，可启动可不启动），不承担任何操作；它只调用公开 REST 接口，别人想自己做一个也能接。已做（见第 8 节 `web/`）。
 
-## 6. 后续路线（未开始）
+## 6. 执行记录（已实施，0.6.0）
 
-- 规格状态与执行状态**分开**：规格 Draft/Approved/Published/Deprecated/Archived；执行 Not Started/Pending/In Progress/Implemented/Verified/Failed。期望版本 vs 已实现版本的差距自动产生待执行需求。
-- Execution Protocol：领取变更、取定版上下文、报告开始/完成/失败/业务阻塞、提交验收；Verified 须经验收，不能只靠 agent 自报。
-- Finding 存储：语义扫描 Agent 只能提交发现，不能改文档。
-- Agent 角色区分已做（角色 → 权限集合，见第 5 节）；scanner-agent 目前只读，等 Finding 存储做出来再给它 `finding.write`。
+规格状态与执行状态**分开**。Core 只做机械的事——登记、转换、校验、留痕；谁来做、怎么做、做得好不好是外部 Agent 的事。
+
+- **每个已发布的模块版本自动一条执行记录**（发布引擎在发布后 `sync_block`）：`pending → in_progress → implemented → verified`；`in_progress` 可去 `blocked`（业务上卡住，必须写原因）/ `failed`（必须写原因），这两个状态可重新领取（不限次数，旧结果清空，历史留在事件里）；验收不通过也回到 `failed`；模块发布新版本时旧版本上未结束的记录变 `superseded`（对它的写一律 409 并指向最新版本）。`verified` / `superseded` 是终态。
+- **领取时拿到锁定版本的完整规格**；不做领取超时，卡住了用 `release_work` 放弃（领取者本人或管理员）。
+- **实现结果逐条验收条件**：`submit_implementation` 必须对该版本每条 AC 给 `pass` + 证据，缺一条、证据为空、有不通过都拒绝（做不下去用 `report_failed` / `report_blocked`）。
+- **独立验收**：`verify_work` 需要 `exec.verify`（测试 Agent），同样逐条给结果；**验证者不能是实现者（同一把 key → 403）**。全通过 → `verified`，有不通过 → `failed` 且原因写进记录。
+- **blocked 的解决**：Core 不路由。需求 Agent 在 `list_work(status=blocked)` 里看到，走正常审核单发布新版本，旧记录自动被取代、新版本产生新的 pending。
+- 权限：`exec.read`（看待办 / 记录）、`exec.write`（领取 / 报告 / 提交）、`exec.verify`（验收）。预置 `executor-agent`（读 + exec.write）、`tester-agent`（读 + exec.verify）、`requirements-agent` 也能 `exec.read`。
+- 旧的 `ack_block` / `Block.completed*` / `acks` 表已删除，不保留。
+
+### 密钥与身份（已定，覆盖「编码阶段的简化」里单把 key 的部分）
+
+- **同一目录下多个 Agent 协作，key 在 Core 之外互相看得见**，所以不靠 key 保密来隔离角色：key 的作用是**角色权限 + 项目隔离**；Agent 的身份靠各目录（根目录 / `web/` / `backend/` …）的 `AGENTS.md` 里的身份提示词：先弄清自己的职位，看自己的 `AGENTS.md` 里有没有已领取的 key，有就用，**不要重复领取**；没有则问人，人同意后再创建，并把 key 写进自己的 `AGENTS.md`。这部分是**靠自觉**，Core 不强制（只强制验证者 ≠ 实现者按 key 判定）。
+- **不预置多把 key**：seed 只发一把 admin key；其余 key 由持有 admin key 的 Agent 经 MCP `create_api_key` 创建，**必须先问人，`evidence` 附人同意的原话**（不带原话 422，来源与原话写进审计）；`speclock-cli key create` 是兜底。网页不提供创建 key 的操作。
+- 已知限制：只有带 `key.manage`（人类专属权限）的 key 能创建 key，所以受限角色的 Agent 自己领不到 key，得由持有 admin key 的 Agent 或人代为创建后写进它的 `AGENTS.md`。
+
+## 6.1 后续路线（未开始）
+
+- Finding 存储：语义扫描 Agent 只能提交发现，不能改文档（`scanner-agent` 目前只读，等 Finding 做出来再给它 `finding.write`；可能要关联到执行记录）。
+- 读取侧缺专用的 `get_block_history` / `get_capability_history`（现在靠 diff + pin 部分替代）。
 - 官方 Agent 脚手架只是最佳实践示范，不属于 Core。
 
 ## 7. 开发约定
@@ -109,10 +125,11 @@ cd web && npm run build                        # 前端构建（产物 web/dist/
 - `speclock/commits.py`：Commit 引擎（ops 原子应用、`$ref`、跨 Block / Capability、整体回滚）。
 - `speclock/engine.py`：发布引擎（内部，无对外写接口）：草稿 → 不可变版本、Capability 版本派生、结构完备性校验；seed / inject 也直接调它。
 - `speclock/permissions.py`：权限目录、预置角色、`require_permission`。
-- `speclock/api_admin.py`：读视图（树 / 版本 / 归档 / 审计）+ 项目 / 密钥 / 角色管理 + 紧急作废（`spec.void`）。
-- `speclock/api_agent.py`：读规格 + 实现回执；不存在任何规格写端点。
+- `speclock/api_admin.py`：读视图（树 / 版本 / 归档 / 审计）+ 项目 / 密钥 / 角色管理。
+- `speclock/api_agent.py`：读规格；不存在任何规格写端点。
 - `speclock/cli.py`：`speclock-cli`，人用人类 key 查看 / 批准 / 驳回审核单。
 - `speclock/diffing.py`：结构化 API / 规则校验、字段级 delta、版本级别标签、OpenAPI 生成、版本号计算。
-- `speclock/mcp_server.py`：stdio MCP，16 个工具（含代人批准 / 驳回，必须带哈希与人的原话），经 HTTP 调用本系统 REST。
+- `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
+- `speclock/mcp_server.py`：stdio MCP，24 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
-- `web/`：Vue 3 **只读展示**网页（参考实现，已适配 0.5.0）：文档树、模块 / 版本 / diff（带到审核单的溯源）、审核单列表与详情、回执、归档、AI 接入说明。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。
+- `web/`：Vue 3 **只读展示**网页（参考实现，已适配 0.6.0）：文档树、模块 / 版本 / diff（带到审核单的溯源与执行状态）、审核单列表与详情、待办（执行记录与事件）、归档、AI 接入说明。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。
