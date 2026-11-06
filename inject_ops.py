@@ -17,7 +17,6 @@ from speclock.engine import publish_block
 from speclock.auth import hash_key, key_hint, new_key
 from speclock.db import SessionLocal, get_engine, init_db
 from speclock.models import (
-    Ack,
     ApiKey,
     AuditLog,
     Block,
@@ -27,6 +26,8 @@ from speclock.models import (
     Business,
     ChangeRequest,
     Commit,
+    ExecutionEvent,
+    ExecutionRecord,
     Project,
 )
 
@@ -38,7 +39,7 @@ PROJECT_NAME = "重庆尚诚购·线上零售（运营工作区）"
 def clear_all(db) -> None:
     # 注意：api_keys 不清空——密钥由人管理，重跑注入不吊销任何 key
     for model in (
-        Ack, AuditLog, BlockVersion, CapabilityVersion, Commit, ChangeRequest,
+        ExecutionEvent, ExecutionRecord, AuditLog, BlockVersion, CapabilityVersion, Commit, ChangeRequest,
         Block, Capability, Business, Project,
     ):
         db.query(model).delete()

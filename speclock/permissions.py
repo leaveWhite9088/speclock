@@ -23,12 +23,13 @@ from speclock.models import ApiKey, Role
 # name -> (说明, 是否人类专属)
 PERMISSIONS: dict[str, tuple[str, bool]] = {
     "spec.read": ("读取已发布规格：索引、小业务、模块、diff、版本历史", False),
-    "ack.write": ("提交实现回执（标记模块版本已实现）", False),
+    "exec.read": ("查看待办与执行记录（含锁定版本的完整上下文）", False),
+    "exec.write": ("领取任务、报告阻塞 / 失败、提交实现结果", False),
+    "exec.verify": ("独立验收他人提交的实现结果（不能验收自己实现的）", False),
     "cr.read": ("查看审核单与其 Commit", False),
     "cr.write": ("创建、编辑、提交、撤回审核单", False),
     "cr.approve": ("批准或驳回审核单（人的授权）", True),
     "commit.write": ("在已批准的审核单下提交 Commit，改写规格库", False),
-    "spec.void": ("作废已发布版本（紧急撤回）", True),
     "audit.read": ("查看审计日志与回执看板", False),
     "project.manage": ("创建、重命名、删除项目", True),
     "key.manage": ("管理密钥与角色", True),
@@ -44,11 +45,25 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
         "requirements-agent",
         "agent",
         "需求 Agent：整理审核单，并在审核单获批后写规格库",
-        ["spec.read", "cr.read", "cr.write", "commit.write"],
+        ["spec.read", "cr.read", "cr.write", "commit.write", "exec.read"],
     ),
-    ("executor-agent", "agent", "执行 Agent：读取规格并提交实现回执", ["spec.read", "ack.write", "cr.read"]),
+    (
+        "executor-agent",
+        "agent",
+        "执行 Agent：领取任务、按锁定版本实现、提交实现结果",
+        ["spec.read", "cr.read", "exec.read", "exec.write"],
+    ),
+    (
+        "tester-agent",
+        "agent",
+        "测试 Agent：独立验收执行 Agent 提交的实现结果",
+        ["spec.read", "cr.read", "exec.read", "exec.verify"],
+    ),
     ("scanner-agent", "agent", "扫描 Agent：只读规格", ["spec.read"]),
 ]
+
+# 旧版预置角色升级时补上的权限（只在该角色完全没有 exec.* 权限时补一次）
+EXEC_PERMISSIONS = ("exec.read", "exec.write", "exec.verify")
 
 LEGACY_DEFAULT_ROLE = {"human": "admin", "agent": "executor-agent"}
 
@@ -82,6 +97,14 @@ def seed_roles(db: Session) -> None:
             )
             db.add(existing[name])
     db.flush()
+    # 升级旧库：预置角色若还没有任何 exec.* 权限，补上预置里对应的那几条
+    for name, _kind, _desc, perms in PRESET_ROLES:
+        role = existing[name]
+        have = set(json.loads(role.permissions_json or "[]"))
+        if role.builtin and not (have & set(EXEC_PERMISSIONS)):
+            add = {p for p in perms if p in EXEC_PERMISSIONS}
+            if add:
+                role.permissions_json = json.dumps(sorted(have | add))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()

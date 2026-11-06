@@ -1,8 +1,7 @@
-"""Agent 读接口（规格索引 / 小业务 / 模块 / diff）+ 实现回执。
+"""Agent 读接口（规格索引 / 小业务 / 模块 / diff），按 ``spec.read`` 放行。
 
-按权限放行：读规格要 ``spec.read``，提交回执要 ``ack.write``。这里刻意没有任何能改规格
-内容的接口——规格库唯一的写入通道是审核单下的 Commit（见 ``api_cr.py``）。草稿
-（Block.draft_*）永远够不着。
+这里刻意没有任何能改规格内容的接口——规格库唯一的写入通道是审核单下的 Commit
+（见 ``api_cr.py``）；执行侧的写入在 ``api_exec.py``。草稿（Block.draft_*）永远够不着。
 """
 
 from __future__ import annotations
@@ -19,17 +18,15 @@ from speclock import diffing
 from speclock.auth import audit
 from speclock.db import get_db
 from speclock.models import (
-    Ack,
     ApiKey,
     Block,
     BlockVersion,
     Capability,
     CapabilityVersion,
-    utcnow,
+    ExecutionRecord,
 )
 from speclock.permissions import require_permission
 from speclock.schemas import (
-    AckRequest,
     BlockOut,
     CapabilityIndexEntry,
     CapabilityOut,
@@ -112,11 +109,7 @@ def _published_snapshot(db: Session, block: Block, version: str | None) -> Block
     target = version or block.current_published_version
     bv = (
         db.query(BlockVersion)
-        .filter(
-            BlockVersion.block_id == block.id,
-            BlockVersion.version == target,
-            BlockVersion.voided_at.is_(None),  # pin 已作废版本 → 404
-        )
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == target)
         .first()
     )
     if bv is None:
@@ -124,7 +117,15 @@ def _published_snapshot(db: Session, block: Block, version: str | None) -> Block
     return bv
 
 
-def _block_out(bv: BlockVersion) -> BlockOut:
+def _exec_record(db: Session, block_id: int, version: str) -> ExecutionRecord | None:
+    return (
+        db.query(ExecutionRecord)
+        .filter(ExecutionRecord.block_id == block_id, ExecutionRecord.version == version)
+        .first()
+    )
+
+
+def _block_out(bv: BlockVersion, rec: ExecutionRecord | None = None) -> BlockOut:
     block = bv.block
     return BlockOut(
         block_id=bv.block_id,
@@ -145,8 +146,8 @@ def _block_out(bv: BlockVersion) -> BlockOut:
         ),
         delta=json.loads(bv.delta_json),
         published_at=bv.published_at,
-        completed=block.completed,
-        completed_version=block.completed_version,
+        work_id=rec.id if rec else None,
+        execution_status=rec.status if rec else None,
         cr_id=bv.cr_id,
         commit_id=bv.commit_id,
     )
@@ -155,15 +156,18 @@ def _block_out(bv: BlockVersion) -> BlockOut:
 @router.get("/index", response_model=list[IndexBusiness])
 def get_index(
     business: str | None = None,
-    incomplete: bool = False,
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("spec.read")),
 ):
     """三层嵌套索引：大业务 → 小业务→ 模块。一次调用拿全图后在树里选模块。
-    只含已发布模块；可选过滤：business（大业务名称精确匹配）、incomplete=true（只看未完成模块）。
-    模块节点带 completed/completed_version——后端 AI 据此只做未完成的小业务。"""
+    只含已发布模块；可选过滤：business（大业务名称精确匹配）。
+    模块节点带 work_id / execution_status（当前版本的执行状态）；要找待办用 /work。"""
     tree: dict[str, dict[int, dict]] = {}
     count = 0
+    records = {
+        (r.block_id, r.version): r
+        for r in db.query(ExecutionRecord).filter(ExecutionRecord.status != "superseded").all()
+    }
     for block in db.query(Block).filter(Block.status == "published").all():
         if block.current_published_version is None:
             # 全部版本已作废：按未发布处理，不出现在索引
@@ -173,8 +177,7 @@ def get_index(
             continue
         if business is not None and doc.business.name != business:
             continue
-        if incomplete and block.completed:
-            continue
+        rec = records.get((block.id, block.current_published_version))
         docs = tree.setdefault(doc.business.name, {})
         slot = docs.setdefault(doc.id, {"doc": doc, "blocks": []})
         slot["blocks"].append(
@@ -183,8 +186,8 @@ def get_index(
                 title=block.title,
                 version=block.current_published_version,
                 summary=(block.summary or block.draft_content_md.strip())[:50],
-                completed=block.completed,
-                completed_version=block.completed_version,
+                work_id=rec.id if rec else None,
+                execution_status=rec.status if rec else None,
             )
         )
         count += 1
@@ -204,8 +207,7 @@ def get_index(
         )
         for dom_name, docs in tree.items()
     ]
-    audit(db, key.hint, "pull", "index", {"entries": count,
-                                         "business": business, "incomplete": incomplete})
+    audit(db, key.hint, "pull", "index", {"entries": count, "business": business})
     db.commit()
     return result
 
@@ -225,7 +227,7 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     bv = _published_snapshot(db, block, m.group("version"))
     audit(db, key.hint, "pull", f"block:{block.id}@{bv.version}", {})
     db.commit()
-    return _block_out(bv)
+    return _block_out(bv, _exec_record(db, block.id, bv.version))
 
 
 def compute_block_diff(
@@ -238,7 +240,7 @@ def compute_block_diff(
     不做鉴权 / 状态可见性检查（如 agent 仅见 published）——那是调用方
     （端点）的职责；因此这里只按版本号查快照，已归档模块的历史版本同样可比。
     """
-    ordered = [v.version for v in block.versions if v.voided_at is None]
+    ordered = [v.version for v in block.versions]
     from_ = from_ or (ordered[-2] if len(ordered) >= 2 else None)
     to = to or (ordered[-1] if ordered else None)
     if from_ is None or to is None:
@@ -247,23 +249,14 @@ def compute_block_diff(
             "message": "该模块目前只有一个已发布版本，暂无可对比的历史版本",
             "versions": ordered,
         }
-    # 已作废版本不可见：显式指定作废版本同样 404
     old = (
         db.query(BlockVersion)
-        .filter(
-            BlockVersion.block_id == block.id,
-            BlockVersion.version == from_,
-            BlockVersion.voided_at.is_(None),
-        )
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == from_)
         .first()
     )
     new = (
         db.query(BlockVersion)
-        .filter(
-            BlockVersion.block_id == block.id,
-            BlockVersion.version == to,
-            BlockVersion.voided_at.is_(None),
-        )
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == to)
         .first()
     )
     if old is None:
@@ -332,18 +325,18 @@ def get_diff(
 
 
 def _capability_out(db: Session, dv: CapabilityVersion) -> CapabilityOut:
-    """manifest 快照 + 实时完成状态（完成标记是当前状态，不随历史版本冻结）。"""
+    """manifest 快照 + 每个模块在该版本上的实时执行状态（执行状态是当前状态，不随历史冻结）。"""
     manifest = json.loads(dv.manifest_json)
     entries = []
     for bid, m in manifest.items():
-        block = db.get(Block, int(bid))
+        rec = _exec_record(db, int(bid), m["version"])
         entries.append(
             {
                 "block_id": int(bid),
                 "title": m["title"],
                 "version": m["version"],
-                "completed": block.completed if block else False,
-                "completed_version": block.completed_version if block else None,
+                "work_id": rec.id if rec else None,
+                "execution_status": rec.status if rec else None,
             }
         )
     return CapabilityOut(
@@ -409,36 +402,3 @@ def get_capability(ref: str, db: Session = Depends(get_db), key: ApiKey = Depend
     audit(db, key.hint, "pull", f"capability:{doc.id}@{dv.version}", {})
     db.commit()
     return _capability_out(db, dv)
-
-
-# ---------- ack（agent 唯一的写：实现回执，不改规格） ----------
-
-
-@router.post("/blocks/{block_id}/ack", status_code=201)
-def ack_block(
-    block_id: int,
-    body: AckRequest,
-    db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_permission("ack.write")),
-):
-    """Agent receipt: 'implemented against this exact published version'.
-
-    completed 的唯一写入路径：回执的版本等于该模块当前最新发布版本时，
-    模块被标记为已完成；回执旧版本（pin 历史版本）只记录 Ack，不置位。"""
-    block = db.get(Block, block_id)
-    if block is None:
-        raise HTTPException(status_code=404, detail=f"block {block_id} not found")
-    _check_project_scope(key, _block_project_id(block))
-    _published_snapshot(db, block, body.version)  # must be a real published version
-    ack = Ack(block_id=block_id, version=body.version, agent_key=key.hint, task_desc=body.task_desc)
-    db.add(ack)
-    marked_completed = body.version == block.current_published_version
-    if marked_completed:
-        block.completed = True
-        block.completed_version = body.version
-        block.completed_at = utcnow()
-    audit(db, key.hint, "ack", f"block:{block_id}@{body.version}",
-          {"task_desc": body.task_desc, "marked_completed": marked_completed})
-    db.commit()
-    return {"id": ack.id, "block_id": block_id, "version": body.version,
-            "marked_completed": marked_completed}

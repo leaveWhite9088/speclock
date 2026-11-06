@@ -57,7 +57,6 @@ def _ensure_columns() -> None:
         },
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
-            "voided_at": "DATETIME",
             "acceptance_json": "TEXT NOT NULL DEFAULT '[]'",
             "level": "TEXT NOT NULL DEFAULT ''",
             "cr_id": "INTEGER REFERENCES change_requests(id)",
@@ -73,11 +72,12 @@ def _ensure_columns() -> None:
     }
     dropped = {
         "capabilities": ["doc_type"],
-        "blocks": ["draft_edge_md", "draft_nfr_md"],
-        "block_versions": ["edge_md", "nfr_md", "applied_ops_json"],
+        "blocks": ["draft_edge_md", "draft_nfr_md", "completed", "completed_version", "completed_at"],
+        "block_versions": ["edge_md", "nfr_md", "applied_ops_json", "voided_at"],
     }
     engine = get_engine()
     with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS acks"))  # 旧的实现回执，已被执行记录取代
         for table, cols in wanted.items():
             existing = {
                 row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))
@@ -132,11 +132,13 @@ def init_db() -> None:
     _rename_legacy_tables()
     Base.metadata.create_all(get_engine())
     _ensure_columns()
+    from speclock.executions import backfill
     from speclock.permissions import seed_roles
 
     db = SessionLocal()
     try:
         seed_roles(db)
+        backfill(db)  # 给已发布的模块补执行记录（幂等）
     finally:
         db.close()
 

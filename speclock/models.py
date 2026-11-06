@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from speclock.db import Base
@@ -86,12 +86,6 @@ class Block(Base):
     current_published_version: Mapped[str | None] = mapped_column(nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(nullable=True)  # 最近归档时间
 
-    # 完成标记：「当前已发布版本已被实现完成」。发布新版本时 completed 自动重置
-    # 为 False；completed_version 保留为「上次完成对应的版本号」（历史信息）。
-    completed: Mapped[bool] = mapped_column(default=False)
-    completed_version: Mapped[str | None] = mapped_column(nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
-
     # working draft — writable by humans only, never exposed to agents
     draft_content_md: Mapped[str] = mapped_column(Text, default="")  # 业务背景与流程叙述
     draft_rules_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化业务规则清单
@@ -127,8 +121,6 @@ class BlockVersion(Base):
     commit_id: Mapped[int | None] = mapped_column(ForeignKey("commits.id"), nullable=True)
     published_by: Mapped[str] = mapped_column(default="")
     published_at: Mapped[datetime] = mapped_column(default=utcnow)
-    # 版本作废（逻辑删除）：非空即作废——对 agent 与页面均不可见，行保留在库中
-    voided_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     block: Mapped[Block] = relationship(back_populates="versions")
 
@@ -211,17 +203,53 @@ class Commit(Base):
     change_request: Mapped[ChangeRequest] = relationship(back_populates="commits")
 
 
-class Ack(Base):
-    """Agent receipt: 'implemented against block X @ version Y'."""
+class ExecutionRecord(Base):
+    """执行记录：「把模块 X 的 v 版本实现出来」这件事的状态。每个已发布版本一条（自动产生），
+    规格状态与执行状态分开存放。
 
-    __tablename__ = "acks"
+    状态：pending → in_progress → implemented → verified；in_progress 可到 blocked /
+    failed（failed、blocked 可重新领取）；验收不通过回到 failed；模块发布新版本时
+    未结束的记录变 superseded。每次转换写一条 ExecutionEvent。
+    """
+
+    __tablename__ = "execution_records"
+    __table_args__ = (UniqueConstraint("block_id", "version", name="uq_exec_block_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     block_id: Mapped[int] = mapped_column(ForeignKey("blocks.id"))
     version: Mapped[str]
-    agent_key: Mapped[str]
-    task_desc: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(default="pending")
+    claimed_by: Mapped[str] = mapped_column(default="")  # key hint；空 = 无人持有
+    claimed_by_key_id: Mapped[int | None] = mapped_column(nullable=True)
+    implemented_by_key_id: Mapped[int | None] = mapped_column(nullable=True)  # 验证者须不同于它
+    reason: Mapped[str] = mapped_column(Text, default="")  # 最近一次 blocked / failed 的原因
+    results_json: Mapped[str] = mapped_column(Text, default="[]")  # 实现方逐条验收条件的结果
+    verification_json: Mapped[str] = mapped_column(Text, default="[]")  # 验证方逐条结果
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    block: Mapped[Block] = relationship()
+    events: Mapped[list["ExecutionEvent"]] = relationship(
+        back_populates="record", order_by="ExecutionEvent.id"
+    )
+
+
+class ExecutionEvent(Base):
+    """执行记录的状态转换历史（只追加）。"""
+
+    __tablename__ = "execution_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_id: Mapped[int] = mapped_column(ForeignKey("execution_records.id"))
+    event: Mapped[str]  # created|claim|release|blocked|failed|implemented|verified|verify_failed|superseded
+    from_status: Mapped[str] = mapped_column(default="")
+    to_status: Mapped[str]
+    actor: Mapped[str] = mapped_column(default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    detail_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    record: Mapped[ExecutionRecord] = relationship(back_populates="events")
 
 
 class Role(Base):

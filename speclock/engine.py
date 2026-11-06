@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from speclock import diffing
 from speclock.auth import audit
+from speclock.executions import sync_block
 from speclock.models import Block, BlockVersion, Capability, CapabilityVersion
 from speclock.schemas import PublishResult
 
@@ -24,14 +25,10 @@ CONTENT_MD_MIN_LEN = 20  # 业务背景与流程叙述的最短长度（去空�
 
 
 def published_version(db: Session, block: Block, version: str) -> BlockVersion:
-    """按版本号取可见快照；已作废（voided_at 非空）的版本视为不存在。"""
+    """按版本号取快照；不存在则 404。"""
     bv = (
         db.query(BlockVersion)
-        .filter(
-            BlockVersion.block_id == block.id,
-            BlockVersion.version == version,
-            BlockVersion.voided_at.is_(None),
-        )
+        .filter(BlockVersion.block_id == block.id, BlockVersion.version == version)
         .first()
     )
     if bv is None:
@@ -207,8 +204,7 @@ def publish_block(
     d.update(diffing.rules_delta(old_rules, rules))
     d.update(diffing.acceptance_delta(old_acceptance, acceptance))
     groups = diffing.group_delta(d, old_apis, apis)
-    # 版本号永不复用：从含作废版本在内的历史最大号继续递增；
-    # diff 基线仍是最新未作废版本（current_published_version 在作废时已回退）
+    # 版本号永不复用：从历史最大号继续递增
     ever = [v.version for v in block.versions]
     base = max(ever, key=diffing.semver_key) if ever else None
     version, level = diffing.next_module_version(base, d)
@@ -244,10 +240,8 @@ def publish_block(
     db.flush()
     block.current_published_version = version
     block.status = "published"
-    # 发布新版本 → 完成标记自动重置（新版本内容的实现必然滞后）；
-    # completed_version 保留为「上次完成的版本号」供参考
-    block.completed = False
-    block.completed_at = None
+    # 执行记录跟上新版本：旧版本上未结束的记录被取代，新版本产生一条待领取记录
+    sync_block(db, block, actor)
     audit(
         db,
         actor,

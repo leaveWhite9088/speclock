@@ -57,6 +57,9 @@ class KeyCreate(BaseModel):
     label: str = ""
     # 项目隔离：绑定项目后该 key 只能访问该项目的内容；None = 全局。
     project_id: int | None = None
+    # 创建来源与依据：网页按钮 = button；Agent 代人创建须 via=natural_language 并附人的原话
+    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    evidence: str = ""
 
 
 class RoleCreate(BaseModel):
@@ -119,9 +122,21 @@ class CommitCreate(BaseModel):
     dryRun: bool = False  # 预览：完整执行后回滚，返回会得到的版本 / 级别标签 / delta
 
 
-class AckRequest(BaseModel):
-    version: str
-    task_desc: str = ""
+class AcResult(BaseModel):
+    """对一条验收条件的结果：实现方自测 / 验证方独立验收都用它。"""
+
+    ac_id: str
+    result: str = Field(pattern="^(pass|fail)$")
+    evidence: str  # 证据：测试输出、接口返回、观察到的现象等（必填）
+
+
+class WorkResults(BaseModel):
+    results: list[AcResult]
+    note: str = ""
+
+
+class WorkReason(BaseModel):
+    reason: str
 
 
 class ApiOp(BaseModel):
@@ -155,8 +170,8 @@ class IndexBlock(BaseModel):
     title: str
     version: str
     summary: str  # <= 50 chars
-    completed: bool  # 当前已发布版本是否已被实现完成
-    completed_version: str | None  # 上次完成对应的版本号
+    work_id: int | None = None  # 当前版本的执行记录 id
+    execution_status: str | None = None  # 当前版本的执行状态（见 executions.py）
 
 
 class IndexCapability(BaseModel):
@@ -204,8 +219,8 @@ class BlockOut(BaseModel):
     superseded_by: str | None = None
     delta: Delta
     published_at: datetime | None
-    completed: bool
-    completed_version: str | None
+    work_id: int | None = None  # 该版本的执行记录 id
+    execution_status: str | None = None  # 该版本的执行状态
     # 溯源：产生这个版本的审核单与 Commit（灌入的示例数据为空）
     cr_id: int | None = None
     commit_id: int | None = None

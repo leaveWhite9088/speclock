@@ -1,4 +1,4 @@
-"""管理 API：读视图（SPA 用）+ 项目 / 密钥 / 角色管理 + 紧急作废。
+"""管理 API：读视图（SPA 用）+ 项目 / 密钥 / 角色管理。
 
 **这里没有任何改写规格内容的接口**：模块、小业务、大业务的创建 / 修改 / 发布 / 归档
 只能通过审核单下的 Commit（见 ``api_cr.py`` / ``commits.py``）完成。每个接口按权限放行
@@ -18,7 +18,6 @@ from speclock.auth import audit, hash_key, key_hint, new_key
 from speclock.db import get_db
 from speclock.engine import published_version
 from speclock.models import (
-    Ack,
     ApiKey,
     AuditLog,
     Block,
@@ -27,9 +26,10 @@ from speclock.models import (
     CapabilityVersion,
     ChangeRequest,
     Commit,
+    ExecutionEvent,
+    ExecutionRecord,
     Project,
     Role,
-    utcnow,
 )
 from speclock.permissions import require_key, require_permission
 from speclock.schemas import (
@@ -82,6 +82,9 @@ def get_tree(
         (bv.block_id, bv.version): bv.published_at
         for bv in db.query(BlockVersion).all()
     }
+    exec_status = {
+        (r.block_id, r.version): r.status for r in db.query(ExecutionRecord).all()
+    }
     return [
         {
             "id": p.id,
@@ -105,7 +108,9 @@ def get_tree(
                                     "current_published_at": published_at_map.get(
                                         (b.id, b.current_published_version)
                                     ),
-                                    "completed": b.completed,
+                                    "execution_status": exec_status.get(
+                                        (b.id, b.current_published_version)
+                                    ),
                                 }
                                 for b in doc.blocks
                             ],
@@ -216,8 +221,15 @@ def rename_project(
 
 
 def _hard_delete_block(db: Session, block: Block) -> None:
+    rec_ids = [r.id for r in db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id)]
+    if rec_ids:
+        db.query(ExecutionEvent).filter(ExecutionEvent.record_id.in_(rec_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(ExecutionRecord).filter(ExecutionRecord.id.in_(rec_ids)).delete(
+            synchronize_session=False
+        )
     db.query(BlockVersion).filter(BlockVersion.block_id == block.id).delete()
-    db.query(Ack).filter(Ack.block_id == block.id).delete()
     db.delete(block)
 
 
@@ -297,7 +309,7 @@ def delete_project(
     return {"id": project_id, "deleted": True, "deleted_keys": len(bound_keys)}
 
 
-# ---------- versions（读）+ 紧急作废 ----------
+# ---------- versions（读） ----------
 
 
 def _trace(v) -> dict:
@@ -310,30 +322,15 @@ def list_versions(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("spec.read")),
 ):
-    """版本历史列表：已作废版本不出现（逻辑删除，库里仍保留）。
-    每个版本附带回执记录（按时间正序）与三态 ack_state：
-    acked（有回执）/ pending（当前已发布版本待回执，唯一 actionable）/
-    superseded（无回执且已被取代）。"""
+    """版本历史列表。每个版本附带该版本的执行记录（状态 + 事件历史）。"""
     block = _get_block(db, block_id)
-    acks_by_version: dict[str, list[Ack]] = {}
-    for a in (
-        db.query(Ack)
-        .filter(Ack.block_id == block.id)
-        .order_by(Ack.created_at, Ack.id)
-        .all()
-    ):
-        acks_by_version.setdefault(a.version, []).append(a)
+    records = {
+        r.version: r
+        for r in db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id).all()
+    }
     out = []
     for v in block.versions:
-        if v.voided_at is not None:
-            continue
-        v_acks = acks_by_version.get(v.version, [])
-        if v_acks:
-            ack_state = "acked"
-        elif v.version == block.current_published_version:
-            ack_state = "pending"
-        else:
-            ack_state = "superseded"
+        rec = records.get(v.version)
         out.append(
             {
                 "version": v.version,
@@ -343,15 +340,19 @@ def list_versions(
                 **_trace(v),
                 "published_by": v.published_by,
                 "published_at": v.published_at,
-                "acks": [
+                "work_id": rec.id if rec else None,
+                "execution_status": rec.status if rec else None,
+                "events": [
                     {
-                        "agent_key": a.agent_key,
-                        "task_desc": a.task_desc,
-                        "created_at": a.created_at,
+                        "event": e.event,
+                        "from": e.from_status,
+                        "to": e.to_status,
+                        "actor": e.actor,
+                        "note": e.note,
+                        "created_at": e.created_at,
                     }
-                    for a in v_acks
+                    for e in (rec.events if rec else [])
                 ],
-                "ack_state": ack_state,
             }
         )
     return out
@@ -368,6 +369,11 @@ def get_version(
     版本同样可查）。对应 UI 的模块查看页。"""
     block = _get_block(db, block_id)
     bv = published_version(db, block, version)
+    rec = (
+        db.query(ExecutionRecord)
+        .filter(ExecutionRecord.block_id == block.id, ExecutionRecord.version == bv.version)
+        .first()
+    )
     return {
         "block_id": bv.block_id,
         "title": block.title,
@@ -384,52 +390,8 @@ def get_version(
         **_trace(bv),
         "published_by": bv.published_by,
         "published_at": bv.published_at,
-        "completed": block.completed,
-        "completed_version": block.completed_version,
-    }
-
-
-@router.post("/blocks/{block_id}/versions/{version}/void")
-def void_version(
-    block_id: int,
-    version: str,
-    db: Session = Depends(get_db),
-    key: ApiKey = Depends(require_permission("spec.void")),
-):
-    """版本作废（逻辑删除，紧急撤回；人类专属权限）：作废后该版本对 agent 与页面均不可见
-    （读取 404、历史列表/diff/index 均排除），数据库行保留可查。不提供恢复入口。
-
-    作废时把 Block.current_published_version 回退到最新未作废版本（全部作废
-    则置 None，模块按未发布展示），各读侧无需额外过滤即可看到一致语义；
-    版本号不复用由发布侧按含作废版本的历史最大号递增保证。
-    已作废的版本再次调用返回 409（与 restore 的状态冲突语义一致）。"""
-    block = _get_block(db, block_id)
-    bv = (
-        db.query(BlockVersion)
-        .filter(BlockVersion.block_id == block.id, BlockVersion.version == version)
-        .first()
-    )
-    if bv is None:
-        raise HTTPException(status_code=404, detail=f"block {block.id} has no version {version}")
-    if bv.voided_at is not None:
-        raise HTTPException(status_code=409, detail=f"version {version} already voided")
-    bv.voided_at = utcnow()
-    remaining = [v for v in block.versions if v.voided_at is None]
-    block.current_published_version = remaining[-1].version if remaining else None
-    if remaining:
-        # 草稿（Commit 的暂存区）与当前版本保持一致：之后的 Commit 以回退后的版本为基线
-        last = remaining[-1]
-        block.draft_content_md = last.content_md
-        block.draft_rules_json = last.rules_json
-        block.draft_apis_json = last.apis_json
-        block.draft_acceptance_json = last.acceptance_json
-    audit(db, key.hint, "void", f"block:{block.id}@{version}", {})
-    db.commit()
-    return {
-        "block_id": block.id,
-        "version": version,
-        "voided": True,
-        "current_published_version": block.current_published_version,
+        "work_id": rec.id if rec else None,
+        "execution_status": rec.status if rec else None,
     }
 
 
@@ -453,27 +415,6 @@ def list_capability_versions(
             "published_at": v.published_at,
         }
         for v in doc.versions
-    ]
-
-
-# ---------- ack board ----------
-
-
-@router.get("/acks")
-def list_acks(
-    db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("audit.read"))
-):
-    return [
-        {
-            "id": a.id,
-            "block_id": a.block_id,
-            "block_title": db.get(Block, a.block_id).title,
-            "version": a.version,
-            "agent_key": a.agent_key,
-            "task_desc": a.task_desc,
-            "created_at": a.created_at,
-        }
-        for a in db.query(Ack).order_by(Ack.id.desc()).all()
     ]
 
 
@@ -506,16 +447,24 @@ def create_key(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
+    """创建密钥（明文只返回这一次）。网页按钮直接创建（via=button）；Agent 代人创建
+    必须 via=natural_language 并附人同意创建的原话，来源与依据写进审计。"""
     role = perms.get_role(db, body.role)
     if body.project_id is not None and db.get(Project, body.project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
+    if body.via == "natural_language" and not body.evidence.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Agent 代人创建密钥必须附 evidence：人同意创建它的原话（先问人，不要自己决定）",
+        )
     plaintext = new_key(role.kind)
     k = ApiKey(key=hash_key(plaintext), hint=key_hint(plaintext), prefix=role.kind,
                role_id=role.id, project_id=body.project_id, label=body.label)
     db.add(k)
     db.flush()
     audit(db, key.hint, "key_create", f"apikey:{k.hint}",
-          {"role": role.name, "label": k.label, "project_id": k.project_id})
+          {"role": role.name, "label": k.label, "project_id": k.project_id,
+           "via": body.via, "evidence": body.evidence})
     db.commit()
     # 明文仅此一次返回，此后任何地方（列表/UI/审计）都不可再见
     return {**_key_out(k), "key": plaintext,

@@ -48,6 +48,7 @@ from speclock.engine import (
     validate_rules_or_422,
     with_ids,
 )
+from speclock.executions import sync_block
 from speclock.models import Block, Business, Capability, ChangeRequest, Commit, utcnow
 from speclock.schemas import ApiEntry, ApiOp, ItemEntry, ItemOp
 
@@ -553,6 +554,8 @@ def apply_commit(
             cap_trigger.setdefault(block.capability_id, block)
             audit(db, actor, "archive" if block.id in ctx.archived else "restore",
                   f"block:{block.id}", {"cr_id": cr.id, "commit_id": commit.id})
+            if block.id in ctx.restored:
+                sync_block(db, block, actor)  # 恢复后保证当前版本有执行记录
         db.flush()
 
         cap_versions = []
