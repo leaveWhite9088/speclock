@@ -91,7 +91,7 @@ def test_create_key_with_project(env):
 
 def test_scoped_agent_key_isolation(env):
     """绑定项目 B 的 agent key：/index 与 /capabilities 只见项目 B；
-    跨项目的 block / diff / capability / ack 一律 404。"""
+    跨项目的 block / diff / capability / work 一律 404。"""
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])  # 项目 A（env 默认项目）发布一个模块
     pid_b, bid_b, doc_b = _make_project_with_published_block(env, "项目B", "B项目模块")
@@ -111,16 +111,18 @@ def test_scoped_agent_key_isolation(env):
     # 本项目可读
     assert c.get(f"/api/v1/blocks/{bid_b}", headers=scoped).status_code == 200
     assert c.get(f"/api/v1/capabilities/{doc_b}", headers=scoped).status_code == 200
-    assert c.post(f"/api/v1/blocks/{bid_b}/ack",
-                  json={"version": "1.0.0"}, headers=scoped).status_code == 201
+    own_work = c.get("/api/v1/work", headers=scoped).json()
+    assert [w["block_id"] for w in own_work] == [bid_b]  # 待办也只含本项目
+    assert c.post(f"/api/v1/work/{own_work[0]['id']}/claim", headers=scoped).status_code == 200
 
     # 跨项目一律 404
     a_id, a_doc = env["block_id"], env["capability_id"]
     assert c.get(f"/api/v1/blocks/{a_id}", headers=scoped).status_code == 404
     assert c.get(f"/api/v1/blocks/{a_id}/diff", headers=scoped).status_code == 404
     assert c.get(f"/api/v1/capabilities/{a_doc}", headers=scoped).status_code == 404
-    assert c.post(f"/api/v1/blocks/{a_id}/ack",
-                  json={"version": "1.0.0"}, headers=scoped).status_code == 404
+    a_work = c.get("/api/v1/work", params={"block_id": a_id}, headers=h).json()[0]["id"]
+    assert c.get(f"/api/v1/work/{a_work}", headers=scoped).status_code == 404
+    assert c.post(f"/api/v1/work/{a_work}/claim", headers=scoped).status_code == 404
 
 
 def test_global_agent_key_sees_all_projects(env):

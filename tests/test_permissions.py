@@ -14,7 +14,7 @@ def _roles(env):
 
 def test_preset_roles_exist_and_are_builtin(env):
     roles = _roles(env)
-    assert {"admin", "reviewer", "requirements-agent", "executor-agent", "scanner-agent"} <= set(roles)
+    assert {"admin", "reviewer", "requirements-agent", "executor-agent", "tester-agent", "scanner-agent"} <= set(roles)
     assert all(roles[n]["builtin"] for n in roles)
     assert set(roles["admin"]["permissions"]) == set(perms.PERMISSIONS)
     assert "cr.approve" in roles["reviewer"]["permissions"]
@@ -37,7 +37,7 @@ def test_whoami(env):
     assert "cr.approve" in me["permissions"]
     me = c.get("/api/v1/me", headers=env["agent"]).json()
     assert (me["kind"], me["role"]) == ("agent", "executor-agent")
-    assert me["permissions"] == ["ack.write", "cr.read", "spec.read"]
+    assert me["permissions"] == ["cr.read", "exec.read", "exec.write", "spec.read"]
     assert c.get("/api/v1/me").status_code == 401
 
 
@@ -67,15 +67,14 @@ def test_custom_role_end_to_end(env):
     key = make_key(env, "auditor")
     assert c.get("/api/v1/index", headers=key).status_code == 200
     assert c.get("/api/v1/change-requests", headers=key).status_code == 200
-    assert c.post(f"/api/v1/blocks/{env['block_id']}/ack", json={"version": "1.0.0"},
-                  headers=key).status_code == 403
+    assert c.get("/api/v1/work", headers=key).status_code == 403
 
 
 def test_role_validation(env):
     c, h = env["client"], env["human"]
     base = {"name": "x", "kind": "agent", "permissions": []}
     # agent 类角色挂不上人类专属权限——Agent 永远批准不了审核单
-    for p in ("cr.approve", "spec.void", "project.manage", "key.manage"):
+    for p in ("cr.approve", "project.manage", "key.manage"):
         r = c.post("/api/v1/roles", headers=h, json={**base, "permissions": [p]})
         assert r.status_code == 422 and "人类专属" in r.json()["detail"], p
     # 人类角色可以

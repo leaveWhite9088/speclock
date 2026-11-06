@@ -29,7 +29,6 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/v1/roles", {"name": "x", "kind": "agent"}),
     ("PUT", "/api/v1/roles/1", {"description": "x"}),
     ("DELETE", "/api/v1/roles/1", None),
-    ("POST", "/api/v1/blocks/1/versions/1.0.0/void", None),
     ("POST", "/api/v1/change-requests", cr_body()),
     ("PUT", "/api/v1/change-requests/1", {"title": "x"}),
     ("POST", "/api/v1/change-requests/1/submit", None),
@@ -58,6 +57,9 @@ REMOVED_ENDPOINTS = [
     ("GET", "/api/v1/proposals"),
     ("POST", "/api/v1/proposals"),
     ("POST", "/api/v1/proposals/1/resolve"),
+    ("POST", "/api/v1/blocks/1/versions/1.0.0/void"),  # 作废已删除：修正走审核单
+    ("POST", "/api/v1/blocks/1/ack"),  # 实现回执已被执行记录取代
+    ("GET", "/api/v1/acks"),
 ]
 
 
@@ -127,12 +129,13 @@ def approve_cr_as(env, cr_id, headers):
     assert r.status_code == 200, r.text
 
 
-def test_human_key_with_spec_read_can_read_but_not_ack(env):
+def test_human_key_with_spec_read_can_read_but_scanner_cannot_claim(env):
     """读规格看角色权限，不看 key 前缀：admin 有 spec.read 所以能读 /index；
-    但没有 ack.write 的角色提交回执会 403。"""
+    没有 exec.write 的角色领任务会 403。"""
     publish_v1(env["client"], env["human"], env["block_id"])
     c = env["client"]
     assert c.get("/api/v1/index", headers=env["human"]).status_code == 200
     scanner = make_key(env, "scanner-agent")
-    r = c.post(f"/api/v1/blocks/{env['block_id']}/ack", json={"version": "1.0.0"}, headers=scanner)
-    assert r.status_code == 403
+    work_id = c.get("/api/v1/work", headers=env["human"]).json()[0]["id"]
+    assert c.post(f"/api/v1/work/{work_id}/claim", headers=scanner).status_code == 403
+    assert c.get("/api/v1/work", headers=scanner).status_code == 403

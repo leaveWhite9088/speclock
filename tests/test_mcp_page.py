@@ -13,15 +13,16 @@ def test_activity_lists_recent_agent_activity(env):
     publish_v1(c, h, bid)
     c.get("/api/v1/index", headers=a)
     c.get(f"/api/v1/blocks/{bid}", headers=a)
-    c.post(f"/api/v1/blocks/{bid}/ack", json={"version": "1.0.0"}, headers=a)
+    work_id = c.get("/api/v1/work", headers=a).json()[0]["id"]
+    c.post(f"/api/v1/work/{work_id}/claim", headers=a)
 
     rows = c.get("/api/v1/activity", headers=h).json()
     actions = [r["action"] for r in rows]
-    assert "pull" in actions and "ack" in actions
+    assert "pull" in actions and "exec_claim" in actions
     targets = [r["target"] for r in rows]
     assert f"block:{bid}@1.0.0" in targets
-    # 新的在前：最后一条审计（ack）排最前
-    assert rows[0]["action"] == "ack"
+    # 新的在前：最后一条审计（claim）排最前
+    assert rows[0]["action"] == "exec_claim"
 
 
 def test_activity_filter_by_actor_prefix(env):
@@ -32,7 +33,7 @@ def test_activity_filter_by_actor_prefix(env):
 
     rows = c.get("/api/v1/activity", params={"actor_prefix": "agent"}, headers=h).json()
     assert rows and all(r["actor"].startswith("agent-") for r in rows)
-    assert all(r["action"] in ("pull", "ack", "proposal_submit") for r in rows)
+    assert all(r["action"] in ("pull", "exec_claim") for r in rows)
 
 
 def test_activity_empty(env):

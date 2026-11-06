@@ -224,10 +224,3 @@ def test_pinned_old_version_is_deprecated_with_superseded_by(env):
     assert (new["status"], new["superseded_by"]) == ("current", None)
 
 
-def test_voiding_latest_makes_previous_current_again(env):
-    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid)
-    change_block(env, bid, rules=[{"id": "R-1", **RULES_V1[0]}, {"name": "新规则", "detail": "新增"}])
-    assert c.post(f"/api/v1/blocks/{bid}/versions/1.1.0/void", headers=h).status_code == 200
-    old = c.get(f"/api/v1/blocks/{bid}@1.0.0", headers=a).json()
-    assert (old["status"], old["superseded_by"]) == ("current", None)

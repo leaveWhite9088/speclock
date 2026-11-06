@@ -194,6 +194,13 @@ def reviewer_key(env):
     return env["_reviewer"]
 
 
+def qa_key(env):
+    """测试 Agent key（缓存）。"""
+    if "_tester" not in env:
+        env["_tester"] = make_key(env, "tester-agent")
+    return env["_tester"]
+
+
 DEFAULT_CR_ACCEPTANCE = [{"name": "变更生效", "detail": "变更后的业务行为符合预期，旧行为不再出现"}]
 
 

@@ -1,4 +1,4 @@
-"""Agent read API: index shape, version pin semantics, ack receipts."""
+"""Agent read API: index shape, version pin semantics."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ def test_index_is_tree_grouped_by_business_and_capability(env):
     assert doc["title"] == "经营日报" and doc["version"] == "1.0.0"
     entry = doc["blocks"][0]
     assert set(entry) == {"block_id", "title", "version", "summary",
-                          "completed", "completed_version"}
+                          "work_id", "execution_status"}
+    assert entry["execution_status"] == "pending"
     assert len(entry["summary"]) <= 50
     assert entry["version"] == "1.0.0"
 
@@ -54,24 +55,6 @@ def test_diff_between_published_versions(env):
     body = r.json()
     assert any("extra_note" in x for x in body["delta"]["added"])
     assert "extra_note" in body["openapi_diff"]  # generated YAML reflects the new field
-
-
-def test_ack_receipt_roundtrip(env):
-    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid)
-    r = c.post(f"/api/v1/blocks/{bid}/ack",
-               json={"version": "1.0.0", "task_desc": "实现日报主表前端"}, headers=a)
-    assert r.status_code == 201
-    # acking an unpublished version is rejected
-    r = c.post(f"/api/v1/blocks/{bid}/ack", json={"version": "3.0.0"}, headers=a)
-    assert r.status_code == 404
-    # human sees the ack on the board
-    r = c.get("/api/v1/acks", headers=h)
-    assert r.status_code == 200
-    rows = r.json()
-    assert len(rows) == 1
-    assert rows[0]["version"] == "1.0.0"
-    assert rows[0]["task_desc"] == "实现日报主表前端"
 
 
 def test_pulls_are_audited(env):

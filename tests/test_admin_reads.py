@@ -2,7 +2,7 @@
 /archive, /activity — auth boundary, structure, filters.
 
 读权限按角色而不是 key 前缀：tree / versions / archive 需要 spec.read（executor agent 也有，
-但 agent 类 key 在 /diff 上仍保持 published-only + 项目隔离语义）；activity / acks 需要
+但 agent 类 key 在 /diff 上仍保持 published-only + 项目隔离语义）；activity 需要
 audit.read，executor 没有 → 403。
 """
 
@@ -14,7 +14,6 @@ from tests.conftest import APIS_V2_MINOR, change_block, commit, create_module, o
 
 HUMAN_ONLY_READS = [
     "/api/v1/activity",
-    "/api/v1/acks",
 ]
 
 
@@ -71,7 +70,7 @@ def test_tree_structure(env):
     assert published["title"] == "数据采集模块"
     assert published["status"] == "published"
     assert published["current_published_version"] == "1.0.0"
-    assert published["completed"] is False
+    assert published["execution_status"] == "pending"
     draft = blocks[draft_id]
     assert draft["status"] == "draft"
     assert draft["current_published_version"] is None
@@ -211,7 +210,8 @@ def test_activity_recent_first_and_actor_prefix_filter(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)  # human audits: publish (+ derived capability publish)
     c.get("/api/v1/index", headers=a)  # agent audit: pull
-    c.post(f"/api/v1/blocks/{bid}/ack", json={"version": "1.0.0"}, headers=a)
+    work = c.get("/api/v1/work", headers=a).json()[0]
+    c.post(f"/api/v1/work/{work['id']}/claim", headers=a)  # agent audit: exec_claim
 
     r = c.get("/api/v1/activity", headers=h)
     assert r.status_code == 200
@@ -220,13 +220,13 @@ def test_activity_recent_first_and_actor_prefix_filter(env):
     assert [row["id"] for row in rows] == sorted((row["id"] for row in rows), reverse=True)
     assert {"actor", "action", "target", "detail", "created_at"} <= rows[0].keys()
     actions = {row["action"] for row in rows}
-    assert "publish" in actions and "pull" in actions and "ack" in actions
+    assert "publish" in actions and "pull" in actions and "exec_claim" in actions
 
     agent_rows = c.get("/api/v1/activity",
                        params={"actor_prefix": "agent"}, headers=h).json()
     assert agent_rows
     assert all(row["actor"].startswith("agent") for row in agent_rows)
-    assert {row["action"] for row in agent_rows} == {"pull", "ack"}
+    assert {row["action"] for row in agent_rows} == {"pull", "exec_claim"}
 
     limited = c.get("/api/v1/activity", params={"limit": 1}, headers=h).json()
     assert len(limited) == 1
