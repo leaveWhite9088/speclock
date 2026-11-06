@@ -6,6 +6,7 @@ import { api } from '../api/client.js'
 import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
+import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 
 const { keyName } = useKeyNames()
@@ -125,9 +126,7 @@ watch(docId, load, { immediate: true })
               :version="b.current_published_version"
             />
             <span v-else class="muted text-sm">未发布</span>
-            <span v-if="b.completed" class="done-mark" title="当前版本已标记完成">
-              ✓ 已完成
-            </span>
+            <ExecStatusBadge :status="b.execution_status" />
           </div>
         </div>
         <div v-else class="card state-card">

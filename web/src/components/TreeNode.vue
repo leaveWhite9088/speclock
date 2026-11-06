@@ -5,6 +5,7 @@
  */
 import { ref, computed } from 'vue'
 import VersionChip from './VersionChip.vue'
+import ExecStatusBadge from './ExecStatusBadge.vue'
 import BlockStatusBadge from './BlockStatusBadge.vue'
 
 const props = defineProps({
@@ -54,7 +55,7 @@ const link = computed(() => {
             :status="node.status === 'archived' ? 'draft' : 'published'"
           />
           <BlockStatusBadge :status="node.status" />
-          <span v-if="node.completed" class="done-badge">✓ 已完成</span>
+          <ExecStatusBadge :status="node.execution_status" />
         </template>
       </span>
     </div>

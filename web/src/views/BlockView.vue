@@ -1,7 +1,7 @@
 <script setup>
 /**
  * BlockView（/blocks/:id）—— 已发布模块只读页：完整快照渲染、版本切换、
- * 完成状态展示（由后端 ack 驱动）、「查看 diff」入口、版本溯源到审核单。
+ * 执行状态展示、「查看 diff」入口、版本溯源到审核单。
  * 本页纯展示，不提供任何修改操作（所有写入都由 Agent 经审核单 + Commit 完成）。
  */
 import { ref, computed, onMounted, watch } from 'vue'
@@ -15,7 +15,7 @@ import BlockMethodBadge from '../components/BlockMethodBadge.vue'
 import BlockApiDetail from '../components/BlockApiDetail.vue'
 import BlockMd from '../components/BlockMd.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
-import AcksModal from '../components/AcksModal.vue'
+import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,19 +29,13 @@ const versions = ref([])
 const snap = ref(null) // 当前查看的版本快照
 const selected = ref('')
 const opError = ref('')
-const acksModal = ref(null) // {context, acks}：「查看回执」弹窗内容
+const openEvents = ref({}) // 版本号 -> 是否展开执行历史
 
 function errText(e) {
   const d = e && e.detail
   if (!d) return '请求失败，请检查网络后重试。'
   if (typeof d === 'string') return d
   return d.error || JSON.stringify(d)
-}
-
-const ACK_STATE_TEXT = {
-  acked: '已回执',
-  pending: '待回执',
-  superseded: '已被取代',
 }
 
 function sorted(list) {
@@ -139,16 +133,8 @@ function prevVersion(v) {
   return i > 0 ? versions.value[i - 1].version : null
 }
 
-function openAcks(v) {
-  acksModal.value = {
-    context: {
-      ...v,
-      block_id: Number(bid),
-      current_version: meta.value?.current_published_version,
-      prev_version: prevVersion(v.version),
-    },
-    acks: v.acks || [],
-  }
+function toggleEvents(v) {
+  openEvents.value = { ...openEvents.value, [v]: !openEvents.value[v] }
 }
 </script>
 
@@ -221,12 +207,7 @@ function openAcks(v) {
             </button>
 
             <span class="complete-box">
-              <span v-if="snap.completed" class="done-badge">
-                ✓ 已完成<template v-if="snap.completed_version"
-                  >@v{{ snap.completed_version }}</template
-                >
-              </span>
-              <span v-else class="undone-badge">未完成</span>
+              执行状态 <ExecStatusBadge :status="snap.execution_status" />
             </span>
           </div>
           <p v-if="opError" class="error-text" role="alert">{{ opError }}</p>
@@ -303,7 +284,7 @@ function openAcks(v) {
                 <th>变更说明</th>
                 <th>发布时间</th>
                 <th>审核单</th>
-                <th>回执</th>
+                <th>执行</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -321,15 +302,13 @@ function openAcks(v) {
                     <template v-else>—</template>
                   </td>
                   <td class="ver-acks">
-                    <span class="ack-badge" :class="`is-${v.ack_state}`">
-                      {{ ACK_STATE_TEXT[v.ack_state] || v.ack_state }}
-                    </span>
+                    <ExecStatusBadge :status="v.execution_status" />
                     <a
-                      v-if="v.acks && v.acks.length"
+                      v-if="v.events && v.events.length"
                       href="#"
                       class="ack-link"
-                      @click.prevent="openAcks(v)"
-                      >查看回执</a
+                      @click.prevent="toggleEvents(v.version)"
+                      >{{ openEvents[v.version] ? '收起' : '历史' }}</a
                     >
                   </td>
                   <td class="ver-ops">
@@ -343,20 +322,25 @@ function openAcks(v) {
                     </template>
                   </td>
                 </tr>
+                <tr v-if="openEvents[v.version]" class="events-row">
+                  <td colspan="6">
+                    <ol class="events">
+                      <li v-for="(e, i) in v.events" :key="i">
+                        <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
+                        <span class="ev-name">{{ e.event }}</span>
+                        <span class="muted">{{ e.from || '—' }} → {{ e.to }}</span>
+                        <span class="muted">{{ keyName(e.actor) }}</span>
+                        <span v-if="e.note">{{ e.note }}</span>
+                      </li>
+                    </ol>
+                  </td>
+                </tr>
               </template>
             </tbody>
           </table>
         </section>
       </template>
     </template>
-
-    <AcksModal
-      v-if="acksModal"
-      :title="`v${acksModal.context.version} 回执`"
-      :context="acksModal.context"
-      :acks="acksModal.acks"
-      @close="acksModal = null"
-    />
   </div>
 </template>
 
@@ -553,32 +537,6 @@ function openAcks(v) {
   font-size: var(--text-xs);
 }
 
-.ack-badge {
-  display: inline-block;
-  padding: 1px var(--sp-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--hairline);
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
-.ack-badge.is-acked {
-  color: var(--contract);
-  border-color: var(--contract);
-  background: color-mix(in srgb, var(--contract) 7%, var(--card));
-}
-
-.ack-badge.is-pending {
-  color: var(--warning);
-  border-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 7%, var(--card));
-}
-
-.ack-badge.is-superseded {
-  color: var(--ink-2);
-  background: color-mix(in srgb, var(--ink-2) 5%, var(--card));
-}
-
 .ack-link {
   margin-left: var(--sp-2);
   white-space: nowrap;
@@ -587,15 +545,6 @@ function openAcks(v) {
 .ver-ops {
   font-size: var(--text-sm);
   white-space: nowrap;
-}
-
-.void-link {
-  color: var(--danger);
-}
-
-.void-confirm-row td {
-  border-left: 2px solid var(--danger);
-  padding-left: var(--sp-3);
 }
 
 .confirm-text {
@@ -610,5 +559,21 @@ function openAcks(v) {
 .confirm-btns {
   display: inline-flex;
   gap: var(--sp-2);
+}
+.events {
+  margin: 0;
+  padding-left: var(--sp-4);
+  font-size: var(--text-xs);
+}
+
+.events li {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.ev-name {
+  font-weight: 500;
 }
 </style>

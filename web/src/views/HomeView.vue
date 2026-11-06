@@ -18,7 +18,7 @@ const onlyPending = ref(false)
 
 function filterPending(node) {
   if (node.kind === 'block') {
-    return node.status !== 'archived' && node.version && !node.completed ? node : null
+    return node.status !== 'archived' && node.version && node.execution_status !== 'verified' ? node : null
   }
   const children = (node.children || []).map(filterPending).filter(Boolean)
   return children.length ? { ...node, children } : null
@@ -56,7 +56,7 @@ function toNode(p) {
           name: b.title,
           status: b.status,
           version: b.current_published_version,
-          completed: b.completed,
+          execution_status: b.execution_status,
         })),
       })),
     })),
@@ -97,7 +97,7 @@ function fmtErr(e) {
       <div class="tree-head-ops">
         <label class="pending-filter">
           <input type="checkbox" v-model="onlyPending" />
-          只看待回执
+          只看未验收
         </label>
         <select
           v-if="tree.length"

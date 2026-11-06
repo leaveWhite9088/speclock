@@ -8,7 +8,7 @@ import BlockView from './views/BlockView.vue'
 import BlockDiffView from './views/BlockDiffView.vue'
 import CRListView from './views/CRListView.vue'
 import CRDetailView from './views/CRDetailView.vue'
-import AcksView from './views/AcksView.vue'
+import WorkView from './views/WorkView.vue'
 import ArchiveView from './views/ArchiveView.vue'
 import McpView from './views/McpView.vue'
 
@@ -50,7 +50,7 @@ const routes = [
     component: CRDetailView,
     meta: { title: '审核单详情' },
   },
-  { path: '/acks', name: 'acks', component: AcksView, meta: { title: '回执' } },
+  { path: '/work', name: 'work', component: WorkView, meta: { title: '待办' } },
   {
     path: '/archive',
     name: 'archive',

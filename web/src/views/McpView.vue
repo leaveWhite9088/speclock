@@ -8,11 +8,19 @@ import { fmtTime } from '../time.js'
 // 与后端 mcp_server.py 的工具保持一致的一句话说明
 const TOOLS = [
   ['whoami', '当前 key 的角色与权限'],
-  ['get_index', '大业务→小业务→模块 三层索引树，模块节点带 completed 完成标记'],
+  ['get_index', '大业务→小业务→模块 三层索引树，模块节点带当前版本的执行状态'],
   ['get_block', '读取一个模块的已发布版本（背景 / 规则 / 验收条件 / API，规则与验收条件带稳定 id），可 pin 版本；响应带 cr_id / commit_id 溯源'],
   ['get_capability', '读取小业务 manifest（模块→版本清单），可 pin 历史小业务版本'],
   ['get_diff', '两个已发布版本之间的结构化 + 文本 diff，带机械算出的 level 标签'],
-  ['ack_block', '回执：声明「该模块当前版本的全部契约均已实现」；仅在全部完成时调用'],
+  ['list_work', '待办列表：按状态筛选（待领取 / 进行中 / 被阻塞 / 失败 / 待验收 / 已验收）'],
+  ['get_work', '一条执行记录：事件历史、已提交的结果、锁定到该版本的完整规格'],
+  ['claim_work', '领取任务（执行 Agent）：返回锁定版本的完整规格；失败 / 被阻塞的可重新领取'],
+  ['release_work', '放弃自己领取的任务，回到待领取'],
+  ['report_blocked', '业务上卡住：规格缺信息或自相矛盾，写明问题，由需求 Agent 经审核单解决'],
+  ['report_failed', '没做成：写明原因，之后可重新领取'],
+  ['submit_implementation', '提交实现结果：逐条验收条件给 pass + 证据，全部通过才能提交'],
+  ['verify_work', '独立验收（测试 Agent）：逐条验收条件给结果；验证者不能是实现者'],
+  ['create_api_key', '为 Agent 角色创建 key：必须先问人，附人同意的原话；明文只返回一次'],
   ['list_change_requests', '列出审核单，可按状态过滤'],
   ['get_change_request', '读取审核单：状态、验收条件覆盖情况、人的决定、全部 Commit'],
   ['create_change_request', '创建审核单草稿：只写业务意图（为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明）'],
@@ -32,7 +40,9 @@ const RULES = [
   '没有人在对话里的明确同意，不得调用 approve_change_request；evidence 必须是人的原话。',
   '规则和验收条件按稳定 id（R-n / AC-n）定位；Commit 里用 covers 声明本次满足了审核单的哪些验收条件。',
   '提交 Commit 前可先 dry_run 预览版本号和级别标签；任何一条 op 失败整个 Commit 回滚。',
-  '实现前用 get_block 的版本参数 pin 住快照；实现完成后用 ack_block 回执（只在整个模块完成时才打）。',
+  '执行 Agent：list_work 找到待领取项 → claim_work（拿到锁定版本的规格）→ 实现 → submit_implementation，逐条验收条件附证据。业务上卡住用 report_blocked，别猜。',
+  '测试 Agent：list_work(status=implemented) → get_work 看实现方的证据 → 自己测 → verify_work 逐条给结果；不能验收自己实现的。',
+  '启动时先 whoami 弄清自己的角色，并检查自己目录的 AGENTS.md 是否已有 key，不要重复创建；需要新 key 时先问人，同意后再 create_api_key。',
   '只能读到已发布版本；归档内容不可见。',
 ]
 
