@@ -1,1 +1,0 @@
-# completed / ack 已被执行记录取代（见 test_execution.py）。此文件已无内容，可以删除。
