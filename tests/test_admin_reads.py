@@ -1,36 +1,25 @@
 """SPA human read endpoints: /tree, /blocks/{id}/versions/{v}, /blocks/{id}/diff,
 /archive, /activity — auth boundary, structure, filters.
 
-Note: /blocks/{id}/diff is one physical route shared by humans and agents
-(see api_agent.get_diff): agent keys keep their published-only + project-scope
-semantics, so they are NOT 403 here; the other four are human-only (403).
+读权限按角色而不是 key 前缀：tree / versions / archive 需要 spec.read（executor agent 也有，
+但 agent 类 key 在 /diff 上仍保持 published-only + 项目隔离语义）；activity / acks 需要
+audit.read，executor 没有 → 403。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.conftest import APIS_V2_MINOR, create_module, publish_v1
+from tests.conftest import APIS_V2_MINOR, change_block, commit, create_module, open_cr, publish_v1
 
 HUMAN_ONLY_READS = [
-    "/api/v1/tree",
-    "/api/v1/blocks/1/versions/1.0.0",
-    "/api/v1/archive",
     "/api/v1/activity",
+    "/api/v1/acks",
 ]
 
 
 def _publish_v2_minor(env, block_id):
-    c, h = env["client"], env["human"]
-    r = c.put(f"/api/v1/blocks/{block_id}", json={"apis": APIS_V2_MINOR}, headers=h)
-    assert r.status_code == 200, r.text
-    r = c.post(
-        f"/api/v1/blocks/{block_id}/publish",
-        json={"change_note": "v2", "fastTrack": True},
-        headers=h,
-    )
-    assert r.status_code == 200, r.text
-    return r.json()
+    return change_block(env, block_id, apis=APIS_V2_MINOR, note="v2")
 
 
 # ---------- auth boundary ----------
@@ -60,7 +49,7 @@ def test_diff_rejects_missing_key(env):
 def test_tree_structure(env):
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
-    draft_id = create_module(c, h, env["document_id"], "草稿模块")
+    draft_id = create_module(c, h, env["capability_id"], "草稿模块")
 
     r = c.get("/api/v1/tree", headers=h)
     assert r.status_code == 200
@@ -69,16 +58,15 @@ def test_tree_structure(env):
     project = tree[0]
     assert project["id"] == env["project_id"] and project["name"] == "测试项目"
 
-    domain = project["domains"][0]
-    assert domain["id"] == env["domain_id"] and domain["name"] == "运营"
+    business = project["businesses"][0]
+    assert business["id"] == env["business_id"] and business["name"] == "运营"
 
-    document = domain["documents"][0]
-    assert document["id"] == env["document_id"]
-    assert document["title"] == "经营日报"
-    assert document["doc_type"] == "business"
-    assert document["current_version"] is not None
+    capability = business["capabilities"][0]
+    assert capability["id"] == env["capability_id"]
+    assert capability["title"] == "经营日报"
+    assert capability["current_version"] is not None
 
-    blocks = {b["id"]: b for b in document["blocks"]}
+    blocks = {b["id"]: b for b in capability["blocks"]}
     published = blocks[env["block_id"]]
     assert published["title"] == "数据采集模块"
     assert published["status"] == "published"
@@ -107,7 +95,10 @@ def test_version_snapshot_full_fields(env):
     assert body["rules"][0]["name"] == "销售额口径"
     assert body["apis"][0]["api"] == "GET /api/daily-report"
     assert "openapi" in body["openapi_yaml"]
-    assert body["nfr_md"]
+    assert body["acceptance"][0]["id"] == "AC-1"
+    assert body["rules"][0]["id"] == "R-1"
+    assert "nfr_md" not in body
+    assert body["level"] == "initial"
     assert body["change_note"] == "v1"
     assert body["published_by"].startswith("human-")
     assert body["published_at"] is not None
@@ -135,7 +126,6 @@ def test_diff_human_defaults_to_last_two_versions(env):
     assert body["block_id"] == bid
     assert body["from"] == "1.0.0" and body["to"] == "1.1.0"
     assert any("extra_note" in x for x in body["delta"]["added"])
-    assert body["breaking"] is False
     assert "content_diff" in body and "openapi_diff" in body
 
 
@@ -181,8 +171,8 @@ def test_diff_dual_auth_agent_published_only_human_sees_archived(env):
 
     assert c.get(f"/api/v1/blocks/{bid}/diff", headers=a).status_code == 200
 
-    r = c.delete(f"/api/v1/blocks/{bid}", headers=h)  # archive
-    assert r.status_code == 200 and r.json()["status"] == "archived"
+    r = commit(env, open_cr(env), [{"op": "archive_block", "id": bid}])  # archive
+    assert r.status_code == 200
 
     assert c.get(f"/api/v1/blocks/{bid}/diff", headers=a).status_code == 404
     r = c.get(f"/api/v1/blocks/{bid}/diff", headers=h)
@@ -198,7 +188,7 @@ def test_archive_list_empty_then_populated(env):
     assert c.get("/api/v1/archive", headers=h).json() == []
 
     publish_v1(c, h, bid)
-    r = c.delete(f"/api/v1/blocks/{bid}", headers=h)
+    r = commit(env, open_cr(env), [{"op": "archive_block", "id": bid}])
     assert r.status_code == 200
 
     rows = c.get("/api/v1/archive", headers=h).json()
@@ -208,9 +198,9 @@ def test_archive_list_empty_then_populated(env):
     assert row["title"] == "数据采集模块"
     assert row["current_published_version"] == "1.0.0"
     assert row["archived_at"] is not None
-    assert row["document_id"] == env["document_id"]
-    assert row["document_title"] == "经营日报"
-    assert row["domain_name"] == "运营"
+    assert row["capability_id"] == env["capability_id"]
+    assert row["capability_title"] == "经营日报"
+    assert row["business_name"] == "运营"
     assert row["project_name"] == "测试项目"
 
 
@@ -219,7 +209,7 @@ def test_archive_list_empty_then_populated(env):
 
 def test_activity_recent_first_and_actor_prefix_filter(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid)  # human audits: publish (+ derived document publish)
+    publish_v1(c, h, bid)  # human audits: publish (+ derived capability publish)
     c.get("/api/v1/index", headers=a)  # agent audit: pull
     c.post(f"/api/v1/blocks/{bid}/ack", json={"version": "1.0.0"}, headers=a)
 

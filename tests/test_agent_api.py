@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from tests.conftest import APIS_V2_MINOR, publish_v1
+from tests.conftest import change_block, APIS_V2_MINOR, publish_v1
 
 
-def test_index_is_tree_grouped_by_domain_and_document(env):
+def test_index_is_tree_grouped_by_business_and_capability(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     r = env["client"].get("/api/v1/index", headers=env["agent"])
     assert r.status_code == 200
     tree = r.json()
     assert len(tree) == 1
-    assert set(tree[0]) == {"domain", "documents"}
-    assert tree[0]["domain"] == "运营"
-    doc = tree[0]["documents"][0]
-    assert set(doc) == {"document_id", "title", "version", "blocks"}
+    assert set(tree[0]) == {"business", "capabilities"}
+    assert tree[0]["business"] == "运营"
+    doc = tree[0]["capabilities"][0]
+    assert set(doc) == {"capability_id", "title", "summary", "version", "blocks"}
     assert doc["title"] == "经营日报" and doc["version"] == "1.0.0"
     entry = doc["blocks"][0]
     assert set(entry) == {"block_id", "title", "version", "summary",
@@ -27,11 +27,8 @@ def test_version_pin_reads_exact_snapshot(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
     # publish a second version with different content
-    c.put(f"/api/v1/blocks/{bid}",
-          json={"content_md": "# 数据采集模块 v2\n\n新版描述：背景与流程叙述更新。",
-                "apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
+    change_block(env, bid, apis=APIS_V2_MINOR, note="v2",
+                 content_md="# 数据采集模块 v2\n\n新版描述：背景与流程叙述更新。")
 
     # unpinned -> latest
     r = c.get(f"/api/v1/blocks/{bid}", headers=a)
@@ -51,14 +48,11 @@ def test_version_pin_reads_exact_snapshot(env):
 def test_diff_between_published_versions(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
+    change_block(env, bid, apis=APIS_V2_MINOR)
     r = c.get(f"/api/v1/blocks/{bid}/diff", params={"from": "1.0.0", "to": "1.1.0"}, headers=a)
     assert r.status_code == 200
     body = r.json()
     assert any("extra_note" in x for x in body["delta"]["added"])
-    assert body["breaking"] is False
     assert "extra_note" in body["openapi_diff"]  # generated YAML reflects the new field
 
 
@@ -84,7 +78,7 @@ def test_pulls_are_audited(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
     c.get(f"/api/v1/blocks/{bid}", headers=a)
-    c.get(f"/api/v1/documents/{env['document_id']}", headers=a)
+    c.get(f"/api/v1/capabilities/{env['capability_id']}", headers=a)
     from speclock.db import SessionLocal
     from speclock.models import AuditLog
 

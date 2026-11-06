@@ -1,134 +1,74 @@
-"""CRUD for Domain / Document / Block + archive semantics.
-
-删除语义：
-- 草稿态模块 / 空文档 / 空大业务：直接删除；
-- 已发布模块：删除 = 归档（agent 404、index 排除、下一文档版本 manifest 移除），可恢复；
-- 文档/大业务删除：其下有已发布模块时 409。
-"""
+"""结构语义：大业务 / 小业务 / 模块只能经由 Commit 创建与修改；没有硬删除接口
+（模块下线 = 归档，可恢复；只有删除整个项目才会硬删）。"""
 
 from __future__ import annotations
 
-from tests.conftest import APIS_V1, APIS_V2_MINOR, create_module, publish_v1
+from tests.conftest import APIS_V1, ACCEPTANCE_V1, RULES_V1, commit, open_cr, publish_v1
+
+BG = "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。"
 
 
-# ---------- 模块 CRUD ----------
-
-def test_draft_block_is_hard_deleted(env):
-    c, h = env["client"], env["human"]
-    bid = create_module(c, h, env["document_id"], "临时草稿模块")
-    r = c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    assert r.status_code == 200
-    assert r.json()["deleted"] is True
-    assert c.get(f"/api/v1/blocks/{bid}/draft", headers=h).status_code == 404
+def _ok(env, ops, **kw):
+    r = commit(env, open_cr(env), ops, **kw)
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
-def test_published_block_delete_means_archive(env):
+def test_business_create_and_rename(env):
+    c = env["client"]
+    out = _ok(env, [{"op": "create_business", "ref": "b", "name": "采购"}])
+    bid = out["created"]["$b"]["id"]
+    _ok(env, [{"op": "update_business", "id": bid, "name": "采购部"}])
+    names = [b["name"] for b in c.get("/api/v1/tree", headers=env["human"]).json()[0]["businesses"]]
+    assert names == ["运营", "采购部"]
+    # 空的大业务对 agent 不可见（没有任何已发布模块）
+    assert c.get("/api/v1/index", headers=env["agent"]).json() == []
+
+
+def test_full_create_chain_visible_to_agent(env):
+    """新建大业务 → 小业务 → 模块（一个 Commit）→ agent 可读，首版 1.0.0。"""
+    c, a = env["client"], env["agent"]
+    out = _ok(env, [
+        {"op": "create_business", "ref": "b", "name": "商品"},
+        {"op": "create_capability", "ref": "c", "business": "$b", "title": "商品主档"},
+        {"op": "create_block", "ref": "k", "capability": "$c", "title": "商品查询模块",
+         "content_md": BG,
+         "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}],
+         "acceptance": [{"name": "查询正确", "detail": "下架商品不会出现在前台查询结果里"}],
+         "apis": APIS_V1},
+    ])
+    block = out["blocks"][0]
+    assert block["version"] == "1.0.0"
+    assert c.get(f"/api/v1/blocks/{block['block_id']}", headers=a).status_code == 200
+    docs = c.get("/api/v1/capabilities", headers=a).json()
+    assert any(d["capability_id"] == out["created"]["$c"]["id"] for d in docs)
+
+
+def test_published_block_archive_keeps_history(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    r = c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    assert r.status_code == 200
-    assert r.json()["status"] == "archived"
-    # agent 读不到、index 排除
+    _ok(env, [{"op": "archive_block", "id": bid}])
     assert c.get(f"/api/v1/blocks/{bid}", headers=a).status_code == 404
     assert c.get("/api/v1/index", headers=a).json() == []
-    # 历史版本保留：human 仍可查版本列表
     versions = c.get(f"/api/v1/blocks/{bid}/versions", headers=h).json()
     assert [v["version"] for v in versions] == ["1.0.0"]
 
 
-def test_archived_block_removed_from_next_manifest(env):
-    c, h, a, bid, did = env["client"], env["human"], env["agent"], env["block_id"], env["document_id"]
-    bid2 = create_module(c, h, did, "异常数据展示模块", apis=APIS_V1)
-    publish_v1(c, h, bid)   # doc 1.0.0
-    publish_v1(c, h, bid2)  # doc 1.1.0
-    # 归档模块 1，再给模块 2 发一个新版本
-    c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    c.put(f"/api/v1/blocks/{bid2}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid2}/publish",
-           json={"change_note": "加字段", "fastTrack": True}, headers=h)
-    r = c.get(f"/api/v1/documents/{did}", headers=a)
-    manifest = {m["block_id"]: m["version"] for m in r.json()["manifest"]}
-    assert manifest == {bid2: "1.1.0"}  # 归档模块不再出现在 manifest
-
-
-def test_restore_archived_block(env):
-    c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    publish_v1(c, h, bid)
-    c.delete(f"/api/v1/blocks/{bid}", headers=h)
-    assert c.get(f"/api/v1/blocks/{bid}", headers=a).status_code == 404
-    r = c.post(f"/api/v1/blocks/{bid}/restore", headers=h)
-    assert r.status_code == 200
-    assert r.json()["status"] == "published"
-    assert c.get(f"/api/v1/blocks/{bid}", headers=a).json()["version"] == "1.0.0"
-    # 已发布模块不能 restore
-    assert c.post(f"/api/v1/blocks/{bid}/restore", headers=h).status_code == 409
-
-
-# ---------- 文档 CRUD ----------
-
-def test_document_rename(env):
-    c, h, did = env["client"], env["human"], env["document_id"]
-    r = c.put(f"/api/v1/documents/{did}", json={"name": "经营日报 v2"}, headers=h)
-    assert r.status_code == 200
-    assert r.json()["title"] == "经营日报 v2"
-
-
-def test_document_delete_blocked_by_published_module(env):
-    c, h, did = env["client"], env["human"], env["document_id"]
-    publish_v1(c, h, env["block_id"])
-    r = c.delete(f"/api/v1/documents/{did}", headers=h)
-    assert r.status_code == 409
-    assert r.json()["detail"]["published_blocks"]
-    # 归档模块后即可删除
-    c.delete(f"/api/v1/blocks/{env['block_id']}", headers=h)
-    r = c.delete(f"/api/v1/documents/{did}", headers=h)
-    assert r.status_code == 200
-
-
-def test_empty_document_deletable(env):
+def test_project_delete_blocked_by_published_module_until_archived(env):
     c, h = env["client"], env["human"]
-    r = c.post("/api/v1/documents",
-               json={"domain_id": env["domain_id"], "title": "空文档"}, headers=h)
-    did = r.json()["id"]
-    assert c.delete(f"/api/v1/documents/{did}", headers=h).status_code == 200
-
-
-# ---------- 大业务 CRUD ----------
-
-def test_domain_create_rename_delete(env):
-    c, h, pid = env["client"], env["human"], env["project_id"]
-    r = c.post("/api/v1/domains", json={"project_id": pid, "name": "采购"}, headers=h)
-    assert r.status_code == 201
-    did = r.json()["id"]
-    r = c.put(f"/api/v1/domains/{did}", json={"name": "采购部"}, headers=h)
-    assert r.json()["name"] == "采购部"
-    # 空大业务可直接删除
-    assert c.delete(f"/api/v1/domains/{did}", headers=h).status_code == 200
-
-
-def test_domain_delete_blocked_by_published_module(env):
-    c, h = env["client"], env["human"]
+    other = c.post("/api/v1/projects", json={"name": "另一个项目"}, headers=h).json()["id"]
+    assert other
     publish_v1(c, h, env["block_id"])
-    r = c.delete(f"/api/v1/domains/{env['domain_id']}", headers=h)
-    assert r.status_code == 409
+    keep = c.post("/api/v1/keys", json={"role": "admin"}, headers=h).json()  # 全局管理员兜底
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers={"X-API-Key": keep["key"]})
+    assert r.status_code == 409 and r.json()["detail"]["published_blocks"]
+    _ok(env, [{"op": "archive_block", "id": env["block_id"]}])
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers={"X-API-Key": keep["key"]})
+    assert r.status_code == 200
 
 
-def test_full_create_chain_visible_to_agent(env):
-    """新建大业务 → 文档 → 模块 → 发布 → agent 可读。"""
-    c, h, a = env["client"], env["human"], env["agent"]
-    dm = c.post("/api/v1/domains",
-                json={"project_id": env["project_id"], "name": "商品"}, headers=h).json()
-    doc = c.post("/api/v1/documents",
-                 json={"domain_id": dm["id"], "title": "商品主档"}, headers=h).json()
-    blk = c.post("/api/v1/blocks",
-                 json={"document_id": doc["id"], "title": "商品查询模块",
-                       "content_md": "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。",
-                       "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}],
-                       "apis": APIS_V1}, headers=h).json()
-    r = c.post(f"/api/v1/blocks/{blk['id']}/publish",
-               json={"change_note": "首发", "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json()["version"] == "1.0.0"
-    assert c.get(f"/api/v1/blocks/{blk['id']}", headers=a).status_code == 200
-    docs = c.get("/api/v1/documents", headers=a).json()
-    assert any(d["document_id"] == doc["id"] for d in docs)
+def test_new_block_without_apis_is_fine(env):
+    """API 可以为空（纯业务规则的模块）：背景 + 规则 + 验收条件齐全即可发布。"""
+    out = _ok(env, [{"op": "create_block", "capability": env["capability_id"], "title": "纯规则模块",
+                     "content_md": BG, "rules": RULES_V1, "acceptance": ACCEPTANCE_V1}])
+    assert out["blocks"][0]["version"] == "1.0.0"

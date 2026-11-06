@@ -1,11 +1,11 @@
-"""Nested (recursive) API field structure: validation, diff, breaking rules,
+"""Nested (recursive) API field structure: validation, diff, MAJOR-level rules,
 OpenAPI generation, save/read round-trip."""
 
 from __future__ import annotations
 
 import copy
 
-from tests.conftest import publish_v1
+from tests.conftest import change_block, publish_v1
 
 NESTED_V1 = [
     {
@@ -53,89 +53,64 @@ NESTED_INVALID_CHILDREN_ON_SCALAR[0]["request"][0]["children"][0]["children"] = 
 ]  # string 字段不允许有 children
 
 
-def test_nested_roundtrip_save_and_read(env):
+def test_nested_roundtrip_write_and_read(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
-    r = c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V1}, headers=h)
-    assert r.status_code == 200, r.text
-    draft = c.get(f"/api/v1/blocks/{bid}/draft", headers=h).json()
-    rule = draft["apis"][0]["request"][0]
+    change_block(env, bid, apis=NESTED_V1)
+    body = c.get(f"/api/v1/blocks/{bid}", headers=a).json()
+    rule = body["apis"][0]["request"][0]
     assert rule["type"] == "object"
     assert rule["children"][2]["children"][0]["name"] == "region"
-    publish_v1(c, h, bid)
-    body = c.get(f"/api/v1/blocks/{bid}", headers=a).json()
-    assert body["apis"][0]["request"][0]["children"][2]["children"][0]["name"] == "region"
 
 
 def test_children_rejected_under_scalar_type(env):
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    r = c.put(f"/api/v1/blocks/{bid}",
-              json={"apis": NESTED_INVALID_CHILDREN_ON_SCALAR}, headers=h)
+    r = change_block(env, env["block_id"], expect=422, apis=NESTED_INVALID_CHILDREN_ON_SCALAR)
     assert r.status_code == 422
     assert "children" in r.json()["detail"]
 
 
 def test_empty_children_on_scalar_tolerated(env):
-    """回归：GET 读出的标量字段都带空 children: []，原样 PUT 回必须 200。"""
+    """回归：GET 读出的标量字段都带空 children: []，原样写回必须被接受。"""
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
     apis = c.get(f"/api/v1/blocks/{bid}", headers=a).json()["apis"]
     # 确认读出的标量确实带空 children
     assert apis[0]["response"][0]["children"] == []
-    r = c.put(f"/api/v1/blocks/{bid}", json={"apis": apis}, headers=h)
-    assert r.status_code == 200, r.text
-    # 且读回结构不变
-    apis2 = c.get(f"/api/v1/blocks/{bid}/draft", headers=h).json()["apis"]
-    assert apis2 == apis
+    out = change_block(env, bid, apis=apis,
+                       content_md="# 数据采集模块\n\n只改背景，API 原样写回，足够二十个字符。")
+    assert out["delta"]["added"] == [] and out["delta"]["removed"] == [] and out["delta"]["modified"] == []
+    assert c.get(f"/api/v1/blocks/{bid}", headers=a).json()["apis"] == apis  # 读回结构不变
 
 
-def test_removing_optional_field_is_not_breaking(env):
-    """规则细化：删可选字段（required=false）非破坏性，可走 fastTrack。"""
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V1}, headers=h)
-    publish_v1(c, h, bid)
+def test_removing_optional_field_is_major(env):
+    """任何删除都是 MAJOR，包括可选字段。"""
+    bid = env["block_id"]
+    change_block(env, bid, apis=NESTED_V1)
     v2 = copy.deepcopy(NESTED_V1)
     del v2[0]["request"][0]["children"][2]  # 删除可选的 rule.scope（required=false）
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": v2}, headers=h)
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "删可选字段", "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["breaking"] is False
+    body = change_block(env, bid, apis=v2, note="删可选字段")
     assert any("rule.scope" in a for a in body["delta"]["removed"])
-    assert body["version"] == "1.0.1"  # 仅删除无新增 -> PATCH
+    assert (body["version"], body["level"]) == ("2.0.0", "major")
 
 
 def test_nested_field_added_is_minor_with_dotted_path(env):
-    publish_v1(env["client"], env["human"], env["block_id"])
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    # v1 用嵌套结构重新发布一版
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V1}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "换成规则接口", "confirm": True}, headers=h)
-    # v2 在 rule.scope 下加 store_name 子字段
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V2_MINOR}, headers=h)
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "scope 加门店维度", "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["breaking"] is False
+    bid = env["block_id"]
+    change_block(env, bid, apis=NESTED_V1, note="换成规则接口")
+    body = change_block(env, bid, apis=NESTED_V2_MINOR, note="scope 加门店维度")
+    assert body["level"] == "minor"
     assert any(
         "request:POST /api/daily-report/anomaly-rules:rule.scope.store_name" in a
         for a in body["delta"]["added"]
     )
 
 
-def test_nested_type_change_is_breaking(env):
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V1}, headers=h)
-    publish_v1(c, h, bid)
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": NESTED_V2_BREAKING}, headers=h)
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "threshold 改类型", "fastTrack": True}, headers=h)
-    assert r.status_code == 409
-    affected = r.json()["detail"]["affected"]
-    assert any("rule.threshold" in a and a.startswith("request:") for a in affected)
-    assert any("rule.threshold: number required -> string required" in a for a in affected)
+def test_nested_type_change_is_major(env):
+    bid = env["block_id"]
+    change_block(env, bid, apis=NESTED_V1)
+    body = change_block(env, bid, apis=NESTED_V2_BREAKING, note="threshold 改类型")
+    assert body["level"] == "major"
+    modified = body["delta"]["modified"]
+    assert any("rule.threshold" in a and a.startswith("request:") for a in modified)
+    assert any("rule.threshold: number required -> string required" in a for a in modified)
 
 
 def test_nested_openapi_generation(env):

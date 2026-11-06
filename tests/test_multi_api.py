@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from tests.conftest import APIS_V1, publish_v1
+from tests.conftest import APIS_V1, change_block, publish_v1
 
 THREE_APIS = [
     {
@@ -47,17 +47,24 @@ THREE_APIS = [
 ]
 
 
-def _set_apis_and_publish(env, apis, note, **kw):
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    r = c.put(f"/api/v1/blocks/{bid}", json={"apis": apis}, headers=h)
-    assert r.status_code == 200, r.text
-    body = {"change_note": note}
-    body.update(kw)
-    return c.post(f"/api/v1/blocks/{bid}/publish", json=body, headers=h)
+class _Result:
+    """让 change_block 的结果长得像一个 Response，保持下面各测试的断言形状。"""
+
+    status_code = 200
+
+    def __init__(self, body):
+        self._body, self.text = body, str(body)
+
+    def json(self):
+        return self._body
+
+
+def _set_apis_and_publish(env, apis, note):
+    return _Result(change_block(env, env["block_id"], apis=apis, note=note))
 
 
 def test_multi_api_module_publish_and_read(env):
-    r = _set_apis_and_publish(env, THREE_APIS, "三 API 首发", fastTrack=True)
+    r = _set_apis_and_publish(env, THREE_APIS, "三 API 首发")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["version"] == "1.0.0"
@@ -70,40 +77,37 @@ def test_multi_api_module_publish_and_read(env):
 
 
 def test_adding_one_api_is_minor(env):
-    _set_apis_and_publish(env, THREE_APIS, "首发", fastTrack=True)
+    _set_apis_and_publish(env, THREE_APIS, "首发")
     four = copy.deepcopy(THREE_APIS)
     four.append({"name": "查询采集日志", "api": "GET /api/daily-report/collect-logs",
                  "desc": "排查用，拉取采集任务日志；只读", "request": [], "response": []})
-    r = _set_apis_and_publish(env, four, "加第四个 API", fastTrack=True)
+    r = _set_apis_and_publish(env, four, "加第四个 API")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["version"] == "1.1.0"
-    assert body["breaking"] is False
     assert any(a.startswith("api:GET /api/daily-report/collect-logs") for a in body["delta"]["added"])
 
 
-def test_removing_one_api_is_breaking(env):
-    _set_apis_and_publish(env, THREE_APIS, "首发", fastTrack=True)
+def test_removing_one_api_is_major(env):
+    _set_apis_and_publish(env, THREE_APIS, "首发")
     two = copy.deepcopy(THREE_APIS[:2])  # 删掉「重新采集特定项」
-    r = _set_apis_and_publish(env, two, "删 API", fastTrack=True)
-    assert r.status_code == 409
-    affected = r.json()["detail"]["affected"]
-    assert any(a.startswith("api:POST /api/daily-report/recollect") for a in affected)
-    # 该 API 的请求/响应字段也一并列入受影响清单
-    assert any("recollect:item_ids" in a for a in affected)
-    # confirm 后可发布
-    r = _set_apis_and_publish(env, two, "删 API", confirm=True)
-    assert r.status_code == 200
-    assert r.json()["version"] == "2.0.0"
+    r = _set_apis_and_publish(env, two, "删 API")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["version"], body["level"]) == ("2.0.0", "major")
+    removed = body["delta"]["removed"]
+    assert any(a.startswith("api:POST /api/daily-report/recollect") for a in removed)
+    # 该 API 的请求/响应字段也一并列入删除清单
+    assert any("recollect:item_ids" in a for a in removed)
 
 
 def test_field_change_scoped_to_its_api(env):
     """多个 API 时，改其中一个 API 的字段，delta 只涉及该 API 的路径。"""
-    _set_apis_and_publish(env, THREE_APIS, "首发", fastTrack=True)
+    _set_apis_and_publish(env, THREE_APIS, "首发")
     modified = copy.deepcopy(THREE_APIS)
     modified[2]["response"].append({"name": "task_id", "type": "string",
                                     "required": False, "description": "", "children": []})
-    r = _set_apis_and_publish(env, modified, "recollect 响应加 task_id", fastTrack=True)
+    r = _set_apis_and_publish(env, modified, "recollect 响应加 task_id")
     assert r.status_code == 200, r.text
     added = r.json()["delta"]["added"]
     assert added == ["response:POST /api/daily-report/recollect:task_id: string"]
@@ -115,10 +119,10 @@ def test_same_path_different_methods_are_distinct_apis(env):
         {"name": "查", "api": "GET /api/x", "desc": "查询 x；只读", "request": [], "response": []},
         {"name": "增", "api": "POST /api/x", "desc": "新建 x；幂等", "request": [], "response": []},
     ]
-    _set_apis_and_publish(env, apis, "首发", fastTrack=True)
+    _set_apis_and_publish(env, apis, "首发")
     rest = copy.deepcopy(apis)
     rest[0]["response"].append({"name": "total", "type": "integer",
                                 "required": False, "description": "", "children": []})
-    r = _set_apis_and_publish(env, rest, "GET 响应加 total", fastTrack=True)
+    r = _set_apis_and_publish(env, rest, "GET 响应加 total")
     assert r.status_code == 200
     assert r.json()["delta"]["added"] == ["response:GET /api/x:total: integer"]

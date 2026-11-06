@@ -22,7 +22,7 @@ def test_root_serves_spa_index(env):
 
 
 @needs_dist
-@pytest.mark.parametrize("path", ["/proposals", "/blocks/1", "/documents/1/edit"])
+@pytest.mark.parametrize("path", ["/proposals", "/blocks/1", "/capabilities/1/edit"])
 def test_deep_links_fall_back_to_index(env, path):
     r = env["client"].get(path)
     assert r.status_code == 200

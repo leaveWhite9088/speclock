@@ -1,14 +1,15 @@
-"""密钥管理：列表/新建/删除 API + 最后一把 human key 保护 + 管理页渲染。"""
+"""密钥管理：列表 / 新建（按角色）/ 删除 API + 最后一把管理员 key 保护。"""
 
 from __future__ import annotations
 
 
 def test_create_list_delete_key(env):
     c, h = env["client"], env["human"]
-    r = c.post("/api/v1/keys", json={"prefix": "agent", "label": "claude"}, headers=h)
+    r = c.post("/api/v1/keys", json={"role": "executor-agent", "label": "claude"}, headers=h)
     assert r.status_code == 201
     new = r.json()
     assert new["key"].startswith("agent-") and new["label"] == "claude"
+    assert new["role"] == "executor-agent"
     assert new["hint"].startswith("agent-…") and "仅此一次" in new["notice"]
 
     keys = c.get("/api/v1/keys", headers=h).json()
@@ -26,28 +27,29 @@ def test_create_list_delete_key(env):
     assert c.get("/api/v1/index", headers={"X-API-Key": new["key"]}).status_code == 401
 
 
-def test_create_key_invalid_prefix(env):
+def test_create_key_requires_a_known_role(env):
     c, h = env["client"], env["human"]
-    assert c.post("/api/v1/keys", json={"prefix": "root"}, headers=h).status_code == 422
+    assert c.post("/api/v1/keys", json={"role": "root"}, headers=h).status_code == 404
+    assert c.post("/api/v1/keys", json={}, headers=h).status_code == 422
 
 
-def test_last_human_key_cannot_be_deleted(env):
+def test_last_admin_key_cannot_be_deleted(env):
     c, h = env["client"], env["human"]
     keys = c.get("/api/v1/keys", headers=h).json()
-    human_key = next(k for k in keys if k["prefix"] == "human")
-    r = c.delete(f"/api/v1/keys/{human_key['id']}", headers=h)
+    admin_key = next(k for k in keys if k["role"] == "admin")
+    r = c.delete(f"/api/v1/keys/{admin_key['id']}", headers=h)
     assert r.status_code == 409
-    # 再建一把 human key 后，旧的就可以删了
-    r2 = c.post("/api/v1/keys", json={"prefix": "human", "label": "backup"}, headers=h)
+    # 再建一把管理员 key 后，旧的就可以删了
+    r2 = c.post("/api/v1/keys", json={"role": "admin", "label": "backup"}, headers=h)
     assert r2.status_code == 201
-    assert c.delete(f"/api/v1/keys/{human_key['id']}", headers=h).status_code == 200
+    assert c.delete(f"/api/v1/keys/{admin_key['id']}", headers=h).status_code == 200
 
 
 def test_agent_key_cannot_manage_keys(env):
-    """agent key 对密钥管理三个端点（含读取列表）一律 403——不能泄露任何 key。"""
+    """agent 类 key 对密钥管理三个端点（含读取列表）一律 403——不能泄露任何 key。"""
     c, a = env["client"], env["agent"]
     assert c.get("/api/v1/keys", headers=a).status_code == 403
-    assert c.post("/api/v1/keys", json={"prefix": "human"}, headers=a).status_code == 403
+    assert c.post("/api/v1/keys", json={"role": "admin"}, headers=a).status_code == 403
     assert c.delete("/api/v1/keys/1", headers=a).status_code == 403
 
 

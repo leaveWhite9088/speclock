@@ -1,14 +1,14 @@
 """完成标记（completed）：只能由后端通过 ack 驱动——ack 当前最新发布版本
 置位、ack 旧版本不置位、发布自动重置、index/manifest/get_block/tree 读侧
-展示、domain/incomplete 过滤、diff 默认值。"""
+展示、business/incomplete 过滤、diff 默认值。"""
 
 from __future__ import annotations
 
-from tests.conftest import APIS_V2_MINOR, create_module, publish_v1
+from tests.conftest import APIS_V2_MINOR, change_block, commit, create_module, open_cr, publish_v1
 
 
 def flatten_blocks(tree):
-    return [b for d in tree for doc in d["documents"] for b in doc["blocks"]]
+    return [b for d in tree for doc in d["capabilities"] for b in doc["blocks"]]
 
 
 def ack(client, agent, block_id, version, task_desc=""):
@@ -33,9 +33,7 @@ def test_ack_latest_version_marks_completed(env):
 def test_ack_old_version_does_not_mark_completed(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
+    change_block(env, bid, apis=APIS_V2_MINOR)
     # pin 历史版本的回执只记录 Ack，不置位 completed
     body = ack(c, a, bid, "1.0.0")
     assert body["marked_completed"] is False
@@ -54,9 +52,7 @@ def test_publish_resets_completed(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
     ack(c, a, bid, "1.0.0")
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
+    change_block(env, bid, apis=APIS_V2_MINOR)
     entry = flatten_blocks(c.get("/api/v1/index", headers=a).json())[0]
     assert entry["completed"] is False  # 自动重置
     assert entry["completed_version"] == "1.0.0"  # 上次完成版本保留为历史信息
@@ -76,7 +72,7 @@ def test_index_carries_completion_fields(env):
 
 
 def test_index_incomplete_filter(env):
-    c, h, a, bid, did = env["client"], env["human"], env["agent"], env["block_id"], env["document_id"]
+    c, h, a, bid, did = env["client"], env["human"], env["agent"], env["block_id"], env["capability_id"]
     bid2 = create_module(c, h, did, "异常数据展示模块")
     publish_v1(c, h, bid)
     publish_v1(c, h, bid2)
@@ -87,50 +83,48 @@ def test_index_incomplete_filter(env):
     assert len(flatten_blocks(c.get("/api/v1/index", headers=a).json())) == 2
 
 
-def test_index_domain_filter(env):
+def test_index_business_filter(env):
     c, h, a = env["client"], env["human"], env["agent"]
     publish_v1(c, h, env["block_id"])
     # 另一个大业务下的模块
-    dm = c.post("/api/v1/domains", json={"project_id": env["project_id"], "name": "商品"},
-                headers=h).json()
-    doc = c.post("/api/v1/documents", json={"domain_id": dm["id"], "title": "商品主档"},
-                 headers=h).json()
-    blk = c.post("/api/v1/blocks",
-                 json={"document_id": doc["id"], "title": "商品查询模块",
-                       "content_md": "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。",
-                       "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}]},
-                 headers=h).json()
-    publish_v1(c, h, blk["id"])
+    r = commit(env, open_cr(env), [
+        {"op": "create_business", "ref": "b", "name": "商品"},
+        {"op": "create_capability", "ref": "c", "business": "$b", "title": "商品主档"},
+        {"op": "create_block", "capability": "$c", "title": "商品查询模块",
+         "content_md": "# 商品查询模块\n\n商品主档的查询业务背景与流程叙述。",
+         "rules": [{"name": "商品状态口径", "detail": "仅上架商品可被前台查询"}],
+         "acceptance": [{"name": "查询正确", "detail": "下架商品不会出现在前台查询结果里"}]}])
+    assert r.status_code == 200, r.text
 
-    r = c.get("/api/v1/index", params={"domain": "运营"}, headers=a).json()
+    r = c.get("/api/v1/index", params={"business": "运营"}, headers=a).json()
     assert [e["block_id"] for e in flatten_blocks(r)] == [env["block_id"]]
-    assert c.get("/api/v1/index", params={"domain": "不存在"}, headers=a).json() == []
-    # documents 同样支持 domain 过滤
-    docs = c.get("/api/v1/documents", params={"domain": "商品"}, headers=a).json()
+    assert c.get("/api/v1/index", params={"business": "不存在"}, headers=a).json() == []
+    # capabilities 同样支持 business 过滤
+    docs = c.get("/api/v1/capabilities", params={"business": "商品"}, headers=a).json()
     assert [d["title"] for d in docs] == ["商品主档"]
-    # 组合：domain + incomplete
+    # 组合：business + incomplete
     ack(c, a, env["block_id"], "1.0.0")
-    r = c.get("/api/v1/index", params={"domain": "运营", "incomplete": "true"}, headers=a).json()
+    r = c.get("/api/v1/index", params={"business": "运营", "incomplete": "true"}, headers=a).json()
     assert r == []
 
 
 def test_read_sides_see_completed(env):
     """ack 置位后，agent 读侧（get_block / manifest）与 web 读侧
     （/api/v1/tree、block versions API）都能看到 completed=True。"""
-    c, h, a, bid, did = env["client"], env["human"], env["agent"], env["block_id"], env["document_id"]
+    c, h, a, bid, did = env["client"], env["human"], env["agent"], env["block_id"], env["capability_id"]
     publish_v1(c, h, bid)
     ack(c, a, bid, "1.0.0")
     # agent 读侧
     body = c.get(f"/api/v1/blocks/{bid}", headers=a).json()
     assert body["completed"] is True
     assert body["completed_version"] == "1.0.0"
-    doc = c.get(f"/api/v1/documents/{did}", headers=a).json()
+    doc = c.get(f"/api/v1/capabilities/{did}", headers=a).json()
     entry = doc["manifest"][0]
     assert entry["completed"] is True
     assert entry["completed_version"] == "1.0.0"
     # web 读侧：聚合树
     tree = c.get("/api/v1/tree", headers=h).json()
-    tblock = tree[0]["domains"][0]["documents"][0]["blocks"][0]
+    tblock = tree[0]["businesses"][0]["capabilities"][0]["blocks"][0]
     assert tblock["completed"] is True
     # web 读侧：block versions API
     snap = c.get(f"/api/v1/blocks/{bid}/versions/1.0.0", headers=h).json()
@@ -141,9 +135,7 @@ def test_read_sides_see_completed(env):
 def test_diff_defaults_to_last_two_versions(env):
     c, h, a, bid = env["client"], env["human"], env["agent"], env["block_id"]
     publish_v1(c, h, bid)
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    c.post(f"/api/v1/blocks/{bid}/publish",
-           json={"change_note": "v2", "fastTrack": True}, headers=h)
+    change_block(env, bid, apis=APIS_V2_MINOR)
     r = c.get(f"/api/v1/blocks/{bid}/diff", headers=a)  # 不带 from/to
     assert r.status_code == 200
     body = r.json()
@@ -161,7 +153,7 @@ def test_diff_single_version_friendly_message(env):
 def test_tree_carries_current_published_at(env):
     """tree 的 block 条目带 current_published_at：已发布模块为当前版本发布时间，
     草稿模块（从未发布）为 null。"""
-    c, h, did, bid = env["client"], env["human"], env["document_id"], env["block_id"]
+    c, h, did, bid = env["client"], env["human"], env["capability_id"], env["block_id"]
     publish_v1(c, h, bid)
     draft_bid = create_module(c, h, did, "未发布的草稿模块")
 
@@ -169,8 +161,8 @@ def test_tree_carries_current_published_at(env):
     blocks = {
         b["id"]: b
         for proj in tree
-        for d in proj["domains"]
-        for doc in d["documents"]
+        for d in proj["businesses"]
+        for doc in d["capabilities"]
         for b in doc["blocks"]
     }
     published = blocks[bid]

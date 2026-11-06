@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.conftest import APIS_V2_MINOR, publish_v1
+from tests.conftest import change_block, APIS_V2_MINOR, publish_v1
 
 
 def _ack(env, version, task_desc=""):
@@ -24,12 +24,7 @@ def _versions(env):
 
 
 def _publish_next(env, note="v2"):
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": note, "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    return r.json()
+    return change_block(env, env["block_id"], apis=APIS_V2_MINOR, note=note)
 
 
 def test_version_ack_state_pending(env):

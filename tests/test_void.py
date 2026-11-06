@@ -4,18 +4,13 @@ from __future__ import annotations
 
 from speclock.db import SessionLocal
 from speclock.models import AuditLog, Block, BlockVersion
-from tests.conftest import APIS_V2_MINOR, publish_v1
+from tests.conftest import APIS_V2_MINOR, change_block, publish_v1
 
 
 def _publish_v2_minor(env):
-    """在 v1(1.0.0) 之后加一个响应字段并 fastTrack 发布 → 1.1.0。"""
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    r = c.put(f"/api/v1/blocks/{bid}", json={"apis": APIS_V2_MINOR}, headers=h)
-    assert r.status_code == 200, r.text
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "v2", "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json()["version"] == "1.1.0"
+    """在 v1(1.0.0) 之后加一个响应字段并发布 → 1.1.0。"""
+    out = change_block(env, env["block_id"], apis=APIS_V2_MINOR, note="v2")
+    assert out["version"] == "1.1.0"
 
 
 def _publish_two_versions(env):
@@ -66,10 +61,10 @@ def test_void_flow_visibility(env):
 
     # index / admin tree：当前版本回落 1.0.0
     r = c.get("/api/v1/index", headers=a)
-    blocks = r.json()[0]["documents"][0]["blocks"]
+    blocks = r.json()[0]["capabilities"][0]["blocks"]
     assert [b["version"] for b in blocks if b["block_id"] == bid] == ["1.0.0"]
     r = c.get("/api/v1/tree", headers=h)
-    tblock = r.json()[0]["domains"][0]["documents"][0]["blocks"][0]
+    tblock = r.json()[0]["businesses"][0]["capabilities"][0]["blocks"][0]
     assert tblock["current_published_version"] == "1.0.0"
 
     # ack：作废版 404，未作废版正常
@@ -127,12 +122,12 @@ def test_void_all_versions_behaves_unpublished(env):
     r = c.get("/api/v1/index", headers=a)
     assert r.status_code == 200
     all_blocks = [
-        b for dom in r.json() for doc in dom["documents"] for b in doc["blocks"]
+        b for dom in r.json() for doc in dom["capabilities"] for b in doc["blocks"]
     ]
     assert all(b["block_id"] != bid for b in all_blocks)
 
     r = c.get("/api/v1/tree", headers=h)
-    tblock = r.json()[0]["domains"][0]["documents"][0]["blocks"][0]
+    tblock = r.json()[0]["businesses"][0]["capabilities"][0]["blocks"][0]
     assert tblock["status"] == "published"
     assert tblock["current_published_version"] is None
 
@@ -149,18 +144,16 @@ def test_publish_after_void_never_reuses_version(env):
     """1.0.0/1.1.0 作废 1.1.0 后再发布 → 1.2.0（从含作废版本的历史最大号递增）。"""
     _publish_two_versions(env)
     assert _void(env, "1.1.0").status_code == 200
-    c, h, bid = env["client"], env["human"], env["block_id"]
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "v3", "fastTrack": True}, headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json()["version"] == "1.2.0"
+    from tests.conftest import APIS_V2_BREAKING
+
+    out = change_block(env, env["block_id"], apis=APIS_V2_MINOR, note="v3")
+    assert out["version"] == "1.2.0"
     # diff 基线是回退后的 1.0.0（extra_note 相对它仍是新增）
-    assert any("extra_note" in x for x in r.json()["delta"]["added"])
+    assert any("extra_note" in x for x in out["delta"]["added"])
     # 作废历史中间版本也不影响：再作废 1.2.0，下一版仍递增
     assert _void(env, "1.2.0").status_code == 200
-    r = c.post(f"/api/v1/blocks/{bid}/publish",
-               json={"change_note": "v4", "fastTrack": True}, headers=h)
-    assert r.json()["version"] == "1.3.0"
+    out = change_block(env, env["block_id"], apis=APIS_V2_BREAKING, note="v4")
+    assert out["version"] == "2.0.0"  # 1.2.0 作废后基线回到 1.0.0，类型变更 → MAJOR
 
 
 def test_voided_row_stays_in_db(env):
