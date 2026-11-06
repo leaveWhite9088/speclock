@@ -7,7 +7,9 @@ simply returns 403.
 
 Tools:
 - read the spec (``spec.read``): get_index, get_block, get_diff, get_capability
-- implementation receipt (``ack.write``): ack_block
+- execution (``exec.read`` / ``exec.write`` / ``exec.verify``): list_work, get_work,
+  claim_work, release_work, report_blocked, report_failed, submit_implementation (executor),
+  verify_work (tester — must be a different key from the implementer)
 - requirements agent (``cr.write`` / ``commit.write``): create / update / submit /
   withdraw a Change Request, submit a Commit under an APPROVED one, complete it.
 - approve / reject a Change Request (``cr.approve``). In the current coding phase one
@@ -15,6 +17,7 @@ Tools:
   behalf: it MUST pass the human's own words as ``evidence`` (and the content hash of the
   version the human saw), which the server records in the audit trail. Never approve
   without an explicit instruction from the human in the conversation.
+- keys (``key.manage``): create_api_key — only after the human agreed in the conversation.
 
 Configure with:
   SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
@@ -76,18 +79,16 @@ def whoami() -> str:
 
 @mcp.tool(description=(
     "Navigation tree of all published modules: 大业务 → 小业务→ 模块, "
-    "each module with a one-line summary and completion status (completed / "
-    "completed_version) — only work on incomplete modules. Call this FIRST to "
-    "pick relevant modules from the tree, then fetch only those with get_block. "
-    "Optionally filter by business (exact 大业务 name) and/or incomplete_only. "
+    "each module with a one-line summary and the execution status of its current "
+    "version (work_id / execution_status). Call this FIRST to pick relevant modules "
+    "from the tree, then fetch only those with get_block. To find things to do, use "
+    "list_work instead. Optionally filter by business (exact 大业务 name). "
     "Requires spec.read."
 ))
-def get_index(business: str = "", incomplete_only: bool = False) -> str:
+def get_index(business: str = "") -> str:
     params: dict = {}
     if business:
         params["business"] = business
-    if incomplete_only:
-        params["incomplete"] = "true"
     return _call("GET", "/api/v1/index", params=params)
 
 
@@ -135,23 +136,121 @@ def get_capability(capability_id: int, version: str = "") -> str:
     return _call("GET", f"/api/v1/capabilities/{ref}")
 
 
-# ---------- implementation receipt (ack.write) ----------
+# ---------- execution (exec.read / exec.write / exec.verify) ----------
 
 
 @mcp.tool(description=(
-    "Receipt: declare 'I implemented this block's ENTIRE contract at "
-    "{version} — every API and every rule in it'. Call this only when the "
-    "whole block is done at the given version; partial progress is NOT "
-    "acked (completed is boolean, not a percentage). Acking the block's "
-    "latest published version marks the block as completed; acking an "
-    "older (pinned) version only records the receipt. If a block routinely "
-    "cannot be finished as a whole, its boundary is too big — tell the "
-    "requirements agent so it can split the block through a Change Request "
-    "instead of acking partially. Requires ack.write."
+    "List execution records (the to-do queue). Every published module version gets one "
+    "automatically. Filter by status: pending (waiting to be claimed), in_progress, "
+    "blocked (stuck on a business question — the requirements agent should answer it "
+    "through a Change Request), failed, implemented (waiting for independent "
+    "verification), verified; optionally block_id / capability_id, or mine=true for the "
+    "ones you claimed. Default: everything except superseded. Requires exec.read."
 ))
-def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
-    return _call("POST", f"/api/v1/blocks/{block_id}/ack",
-                 json={"version": version, "task_desc": task_desc})
+def list_work(
+    status: str = "", block_id: int | None = None,
+    capability_id: int | None = None, mine: bool = False,
+) -> str:
+    params: dict = {}
+    if status:
+        params["status"] = status
+    if block_id is not None:
+        params["block_id"] = block_id
+    if capability_id is not None:
+        params["capability_id"] = capability_id
+    if mine:
+        params["mine"] = "true"
+    return _call("GET", "/api/v1/work", params=params)
+
+
+@mcp.tool(description=(
+    "One execution record with its event history, the results submitted so far and the "
+    "FULL spec of exactly the version it targets (background, rules, acceptance "
+    "criteria, APIs). Testers read this to see what the executor claims. "
+    "Requires exec.read."
+))
+def get_work(work_id: int) -> str:
+    return _call("GET", f"/api/v1/work/{work_id}")
+
+
+@mcp.tool(description=(
+    "Claim a task: pending / failed / blocked → in_progress. The response carries the "
+    "full spec pinned to the version being claimed — work from THAT snapshot. If a newer "
+    "version is published meanwhile, your later reports get 409 and you must claim the "
+    "new record. Requires exec.write."
+))
+def claim_work(work_id: int) -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/claim")
+
+
+@mcp.tool(description=(
+    "Give up a task you claimed: in_progress → pending, so someone else can take it. "
+    "Requires exec.write."
+))
+def release_work(work_id: int) -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/release")
+
+
+@mcp.tool(description=(
+    "Report you are blocked by a BUSINESS question (the spec is missing information or "
+    "contradicts itself): in_progress → blocked, with the question as 'reason'. Do not "
+    "guess the answer. The requirements agent resolves it by publishing a new version "
+    "through a Change Request. Requires exec.write."
+))
+def report_blocked(work_id: int, reason: str) -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/blocked", json={"reason": reason})
+
+
+@mcp.tool(description=(
+    "Report that you could not finish the task: in_progress → failed, with the reason. "
+    "A failed task can be claimed again (by you or anyone). Requires exec.write."
+))
+def report_failed(work_id: int, reason: str) -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/failed", json={"reason": reason})
+
+
+@mcp.tool(description=(
+    "Submit your implementation: in_progress → implemented. 'results' must contain ONE "
+    "entry per acceptance criterion of the claimed version: {ac_id: 'AC-1', result: "
+    "'pass', evidence: '<test output / response / what you observed>'}. Evidence is "
+    "required. Every criterion must pass — if you cannot make one pass, use "
+    "report_failed or report_blocked instead of submitting. A DIFFERENT key (the tester) "
+    "then verifies it. Requires exec.write."
+))
+def submit_implementation(work_id: int, results: list[dict], note: str = "") -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/implementation",
+                 json={"results": results, "note": note})
+
+
+@mcp.tool(description=(
+    "Independently verify an implemented task (tester only). Test it yourself against "
+    "the pinned spec, then give ONE result per acceptance criterion: {ac_id, result: "
+    "'pass' | 'fail', evidence}. All pass → verified; any fail → the task goes back to "
+    "failed with your evidence as the reason. You cannot verify what you implemented "
+    "(same key → 403). Requires exec.verify."
+))
+def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
+    return _call("POST", f"/api/v1/work/{work_id}/verification",
+                 json={"results": results, "note": note})
+
+
+# ---------- keys (key.manage) ----------
+
+
+@mcp.tool(description=(
+    "Create an API key for an agent role (presets: requirements-agent, executor-agent, "
+    "tester-agent, scanner-agent). ONLY after the human has agreed in this conversation "
+    "to creating it — ask first, and pass their own words as 'evidence'. First check "
+    "whether your own AGENTS.md already holds a key for your role — never create a "
+    "duplicate. The plaintext key is returned ONCE: save it where the human told you "
+    "(your AGENTS.md) and tell them. project_id binds the key to one project. "
+    "Requires key.manage."
+))
+def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
+    body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
+    if project_id is not None:
+        body["project_id"] = project_id
+    return _call("POST", "/api/v1/keys", json=body)
 
 
 # ---------- Change Requests (cr.read / cr.write / commit.write) ----------

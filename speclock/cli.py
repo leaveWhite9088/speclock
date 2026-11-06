@@ -1,4 +1,4 @@
-"""SpecLock 命令行：人用人类 key 查看并批准 / 驳回审核单（Change Request）。
+"""SpecLock 命令行：人用人类 key 查看并批准 / 驳回审核单（Change Request），管理密钥。
 
 批准是人的授权动作，只能用 ``cr.approve`` 权限的人类 key 完成；agent 类 key 一律 403。
 这是审核页按钮之外的另一个渠道，两者在 Core 看来等价（Core 只认"出示了人类 key"），
@@ -15,6 +15,9 @@
   speclock-cli cr approve 12 --hash 3fa9c2…  # 凭你看过的内容哈希（前缀即可）批准，不再交互
   speclock-cli cr approve 12 --via natural_language --evidence "同意，按这个来"
   speclock-cli cr reject 12 --reason "验收条件没写清楚"
+  speclock-cli key list
+  speclock-cli key create --role executor-agent --label "后端执行 Agent" [--project 1]
+  speclock-cli key delete 3
 """
 
 from __future__ import annotations
@@ -112,6 +115,29 @@ def cmd_reject(args) -> None:
     print(f"已驳回 #{out['id']}")
 
 
+def cmd_key_list(args) -> None:
+    c, _ = _client(args)
+    for k in _request(c, "GET", "/api/v1/keys"):
+        scope = f"项目 {k['project_id']}" if k["project_id"] else "全局"
+        print(f"#{k['id']:<4} {k['hint']:<22} {k['role'] or '-':<20} {scope:<8} {k['label']}")
+
+
+def cmd_key_create(args) -> None:
+    c, _ = _client(args)
+    body = {"role": args.role, "label": args.label or "", "via": "cli"}
+    if args.project:
+        body["project_id"] = args.project
+    out = _request(c, "POST", "/api/v1/keys", json=body)
+    print(f"已创建 #{out['id']}（角色 {out['role']}）。密钥只显示这一次，请立即保存：")
+    print(out["key"])
+
+
+def cmd_key_delete(args) -> None:
+    c, _ = _client(args)
+    out = _request(c, "DELETE", f"/api/v1/keys/{args.id}")
+    print(f"已删除 #{out['id']}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="speclock-cli", description=__doc__.split("\n\n")[0])
     p.add_argument("--url", help="SpecLock 地址（默认取 SPECLOCK_URL）")
@@ -141,6 +167,17 @@ def build_parser() -> argparse.ArgumentParser:
     rj.add_argument("--via", default="cli", choices=["cli", "natural_language", "button", "api"])
     rj.add_argument("--evidence")
     rj.set_defaults(fn=cmd_reject)
+
+    key = sub.add_parser("key", help="密钥").add_subparsers(dest="cmd", required=True)
+    key.add_parser("list", help="列出密钥").set_defaults(fn=cmd_key_list)
+    kc = key.add_parser("create", help="创建密钥（明文只显示一次）")
+    kc.add_argument("--role", required=True, help="角色名，如 executor-agent / tester-agent")
+    kc.add_argument("--label", help="备注，如这把 key 给谁用")
+    kc.add_argument("--project", type=int, help="绑定到某个项目（不填 = 全局）")
+    kc.set_defaults(fn=cmd_key_create)
+    kd = key.add_parser("delete", help="删除密钥")
+    kd.add_argument("id", type=int)
+    kd.set_defaults(fn=cmd_key_delete)
     return p
 
 
