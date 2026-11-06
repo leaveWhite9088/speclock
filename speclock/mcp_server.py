@@ -1,13 +1,24 @@
 """SpecLock MCP server (stdio).
 
-Exactly 7 tools — the full agent surface. Every tool is a thin HTTP client
-of the SpecLock read-only REST API; there is intentionally no write tool
-(proposals are the only mutation, and they land in the review queue, never
-in the published store).
+A thin HTTP client of the SpecLock REST API. SpecLock itself is NOT an agent: it is a
+service that external agents plug into through this server. What a key may do is decided
+by its ROLE on the server (``whoami`` shows it); a tool the role lacks permission for
+simply returns 403.
+
+Tools:
+- read the spec (``spec.read``): get_index, get_block, get_diff, get_capability
+- implementation receipt (``ack.write``): ack_block
+- requirements agent (``cr.write`` / ``commit.write``): create / update / submit /
+  withdraw a Change Request, submit a Commit under an APPROVED one, complete it.
+- approve / reject a Change Request (``cr.approve``). In the current coding phase one
+  admin key serves both the human and the agent, so the agent calls these on the human's
+  behalf: it MUST pass the human's own words as ``evidence`` (and the content hash of the
+  version the human saw), which the server records in the audit trail. Never approve
+  without an explicit instruction from the human in the conversation.
 
 Configure with:
   SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
-  SPECLOCK_KEY        an agent-* key (legacy name SPECLOCK_AGENT_KEY also accepted)
+  SPECLOCK_KEY        the agent's API key (legacy name SPECLOCK_AGENT_KEY also accepted)
 
 Run:  python -m speclock.mcp_server
 """
@@ -49,25 +60,49 @@ def _call(method: str, path: str, **kwargs) -> str:
     return json.dumps({"status": r.status_code, "body": body}, ensure_ascii=False)
 
 
+# ---------- who am I ----------
+
+
 @mcp.tool(description=(
-    "Navigation tree of all published modules: 大业务 → 小业务（文档）→ 模块, "
+    "Who am I: this key's role, kind, project binding and the permissions the role grants. "
+    "Call it first to know which of the other tools you may use."
+))
+def whoami() -> str:
+    return _call("GET", "/api/v1/me")
+
+
+# ---------- read the spec (spec.read) ----------
+
+
+@mcp.tool(description=(
+    "Navigation tree of all published modules: 大业务 → 小业务→ 模块, "
     "each module with a one-line summary and completion status (completed / "
     "completed_version) — only work on incomplete modules. Call this FIRST to "
     "pick relevant modules from the tree, then fetch only those with get_block. "
-    "Optionally filter by domain (exact 大业务 name) and/or incomplete_only."
+    "Optionally filter by business (exact 大业务 name) and/or incomplete_only. "
+    "Requires spec.read."
 ))
-def get_index(domain: str = "", incomplete_only: bool = False) -> str:
+def get_index(business: str = "", incomplete_only: bool = False) -> str:
     params: dict = {}
-    if domain:
-        params["domain"] = domain
+    if business:
+        params["business"] = business
     if incomplete_only:
         params["incomplete"] = "true"
     return _call("GET", "/api/v1/index", params=params)
 
 
 @mcp.tool(description=(
-    "Fetch one published block. Pin a version (e.g. '1.2.0') to guarantee a "
-    "stable snapshot for the whole task; omit it for the latest published."
+    "Fetch one published block: background (content_md), business rules, "
+    "acceptance criteria and APIs. Rules and acceptance criteria are lists of "
+    "{id, name, detail} whose ids (R-1 / AC-1) are stable — cite them by id. "
+    "Pin a version (e.g. '1.2.0') to guarantee a stable snapshot for the whole "
+    "task; omit it for the latest published. The response also carries "
+    "'level' (a mechanically computed label for how this version differs from "
+    "the previous one: major / minor / patch / initial — a hint only, it does "
+    "not tell you what to do), 'status' ('current', or 'deprecated' with "
+    "'superseded_by' when a newer version exists) and 'cr_id' / 'commit_id' "
+    "(the Change Request and Commit that produced this version — read it with "
+    "get_change_request to learn WHY it changed). Requires spec.read."
 ))
 def get_block(block_id: int, version: str = "") -> str:
     ref = f"{block_id}@{version}" if version else str(block_id)
@@ -75,9 +110,11 @@ def get_block(block_id: int, version: str = "") -> str:
 
 
 @mcp.tool(description=(
-    "Structured + text diff between two published versions of a module. "
+    "Structured + text diff between two published versions of a module "
+    "(APIs, rules and acceptance criteria; entries are matched by stable id). "
     "from_version/to_version are optional: defaults to the two most recent "
-    "published versions."
+    "published versions. Includes the mechanically computed 'level' label. "
+    "Requires spec.read."
 ))
 def get_diff(block_id: int, from_version: str = "", to_version: str = "") -> str:
     params: dict = {}
@@ -89,95 +126,206 @@ def get_diff(block_id: int, from_version: str = "", to_version: str = "") -> str
 
 
 @mcp.tool(description=(
+    "Fetch a capability manifest: which published version of each module the "
+    "capability currently points at. Pin a capability version (e.g. '1.2.0') to "
+    "replay a historical manifest. Requires spec.read."
+))
+def get_capability(capability_id: int, version: str = "") -> str:
+    ref = f"{capability_id}@{version}" if version else str(capability_id)
+    return _call("GET", f"/api/v1/capabilities/{ref}")
+
+
+# ---------- implementation receipt (ack.write) ----------
+
+
+@mcp.tool(description=(
     "Receipt: declare 'I implemented this block's ENTIRE contract at "
     "{version} — every API and every rule in it'. Call this only when the "
     "whole block is done at the given version; partial progress is NOT "
     "acked (completed is boolean, not a percentage). Acking the block's "
     "latest published version marks the block as completed; acking an "
     "older (pinned) version only records the receipt. If a block routinely "
-    "cannot be finished as a whole, its boundary is too big — submit a "
-    "proposal to split it instead of acking partially."
+    "cannot be finished as a whole, its boundary is too big — tell the "
+    "requirements agent so it can split the block through a Change Request "
+    "instead of acking partially. Requires ack.write."
 ))
 def ack_block(block_id: int, version: str, task_desc: str = "") -> str:
     return _call("POST", f"/api/v1/blocks/{block_id}/ack",
                  json={"version": version, "task_desc": task_desc})
 
 
+# ---------- Change Requests (cr.read / cr.write / commit.write) ----------
+
+
 @mcp.tool(description=(
-    "Submit a change proposal — the ONLY way an agent can influence the "
-    "document store. WARNING: 'suggestion' is free text shown to the human "
-    "reviewer only — it is NEVER applied to the document. If "
-    "proposed_content_md / proposed_api_ops / "
-    "proposed_rule_ops are all empty, approving the proposal publishes an "
-    "EMPTY version (version bump with zero content change); the server "
-    "therefore rejects such submissions with 422 unless you explicitly pass "
-    "note_only=true for a pure explanatory proposal. WRITING STYLE: "
-    "description / suggestion / scenario are read by the human reviewer — "
-    "write them in natural, fluent, conversational Chinese, like explaining "
-    "to a colleague: why the change is needed, what exactly changes, and "
-    "who is affected; avoid jargon piles, telegraphic abbreviations and "
-    "spec-speak. proposed_content_md / proposed_api_ops / proposed_rule_ops "
-    "are machine-applied payloads — keep them precise and professional. In "
-    "short: 说明部分说人话，载荷部分讲精确. To actually change the "
-    "document you MUST fill a payload field. A human must approve and "
-    "publish the proposal before it takes effect; poll with get_proposal. "
-    "Payload fields: proposed_content_md (full replacement of the business "
-    "narrative) and/or proposed_api_ops (RECOMMENDED delta mode: a list of "
-    "{op, api, entry} ops applied on top of the current API list — "
-    "'upsert' replaces the entry whose api matches (appends when absent), "
-    "'delete' removes it; entry is required for upsert (its api must equal "
-    "the top-level api) and must be null for delete; entry objects are "
-    "{name, api, desc, request, response}, same shape as returned by "
-    "get_block). proposed_rule_ops works the same way for business rules: "
-    "a list of {op, name, entry} ops located by rule name — 'upsert' "
-    "replaces the rule whose name matches (appends when absent), 'delete' "
-    "removes it; entry {name, detail} is required for upsert (its name "
-    "must equal the top-level name) and must be null for delete. "
-    "The server records the block's current "
-    "published version as the merge base; approval fails with 409 if that "
-    "base is stale and the ops touch APIs changed since. The backend only "
-    "understands these structured fields; it does NOT accept raw OpenAPI YAML."
+    "List Change Requests (审核单) you can see, newest first. Optional status filter: "
+    "draft / pending_review / approved / applied / rejected / superseded. Requires cr.read."
 ))
-def submit_proposal(
-    block_id: int,
-    description: str,
-    suggestion: str,
-    scenario: str = "",
-    proposed_content_md: str = "",
-    proposed_api_ops: list[dict] | None = None,
-    proposed_rule_ops: list[dict] | None = None,
-    note_only: bool = False,
+def list_change_requests(status: str = "") -> str:
+    return _call("GET", "/api/v1/change-requests", params={"status": status} if status else {})
+
+
+@mcp.tool(description=(
+    "Fetch one Change Request with its status, acceptance coverage (which AC-n are "
+    "covered by commits, which are missing), the human's decision (including the "
+    "rejection reason when rejected) and its commits. Poll this to learn whether the "
+    "human has approved. Requires cr.read."
+))
+def get_change_request(cr_id: int) -> str:
+    return _call("GET", f"/api/v1/change-requests/{cr_id}")
+
+
+@mcp.tool(description=(
+    "Create a Change Request (审核单) as a DRAFT — the object through which a human "
+    "authorizes a business change. It carries business intent ONLY, never which block to "
+    "edit or any technology. Fields: title; intent (why the business changes); "
+    "expected_outcome (what the business looks like afterwards); obsolete (list of old "
+    "beliefs that no longer hold); acceptance (list of {name, detail}; the server assigns "
+    "ids AC-1, AC-2 ... — at least one is required to submit); impact_note (a note for the "
+    "human about what this affects). WRITING STYLE: the human reads all of these — write "
+    "natural, fluent Chinese like explaining to a colleague, no spec-speak. project_id is "
+    "optional when your key is bound to a project. supersedes_id replaces an earlier "
+    "APPROVED-but-unfinished request when this one is approved. Requires cr.write."
+))
+def create_change_request(
+    title: str,
+    intent: str = "",
+    expected_outcome: str = "",
+    acceptance: list[dict] | None = None,
+    obsolete: list[str] | None = None,
+    impact_note: str = "",
+    project_id: int | None = None,
+    supersedes_id: int | None = None,
 ) -> str:
     body: dict = {
-        "block_id": block_id,
-        "description": description,
-        "suggestion": suggestion,
-        "scenario": scenario,
+        "title": title,
+        "intent": intent,
+        "expected_outcome": expected_outcome,
+        "acceptance": acceptance or [],
+        "obsolete": obsolete or [],
+        "impact_note": impact_note,
     }
-    if proposed_content_md:
-        body["proposed_content_md"] = proposed_content_md
-    if proposed_api_ops is not None:
-        body["proposed_api_ops"] = proposed_api_ops
-    if proposed_rule_ops is not None:
-        body["proposed_rule_ops"] = proposed_rule_ops
-    if note_only:
-        body["note_only"] = True
-    return _call("POST", "/api/v1/proposals", json=body)
-
-
-@mcp.tool(description="Poll the status of a proposal (submitted / published / rejected).")
-def get_proposal(proposal_id: int) -> str:
-    return _call("GET", f"/api/v1/proposals/{proposal_id}")
+    if project_id is not None:
+        body["project_id"] = project_id
+    if supersedes_id is not None:
+        body["supersedes_id"] = supersedes_id
+    return _call("POST", "/api/v1/change-requests", json=body)
 
 
 @mcp.tool(description=(
-    "Fetch a document manifest: which published version of each module the "
-    "document currently points at. Pin a document version (e.g. '1.2.0') to "
-    "replay a historical manifest."
+    "Edit a DRAFT Change Request — only the fields you pass change. 'acceptance' replaces "
+    "the whole list (keep an item's id to keep it the same item). A request that was "
+    "submitted is frozen: withdraw_change_request first if you need to edit it. "
+    "Requires cr.write."
 ))
-def get_document(document_id: int, version: str = "") -> str:
-    ref = f"{document_id}@{version}" if version else str(document_id)
-    return _call("GET", f"/api/v1/documents/{ref}")
+def update_change_request(
+    cr_id: int,
+    title: str | None = None,
+    intent: str | None = None,
+    expected_outcome: str | None = None,
+    acceptance: list[dict] | None = None,
+    obsolete: list[str] | None = None,
+    impact_note: str | None = None,
+    supersedes_id: int | None = None,
+) -> str:
+    body = {k: v for k, v in {
+        "title": title, "intent": intent, "expected_outcome": expected_outcome,
+        "acceptance": acceptance, "obsolete": obsolete, "impact_note": impact_note,
+        "supersedes_id": supersedes_id,
+    }.items() if v is not None}
+    return _call("PUT", f"/api/v1/change-requests/{cr_id}", json=body)
+
+
+@mcp.tool(description=(
+    "Submit a draft Change Request for human review (draft → pending_review). Its content "
+    "is frozen and hashed; the human then approves or rejects it themselves — you cannot "
+    "approve it on your own: show the human the content, wait for their explicit decision, "
+    "then use approve_change_request / reject_change_request with their words. "
+    "Intent, expected_outcome and at least one acceptance item are required. "
+    "Requires cr.write."
+))
+def submit_change_request(cr_id: int) -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/submit")
+
+
+@mcp.tool(description=(
+    "Withdraw a pending_review Change Request back to draft so it can be edited again "
+    "(the earlier content hash becomes void). Requires cr.write."
+))
+def withdraw_change_request(cr_id: int) -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/withdraw")
+
+
+@mcp.tool(description=(
+    "Approve a pending_review Change Request ON BEHALF OF THE HUMAN. Only call this after "
+    "the human has explicitly told you, in this conversation, to approve THIS request — "
+    "after you showed them its content. 'content_hash' is the hash from get_change_request "
+    "of the version the human saw (409 if the request has changed since); 'evidence' is the "
+    "human's own words approving it, quoted verbatim (required, recorded in the audit "
+    "trail). Never approve a request you wrote just because it seems fine. "
+    "Requires cr.approve."
+))
+def approve_change_request(cr_id: int, content_hash: str, evidence: str, note: str = "") -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/approve",
+                 json={"content_hash": content_hash, "via": "natural_language",
+                       "evidence": evidence, "note": note})
+
+
+@mcp.tool(description=(
+    "Reject a pending_review Change Request ON BEHALF OF THE HUMAN, with their reason "
+    "(required; the requirements agent reads it and opens a new request instead of editing "
+    "this one — rejected is final). 'evidence' is the human's own words, quoted verbatim. "
+    "Requires cr.approve."
+))
+def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/reject",
+                 json={"reason": reason, "via": "natural_language",
+                       "evidence": evidence or reason})
+
+
+@mcp.tool(description=(
+    "Write to the spec database: submit an atomic Commit under an APPROVED Change Request. "
+    "All ops succeed and are published together, or none is applied. 'ops' is an ordered "
+    "list; each has an 'op' field: create_business {name, ref?}; update_business {id, "
+    "name}; create_capability {business, title, summary?, ref?}; update_capability {id, "
+    "title?, summary?}; create_block {capability, title, summary?, content_md, rules, apis, "
+    "acceptance, ref?} (must be complete: background >= 20 chars, >= 1 rule, >= 1 "
+    "acceptance item, every API with desc); update_block {id, title?, summary?, "
+    "content_md?, and per list EITHER a full replacement (rules / apis / acceptance) OR "
+    "incremental ops (rule_ops / api_ops / acceptance_ops)}; archive_block {id}; "
+    "restore_block {id}. Objects created earlier in the same commit can be referenced "
+    "by '$ref' (give them a 'ref' name) wherever an id is expected. Incremental ops "
+    "locate items by STABLE id (R-n / AC-n from get_block): {op:'upsert', id, entry:"
+    "{name, detail}} modifies, upsert without id adds, {op:'delete', id} removes; api_ops "
+    "locate by 'api' ('GET /path'). In a full replacement only items that carry their id "
+    "count as the same item. Unknown ids → 409. 'covers' lists which of the request's "
+    "acceptance ids (AC-n) this commit satisfies; complete_change_request requires "
+    "every AC to be covered by some commit. Each touched block gets a new version whose "
+    "'level' label is computed mechanically; each touched capability gets exactly one "
+    "new version. Use dry_run=true to preview versions/levels/deltas without writing. "
+    "Requires commit.write."
+))
+def submit_commit(
+    cr_id: int,
+    ops: list[dict],
+    covers: list[str] | None = None,
+    change_note: str = "",
+    dry_run: bool = False,
+) -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/commits",
+                 json={"ops": ops, "covers": covers or [], "change_note": change_note,
+                       "dryRun": dry_run})
+
+
+@mcp.tool(description=(
+    "Report that every change the approved Change Request asked for has been written "
+    "(approved → applied). The server checks mechanically that every acceptance item is "
+    "covered by at least one commit and returns 409 listing the missing ones otherwise. "
+    "This says the SPEC is written — not that any code is implemented or verified. "
+    "Requires commit.write."
+))
+def complete_change_request(cr_id: int) -> str:
+    return _call("POST", f"/api/v1/change-requests/{cr_id}/complete")
 
 
 def main() -> None:

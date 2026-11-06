@@ -5,33 +5,51 @@ Usage:
     SPECLOCK_DB_URL=sqlite:///test.db python -m speclock.seed
 
 Creates: 项目「Demo 电商系统」→ 大业务「运营」→
-  文档「经营日报」: 数据采集模块 / 异常数据展示模块 / 历史记录模块 / 异常规则配置模块
-  文档「售罄率报表」: 数据采集模块 / 异常数据展示模块 / 历史版本记录模块 / 异常规则配置模块
+  小业务「经营日报」: 数据采集模块 / 异常数据展示模块 / 历史记录模块 / 异常规则配置模块
+  小业务「售罄率报表」: 数据采集模块 / 异常数据展示模块 / 历史版本记录模块 / 异常规则配置模块
 每个模块 = 业务背景叙述 + 结构化规则清单 + 结构化 API 列表（含 object/array
-嵌套 children 演示）+ 非功能性需求，全部以 1.0.0 发布；文档版本随之派生。
+嵌套 children 演示）+ 非功能性需求，全部以 1.0.0 发布；小业务版本随之派生。
 """
 
 from __future__ import annotations
 
 import json
+import re
 import os
 
-from speclock.api_admin import publish_block
+from speclock.engine import publish_block
 from speclock.db import SessionLocal, get_engine, init_db
-from speclock.models import ApiKey, Block, Document, Domain, Project
+from speclock.models import ApiKey, Block, Capability, Business, Project
 
 # 开发态固定 key：重 seed 不换 key，浏览器/配置里的 key 不会失效。
 # 生产部署必须通过 SPECLOCK_HUMAN_KEY / SPECLOCK_AGENT_KEY 环境变量覆盖为随机 key！
-DEFAULT_HUMAN_KEY = "human-dev-0000000000000000000000000001"
-DEFAULT_AGENT_KEY = "agent-dev-0000000000000000000000000001"
+DEFAULT_ADMIN_KEY = "human-dev-0000000000000000000000000001"
 
 
-def _get_or_create_key(db, key: str, prefix: str, project_id: int, label: str) -> str:
+def acceptance_from_bullets(text: str) -> list[dict]:
+    """把 "- xxx" 形式的要点文本转成结构化验收条件 [{name, detail}]（演示数据用）。
+    name 取要点的首个分句（≤20 字），detail 为整条要点。"""
+    items = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("- "):
+            continue
+        detail = line[2:].strip()
+        if not detail:
+            continue
+        name = re.split(r"[，。；;：,]", detail, maxsplit=1)[0].strip()[:20] or detail[:20]
+        items.append({"name": name, "detail": detail})
+    return items
+
+
+def _get_or_create_key(db, key: str, role_name: str, project_id: int, label: str) -> str:
     from speclock.auth import hash_key, key_hint
+    from speclock.permissions import get_role
     rec = db.query(ApiKey).filter(ApiKey.key == hash_key(key)).first()
     if rec is None:
-        db.add(ApiKey(key=hash_key(key), hint=key_hint(key),
-                      prefix=prefix, project_id=project_id, label=label))
+        role = get_role(db, role_name)
+        db.add(ApiKey(key=hash_key(key), hint=key_hint(key), prefix=role.kind,
+                      role_id=role.id, project_id=project_id, label=label))
         db.flush()
     return key
 
@@ -120,7 +138,7 @@ DAILY_COLLECT_APIS = [
     },
 ]
 
-DAILY_COLLECT_NFR = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 06:30 前完成\n"
+DAILY_COLLECT_ACCEPTANCE = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 06:30 前完成\n"
 
 DAILY_COLLECT_RULES = [
     {"name": "销售额口径", "detail": "支付成功订单金额合计（不含退款）"},
@@ -156,7 +174,7 @@ DAILY_ANOMALY_APIS = [
     }
 ]
 
-DAILY_ANOMALY_NFR = "- 异常行列表接口 P95 ≤ 500ms\n"
+DAILY_ANOMALY_ACCEPTANCE = "- 异常行列表接口 P95 ≤ 500ms\n"
 
 DAILY_ANOMALY_RULES = [
     {"name": "销售额环比骤降", "detail": "销售额环比下降超过 30%（对比前一同口径日期）即命中"},
@@ -196,7 +214,7 @@ DAILY_HISTORY_APIS = [
     }
 ]
 
-DAILY_HISTORY_NFR = "- 历史查询接口 P95 ≤ 800ms（区间 ≤ 31 天）\n- 单页默认 50 行，最大 200 行\n"
+DAILY_HISTORY_ACCEPTANCE = "- 历史查询接口 P95 ≤ 800ms（区间 ≤ 31 天）\n- 单页默认 50 行，最大 200 行\n"
 
 DAILY_HISTORY_RULES = [
     {"name": "默认展示", "detail": "默认展示昨日数据，可切换日期或选择日期区间导出"},
@@ -240,7 +258,7 @@ DAILY_RULE_APIS = [
     }
 ]
 
-DAILY_RULE_NFR = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
+DAILY_RULE_ACCEPTANCE = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
 
 DAILY_RULE_RULES = [
     {"name": "生效时间", "detail": "规则保存后次日生效，不回溯历史数据"},
@@ -275,7 +293,7 @@ SELLOUT_COLLECT_APIS = [
     }
 ]
 
-SELLOUT_COLLECT_NFR = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 07:30 前完成\n"
+SELLOUT_COLLECT_ACCEPTANCE = "- 采集状态查询接口 P95 ≤ 300ms\n- 采集任务须在每日 07:30 前完成\n"
 
 SELLOUT_COLLECT_RULES = [
     {"name": "售罄率口径", "detail": "售罄率 = 累计销售量 / 累计到货量"},
@@ -311,7 +329,7 @@ SELLOUT_ANOMALY_APIS = [
     }
 ]
 
-SELLOUT_ANOMALY_NFR = "- 异常行列表接口 P95 ≤ 500ms\n"
+SELLOUT_ANOMALY_ACCEPTANCE = "- 异常行列表接口 P95 ≤ 500ms\n"
 
 SELLOUT_ANOMALY_RULES = [
     {"name": "售罄跳升", "detail": "售罄率 7 日内从低于 30% 跳升到 95% 以上（疑似超卖或数据错误）"},
@@ -357,7 +375,7 @@ SELLOUT_HISTORY_APIS = [
     }
 ]
 
-SELLOUT_HISTORY_NFR = "- 历史快照接口 P95 ≤ 1s（区间 ≤ 31 天）\n- 快照保留 365 天\n"
+SELLOUT_HISTORY_ACCEPTANCE = "- 历史快照接口 P95 ≤ 1s（区间 ≤ 31 天）\n- 快照保留 365 天\n"
 
 SELLOUT_HISTORY_RULES = [
     {"name": "快照粒度", "detail": "按日快照保存，可下钻到「门店 → SKU」两级明细"},
@@ -403,7 +421,7 @@ SELLOUT_RULE_APIS = [
     }
 ]
 
-SELLOUT_RULE_NFR = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
+SELLOUT_RULE_ACCEPTANCE = "- 规则保存接口 P95 ≤ 500ms\n- 规则数量上限 50 条\n"
 
 SELLOUT_RULE_RULES = [
     {"name": "生效时间", "detail": "规则保存后次日生效"},
@@ -412,6 +430,11 @@ SELLOUT_RULE_RULES = [
 
 
 def main() -> None:
+    """生成 dev 数据。``--empty``：只建一个空项目和一把 admin key，不灌 demo 内容
+    （用来从零开始让 Agent 经审核单建立规格）。"""
+    import sys
+
+    empty = "--empty" in sys.argv[1:]
     get_engine()
     init_db()
     db = SessionLocal()
@@ -424,77 +447,90 @@ def main() -> None:
         db.close()
         return
 
+    if empty:
+        project = Project(name="我的项目")
+        db.add(project)
+        db.flush()
+        admin_key = _get_or_create_key(
+            db, os.environ.get("SPECLOCK_ADMIN_KEY")
+            or os.environ.get("SPECLOCK_HUMAN_KEY", DEFAULT_ADMIN_KEY),
+            "admin", project.id, "admin")
+        db.commit()
+        print(f"空库已创建：项目「我的项目」(id={project.id})，没有任何业务内容。")
+        print(f"  admin key (拥有全部权限；MCP 的 SPECLOCK_KEY 填它): {admin_key}")
+        db.close()
+        return
+
     project = Project(name="Demo 电商系统")
     db.add(project)
     db.flush()
-    domain = Domain(project_id=project.id, name="运营")
-    db.add(domain)
+    business = Business(project_id=project.id, name="运营")
+    db.add(business)
     db.flush()
 
-    human_key = _get_or_create_key(
-        db, os.environ.get("SPECLOCK_HUMAN_KEY", DEFAULT_HUMAN_KEY),
-        "human", project.id, "demo human")
-    agent_key = _get_or_create_key(
-        db, os.environ.get("SPECLOCK_AGENT_KEY", DEFAULT_AGENT_KEY),
-        "agent", project.id, "demo agent")
+    # 编码阶段只发一把拥有全部权限的 admin key（人和 Agent 共用，见 AGENTS.md）
+    admin_key = _get_or_create_key(
+        db, os.environ.get("SPECLOCK_ADMIN_KEY")
+        or os.environ.get("SPECLOCK_HUMAN_KEY", DEFAULT_ADMIN_KEY),
+        "admin", project.id, "demo admin")
 
     docs = [
         ("经营日报", [
             ("数据采集模块", "汇总前一日经营数据并落库，提供采集状态查询",
-             DAILY_COLLECT_MD, DAILY_COLLECT_RULES, DAILY_COLLECT_APIS, DAILY_COLLECT_NFR),
+             DAILY_COLLECT_MD, DAILY_COLLECT_RULES, DAILY_COLLECT_APIS, DAILY_COLLECT_ACCEPTANCE),
             ("异常数据展示模块", "销售额环比骤降等三类异常行的标红置顶展示",
-             DAILY_ANOMALY_MD, DAILY_ANOMALY_RULES, DAILY_ANOMALY_APIS, DAILY_ANOMALY_NFR),
+             DAILY_ANOMALY_MD, DAILY_ANOMALY_RULES, DAILY_ANOMALY_APIS, DAILY_ANOMALY_ACCEPTANCE),
             ("历史记录模块", "按日期区间回看/导出历史日报数据",
-             DAILY_HISTORY_MD, DAILY_HISTORY_RULES, DAILY_HISTORY_APIS, DAILY_HISTORY_NFR),
+             DAILY_HISTORY_MD, DAILY_HISTORY_RULES, DAILY_HISTORY_APIS, DAILY_HISTORY_ACCEPTANCE),
             ("异常规则配置模块", "异常值规则的阈值与生效范围配置（增改接口）",
-             DAILY_RULE_MD, DAILY_RULE_RULES, DAILY_RULE_APIS, DAILY_RULE_NFR),
+             DAILY_RULE_MD, DAILY_RULE_RULES, DAILY_RULE_APIS, DAILY_RULE_ACCEPTANCE),
         ]),
         ("售罄率报表", [
             ("数据采集模块", "按大区/门店/SKU 三级粒度汇总售罄率数据",
-             SELLOUT_COLLECT_MD, SELLOUT_COLLECT_RULES, SELLOUT_COLLECT_APIS, SELLOUT_COLLECT_NFR),
+             SELLOUT_COLLECT_MD, SELLOUT_COLLECT_RULES, SELLOUT_COLLECT_APIS, SELLOUT_COLLECT_ACCEPTANCE),
             ("异常数据展示模块", "超卖、库存缺失、滞销三类售罄异常行展示",
-             SELLOUT_ANOMALY_MD, SELLOUT_ANOMALY_RULES, SELLOUT_ANOMALY_APIS, SELLOUT_ANOMALY_NFR),
+             SELLOUT_ANOMALY_MD, SELLOUT_ANOMALY_RULES, SELLOUT_ANOMALY_APIS, SELLOUT_ANOMALY_ACCEPTANCE),
             ("历史版本记录模块", "按日快照回看售罄率报表，下钻门店/SKU 明细",
-             SELLOUT_HISTORY_MD, SELLOUT_HISTORY_RULES, SELLOUT_HISTORY_APIS, SELLOUT_HISTORY_NFR),
+             SELLOUT_HISTORY_MD, SELLOUT_HISTORY_RULES, SELLOUT_HISTORY_APIS, SELLOUT_HISTORY_ACCEPTANCE),
             ("异常规则配置模块", "售罄率异常规则的阈值与生效范围配置",
-             SELLOUT_RULE_MD, SELLOUT_RULE_RULES, SELLOUT_RULE_APIS, SELLOUT_RULE_NFR),
+             SELLOUT_RULE_MD, SELLOUT_RULE_RULES, SELLOUT_RULE_APIS, SELLOUT_RULE_ACCEPTANCE),
         ]),
     ]
 
     created = []
     for doc_title, modules in docs:
-        document = Document(domain_id=domain.id, title=doc_title, doc_type="business")
-        db.add(document)
+        capability = Capability(business_id=business.id, title=doc_title)
+        db.add(capability)
         db.flush()
-        for title, summary, md, rules, apis, nfr in modules:
+        for title, summary, md, rules, apis, acceptance_md in modules:
             block = Block(
-                document_id=document.id,
+                capability_id=capability.id,
                 title=title,
                 summary=summary,
                 draft_content_md=md,
                 draft_rules_json=json.dumps(rules, ensure_ascii=False),
                 draft_apis_json=json.dumps(apis, ensure_ascii=False),
-                draft_nfr_md=nfr,
+                draft_acceptance_json=json.dumps(
+                    acceptance_from_bullets(acceptance_md), ensure_ascii=False
+                ),
             )
             db.add(block)
             db.flush()
-            result = publish_block(db, block, actor="seed", change_note="初始发布",
-                                   fast_track=True, confirm=False)
-            created.append((document, block, result))
+            result = publish_block(db, block, actor="seed", change_note="初始发布")
+            created.append((capability, block, result))
 
     db.commit()
 
     print("SpecLock demo 数据已创建：")
     print("  项目: Demo 电商系统 → 大业务: 运营")
-    for document, block, result in created:
-        print(f"  文档「{document.title}」模块 #{block.id}「{block.title}」@{result.version}"
-              f"（文档版本 @{result.document_version}）")
+    for capability, block, result in created:
+        print(f"  小业务「{capability.title}」模块 #{block.id}「{block.title}」@{result.version}"
+              f"（小业务版本 @{result.capability_version}）")
     print()
-    print(f"  human key (读写/管理端): {human_key}")
-    print(f"  agent key (只读+提案): {agent_key}")
+    print(f"  admin key (拥有全部权限；MCP 的 SPECLOCK_KEY 填它): {admin_key}")
     print()
     print("启动服务:  .venv/Scripts/python.exe -m uvicorn speclock.main:app")
-    print("管理界面:  http://127.0.0.1:8000/  （需先 cd web && npm run build；登录页粘贴 human key）")
+    print("管理界面:  http://127.0.0.1:8000/  （需先 cd web && npm run build；登录页粘贴 human key，审核页批准 / 驳回审核单）")
     db.close()
 
 
