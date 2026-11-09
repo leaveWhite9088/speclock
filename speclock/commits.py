@@ -35,13 +35,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from speclock import diffing
+from speclock import diffing, review
 from speclock.auth import audit
 from speclock.engine import (
     derive_capability_version,
@@ -511,64 +510,99 @@ def _wrap(i: int, op: dict, exc: HTTPException) -> HTTPException:
     return exc
 
 
-def _entry_key(kind: str, entry: dict) -> tuple:
-    """条目的规范形式（忽略编号，只看内容），用来比较「条目总和」是否不变。"""
-    clean = {k: v for k, v in entry.items() if k != "id"}
-    return (kind, json.dumps(clean, ensure_ascii=False, sort_keys=True))
+def _run_ops(db: Session, cr: ChangeRequest, commit: Commit, ops: list[dict], actor: str):
+    """在当前事务里执行 ops；内部整理单再做三档判定（见 review.py）。
+    返回 (ctx, verdict)：verdict 只有内部整理单才有；第 3 档（实质改动）直接 422。"""
+    ctx = _Ctx(db, cr, commit, actor)
+    internal = cr.kind == "internal"
+    before = review.snapshot(db, cr.project_id) if internal else None
+    for i, op in enumerate(ops, 1):
+        try:
+            HANDLERS[op["op"]](ctx, op)
+        except HTTPException as exc:
+            raise _wrap(i, op, exc) from exc
+    db.flush()
+    verdict = None
+    if internal:
+        created = {bid for bid, info in ctx.touched.items() if info["created"]}
+        after = review.snapshot(db, cr.project_id, created)
+        verdict = review.classify(before, after, review.get_review_settings())
+        if verdict.tier == 3:
+            raise HTTPException(status_code=422, detail=review.reject_detail(verdict, before, after))
+    return ctx, verdict
 
 
-def content_signature(db: Session, project_id: int, extra_block_ids=()) -> Counter:
-    """项目里「在线」模块的规则 / 验收条件 / API 条目的总和（多重集合）。
-    在线 = 已发布且未归档，或 extra_block_ids 里的（本 Commit 刚新建、尚未发布的模块）。"""
-    sig: Counter = Counter()
-    blocks = (
-        db.query(Block)
-        .join(Capability, Capability.id == Block.capability_id)
-        .join(Business, Business.id == Capability.business_id)
-        .filter(Business.project_id == project_id)
-        .all()
-    )
-    for b in blocks:
-        if b.status != "published" and b.id not in extra_block_ids:
-            continue
-        for kind, raw in (("rule", b.draft_rules_json), ("ac", b.draft_acceptance_json),
-                          ("api", b.draft_apis_json)):
-            entries = json.loads(raw or "[]")
-            if kind == "api":  # 先规范化，避免默认值 / 字段顺序造成假差异
-                try:
-                    entries = diffing.validate_apis(entries, require_desc=False)
-                except diffing.ApisValidationError:
-                    pass
-            for entry in entries:
-                sig[_entry_key(kind, entry)] += 1
-    return sig
+def _publish(db: Session, cr: ChangeRequest, commit: Commit, ctx: _Ctx, note: str, actor: str) -> dict:
+    """把 ctx 里改动过的模块发布成新版本，并为受影响的小业务各派生一个版本；返回落地结果。"""
+    blocks_out = []
+    cap_levels: dict[int, list[str]] = {}
+    cap_trigger: dict[int, Block] = {}
+    for block_id, info in ctx.touched.items():
+        block = info["block"]
+        try:
+            result = publish_block(
+                db, block, actor=actor, change_note=note,
+                cr_id=cr.id, commit_id=commit.id,
+                derive_capability=False, commit=False,
+            )
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=(
+                    {"block_id": block.id, "title": block.title, **exc.detail}
+                    if isinstance(exc.detail, dict)
+                    else f"模块 {block.id}「{block.title}」：{exc.detail}"
+                ),
+            ) from exc
+        cap_levels.setdefault(block.capability_id, []).append(result.level)
+        cap_trigger.setdefault(block.capability_id, block)
+        blocks_out.append(
+            {
+                "block_id": block.id,
+                "title": block.title,
+                "capability_id": block.capability_id,
+                "version": result.version,
+                "level": result.level,
+                "created": info["created"],
+                "delta": result.delta.model_dump(),
+            }
+        )
+    for old_cap_id, block in ctx.moved.values():
+        for cap_id in (old_cap_id, block.capability_id):
+            cap_levels.setdefault(cap_id, []).append("minor")
+            cap_trigger.setdefault(cap_id, block)
+        audit(db, actor, "move", f"block:{block.id}",
+              {"from_capability": old_cap_id, "to_capability": block.capability_id,
+               "cr_id": cr.id, "commit_id": commit.id})
+    for block in [*ctx.archived.values(), *ctx.restored.values()]:
+        cap_levels.setdefault(block.capability_id, []).append("minor")
+        cap_trigger.setdefault(block.capability_id, block)
+        audit(db, actor, "archive" if block.id in ctx.archived else "restore",
+              f"block:{block.id}", {"cr_id": cr.id, "commit_id": commit.id})
+        if block.id in ctx.restored:
+            sync_block(db, block, actor)  # 恢复后保证当前版本有执行记录
+    db.flush()
 
+    cap_versions = []
+    for cap_id, levels in cap_levels.items():
+        level = max(levels, key=lambda lv: LEVEL_RANK[lv])
+        first = db.get(Capability, cap_id).current_version is None
+        version = derive_capability_version(
+            db, cap_trigger[cap_id], level, actor, note, cr_id=cr.id, commit_id=commit.id,
+            capability_id=cap_id,
+        )
+        # 小业务级别只有 initial（首个版本）/ major / minor / patch
+        reported = "initial" if first else ("minor" if level == "initial" else level)
+        cap_versions.append({"capability_id": cap_id, "version": version, "level": reported})
 
-def _describe(key: tuple) -> str:
-    kind, blob = key
-    entry = json.loads(blob)
-    label = {"rule": "规则", "ac": "验收条件", "api": "API"}[kind]
-    return f"{label}「{entry.get('name') or entry.get('api') or ''}」"
-
-
-def check_internal_unchanged(before: Counter, after: Counter) -> None:
-    """内部整理的机械兜底：规则 / 验收条件 / API 的条目总和必须和之前一模一样
-    （搬动、拆分、合并、改名都不影响总和；只要有一条被改、增、删就拒绝）。"""
-    added = after - before
-    removed = before - after
-    if not added and not removed:
-        return
-    def sample(c: Counter) -> list[str]:
-        return [_describe(k) for k in list(c)[:3]]
-    raise HTTPException(
-        status_code=422,
-        detail={
-            "error": "这个审核单声明是「内部整理」，但这批改动改变了业务内容"
-            "（规则 / 验收条件 / API 的条目总和变了）。请改开「业务变更」审核单让人批准",
-            "added_or_changed": sample(added),
-            "removed_or_changed": sample(removed),
-        },
-    )
+    return {
+        "created": ctx.ref_info,
+        "blocks": blocks_out,
+        "archived_blocks": sorted(ctx.archived),
+        "restored_blocks": sorted(ctx.restored),
+        "moved_blocks": sorted(ctx.moved),
+        "capability_versions": cap_versions,
+    }
 
 
 def apply_commit(
@@ -579,9 +613,15 @@ def apply_commit(
     change_note: str,
     actor: str,
     dry_run: bool = False,
+    actor_key_id: int | None = None,
 ) -> tuple[Commit, dict]:
     """在审核单 cr 下原子应用 ops 并发布。dry_run=True 完整执行后回滚（预览：
-    会得到的版本号 / 级别标签 / delta），不落库、不写审计。"""
+    会得到的版本号 / 级别标签 / delta），不落库、不写审计。
+
+    内部整理单有三档（见 review.py）：条目总和不变 → 照常落地；只有单条条目的小幅文字改动
+    → **不落地**，记成「待复核」的 Commit（outcome["status"] == "pending_review"），由另一个
+    key 复核通过后才应用；有实质改动 → 422。outcome["status"] 总是 applied / pending_review /
+    （dry_run 时）would_need_review 之一。"""
     if cr.status != "approved":
         raise HTTPException(
             status_code=409, detail=f"审核单是 {cr.status}，只有已批准（approved）的才能提交 Commit"
@@ -597,98 +637,110 @@ def apply_commit(
         covers_json=json.dumps(covers),
         change_note=note,
         created_by=actor,
+        created_by_key_id=actor_key_id,
     )
     db.add(commit)
     try:
         db.flush()
-        ctx = _Ctx(db, cr, commit, actor)
-        before = content_signature(db, cr.project_id) if cr.kind == "internal" else None
-        for i, op in enumerate(ops, 1):
-            try:
-                HANDLERS[op["op"]](ctx, op)
-            except HTTPException as exc:
-                raise _wrap(i, op, exc) from exc
-        db.flush()
-        if before is not None:
-            created = {bid for bid, info in ctx.touched.items() if info["created"]}
-            check_internal_unchanged(before, content_signature(db, cr.project_id, created))
+        ctx, verdict = _run_ops(db, cr, commit, ops, actor)
+        if verdict is not None and verdict.tier == 2:
+            record = verdict.record()
+            db.rollback()  # 规格一个字都不动：这批改动只是记下来，等复核
+            if dry_run:
+                return commit, {"status": "would_need_review", "review": record}
+            return _store_pending(db, cr, ops, covers, note, actor, actor_key_id, record)
 
-        blocks_out = []
-        cap_levels: dict[int, list[str]] = {}
-        cap_trigger: dict[int, Block] = {}
-        for block_id, info in ctx.touched.items():
-            block = info["block"]
-            try:
-                result = publish_block(
-                    db, block, actor=actor, change_note=note,
-                    cr_id=cr.id, commit_id=commit.id,
-                    derive_capability=False, commit=False,
-                )
-            except HTTPException as exc:
-                raise HTTPException(
-                    status_code=exc.status_code,
-                    detail=(
-                        {"block_id": block.id, "title": block.title, **exc.detail}
-                        if isinstance(exc.detail, dict)
-                        else f"模块 {block.id}「{block.title}」：{exc.detail}"
-                    ),
-                ) from exc
-            cap_levels.setdefault(block.capability_id, []).append(result.level)
-            cap_trigger.setdefault(block.capability_id, block)
-            blocks_out.append(
-                {
-                    "block_id": block.id,
-                    "title": block.title,
-                    "capability_id": block.capability_id,
-                    "version": result.version,
-                    "level": result.level,
-                    "created": info["created"],
-                    "delta": result.delta.model_dump(),
-                }
-            )
-        for old_cap_id, block in ctx.moved.values():
-            for cap_id in (old_cap_id, block.capability_id):
-                cap_levels.setdefault(cap_id, []).append("minor")
-                cap_trigger.setdefault(cap_id, block)
-            audit(db, actor, "move", f"block:{block.id}",
-                  {"from_capability": old_cap_id, "to_capability": block.capability_id,
-                   "cr_id": cr.id, "commit_id": commit.id})
-        for block in [*ctx.archived.values(), *ctx.restored.values()]:
-            cap_levels.setdefault(block.capability_id, []).append("minor")
-            cap_trigger.setdefault(block.capability_id, block)
-            audit(db, actor, "archive" if block.id in ctx.archived else "restore",
-                  f"block:{block.id}", {"cr_id": cr.id, "commit_id": commit.id})
-            if block.id in ctx.restored:
-                sync_block(db, block, actor)  # 恢复后保证当前版本有执行记录
-        db.flush()
-
-        cap_versions = []
-        for cap_id, levels in cap_levels.items():
-            level = max(levels, key=lambda lv: LEVEL_RANK[lv])
-            first = db.get(Capability, cap_id).current_version is None
-            version = derive_capability_version(
-                db, cap_trigger[cap_id], level, actor, note, cr_id=cr.id, commit_id=commit.id,
-                capability_id=cap_id,
-            )
-            # 小业务级别只有 initial（首个版本）/ major / minor / patch
-            reported = "initial" if first else ("minor" if level == "initial" else level)
-            cap_versions.append({"capability_id": cap_id, "version": version, "level": reported})
-
-        outcome = {
-            "created": ctx.ref_info,
-            "blocks": blocks_out,
-            "archived_blocks": sorted(ctx.archived),
-            "restored_blocks": sorted(ctx.restored),
-            "moved_blocks": sorted(ctx.moved),
-            "capability_versions": cap_versions,
-        }
+        outcome = _publish(db, cr, commit, ctx, note, actor)
+        outcome["status"] = "applied"
         commit.result_json = json.dumps(outcome, ensure_ascii=False)
         if dry_run:
             db.rollback()
         else:
             audit(db, actor, "commit", f"cr:{cr.id}/commit:{commit.id}",
-                  {"seq": seq, "covers": covers, "blocks": [b["block_id"] for b in blocks_out]})
+                  {"seq": seq, "covers": covers, "blocks": [b["block_id"] for b in outcome["blocks"]]})
             db.commit()
+        return commit, outcome
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def _store_pending(db, cr, ops, covers, note, actor, actor_key_id, record):
+    """把第 2 档的 Commit 存成「待复核」：只记 ops 和逐条新旧对比，不改任何规格。"""
+    seq = max((c.seq for c in db.query(Commit).filter(Commit.cr_id == cr.id)), default=0) + 1
+    commit = Commit(
+        cr_id=cr.id,
+        seq=seq,
+        ops_json=json.dumps(ops, ensure_ascii=False),
+        covers_json=json.dumps(covers),
+        change_note=note,
+        created_by=actor,
+        created_by_key_id=actor_key_id,
+        status="pending_review",
+        review_json=json.dumps(record, ensure_ascii=False),
+    )
+    db.add(commit)
+    db.flush()
+    audit(db, actor, "commit_review_requested", f"cr:{cr.id}/commit:{commit.id}",
+          {"seq": seq, "changes": record["changes"], "kind_reason": cr.kind_reason})
+    db.commit()
+    return commit, {
+        "status": "pending_review",
+        "review": record,
+        "message": "这批改动只是单条条目里的小幅文字修改，已记为「待复核」，规格暂时没有变化；"
+        "需要另一个角色（扫描 Agent 或人）复核通过后才会生效",
+    }
+
+
+def apply_reviewed(
+    db: Session,
+    cr: ChangeRequest,
+    commit: Commit,
+    *,
+    reviewer_hint: str,
+    reviewer_key_id: int,
+    via: str,
+    reason: str,
+    evidence: str,
+) -> tuple[Commit, dict]:
+    """复核通过：把待复核的 Commit 重新应用并发布。规格在提交之后又变过（原来的 ops 无法应用，
+    或逐条新旧对比对不上了）就 409，不会把一个过期的复核结论落到新规格上。"""
+    ops = json.loads(commit.ops_json)
+    stored = json.loads(commit.review_json or "{}")
+    stale = HTTPException(
+        status_code=409,
+        detail={"error": "规格在这个 Commit 提交之后又变化了，已经无法按原样应用。"
+                "请选择「不通过」，让提交者基于最新规格重新提交"},
+    )
+    try:
+        try:
+            ctx, verdict = _run_ops(db, cr, commit, ops, commit.created_by)
+        except HTTPException as exc:
+            raise HTTPException(status_code=409, detail={**stale.detail, "cause": exc.detail}) from exc
+        recorded = sorted(
+            (c["block_id"], c["kind"], c["item_id"], c["field"], c["old"], c["new"])
+            for c in stored.get("changes", [])
+        )
+        if verdict is None or verdict.tier != 2 or verdict.fingerprint() != recorded:
+            raise stale
+        outcome = _publish(db, cr, commit, ctx, commit.change_note, commit.created_by)
+        outcome["status"] = "applied"
+        commit.result_json = json.dumps(outcome, ensure_ascii=False)
+        commit.status = "applied"
+        commit.review_decision = "approved"
+        commit.reviewed_by = reviewer_hint
+        commit.reviewed_by_key_id = reviewer_key_id
+        commit.reviewed_at = utcnow()
+        commit.review_via = via
+        commit.review_note = reason
+        commit.review_evidence = evidence
+        audit(db, reviewer_hint, "commit_review_approved", f"cr:{cr.id}/commit:{commit.id}",
+              {"reason": reason, "via": via, "evidence": evidence, "submitted_by": commit.created_by,
+               "changes": stored.get("changes", [])})
+        audit(db, commit.created_by, "commit", f"cr:{cr.id}/commit:{commit.id}",
+              {"seq": commit.seq, "covers": json.loads(commit.covers_json), "reviewed_by": reviewer_hint,
+               "blocks": [b["block_id"] for b in outcome["blocks"]]})
+        db.commit()
         return commit, outcome
     except BaseException:
         db.rollback()

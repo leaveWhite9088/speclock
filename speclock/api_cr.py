@@ -17,17 +17,17 @@ from __future__ import annotations
 import hashlib
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from speclock import diffing
 from speclock.auth import audit
-from speclock.commits import apply_commit
+from speclock.commits import apply_commit, apply_reviewed
 from speclock.db import get_db
 from speclock.models import ApiKey, ChangeRequest, Commit, Project, utcnow
 from speclock import permissions as perms
 from speclock.permissions import require_permission
-from speclock.schemas import CRApprove, CRCreate, CRReject, CRUpdate, CommitCreate
+from speclock.schemas import CRApprove, CRCreate, CRReject, CRUpdate, CommitCreate, ReviewDecision
 
 router = APIRouter(prefix="/api/v1", tags=["change-requests"])
 
@@ -66,9 +66,14 @@ def _get_cr(db: Session, key: ApiKey, cr_id: int) -> ChangeRequest:
     return cr
 
 
+def _applied(cr: ChangeRequest) -> list[Commit]:
+    """已落地的 Commit（待复核 / 复核不通过 / 作废的不算：规格没有因它们改变）。"""
+    return [c for c in cr.commits if c.status == "applied"]
+
+
 def _covered(cr: ChangeRequest) -> set[str]:
     out: set[str] = set()
-    for c in cr.commits:
+    for c in _applied(cr):
         out.update(json.loads(c.covers_json or "[]"))
     return out
 
@@ -83,12 +88,24 @@ def _commit_out(c: Commit) -> dict:
         "result": json.loads(c.result_json or "{}"),
         "created_by": c.created_by,
         "created_at": c.created_at,
+        "status": c.status,
+        # 语义复核：待复核时记下的新旧逐条对比；复核者、结论、理由（谁复核、凭什么）
+        "review": {
+            **json.loads(c.review_json or "{}"),
+            "decision": c.review_decision,
+            "reviewed_by": c.reviewed_by,
+            "reviewed_at": c.reviewed_at,
+            "via": c.review_via,
+            "reason": c.review_note,
+            "evidence": c.review_evidence,
+        },
     }
 
 
 def cr_out(cr: ChangeRequest, detail: bool = True) -> dict:
     acceptance = json.loads(cr.acceptance_json or "[]")
     covered = _covered(cr)
+    pending = [c for c in cr.commits if c.status == "pending_review"]
     out = {
         "id": cr.id,
         "project_id": cr.project_id,
@@ -113,7 +130,19 @@ def cr_out(cr: ChangeRequest, detail: bool = True) -> dict:
         "decision_evidence": cr.decision_evidence,
         "decision_note": cr.decision_note,
         "applied_at": cr.applied_at,
-        "commit_count": len(cr.commits),
+        "commit_count": len(_applied(cr)),
+        "pending_review_count": len(pending),
+        # 待复核的 Commit（总览用）：谁提交的、什么时候、改了几条
+        "pending_reviews": [
+            {
+                "commit_id": c.id,
+                "seq": c.seq,
+                "created_by": c.created_by,
+                "created_at": c.created_at,
+                "changed_entries": len(json.loads(c.review_json or "{}").get("changes", [])),
+            }
+            for c in pending
+        ],
         "coverage": {
             "covered": [a["id"] for a in acceptance if a["id"] in covered],
             "missing": [a["id"] for a in acceptance if a["id"] not in covered],
@@ -360,13 +389,16 @@ def withdraw_cr(
       永远停在 approved 的空单。人批准过的审核单不能这样撤回（批准后不可修改）。"""
     cr = _get_cr(db, key, cr_id)
     _require_owner(cr, key)
-    stranded_internal = cr.status == "approved" and cr.kind == "internal" and not cr.commits
+    stranded_internal = cr.status == "approved" and cr.kind == "internal" and not _applied(cr)
     if not stranded_internal:
         _require_status(cr, "pending_review")
     cr.status = "draft"
     cr.submitted_at = None
     cr.content_hash = ""
     if stranded_internal:
+        for c in cr.commits:  # 还在等复核的 Commit 随审核单一起作废
+            if c.status == "pending_review":
+                c.status = "withdrawn"
         cr.decided_by = ""
         cr.decided_at = None
         cr.decision_via = ""
@@ -458,19 +490,110 @@ def reject_cr(
 def create_commit(
     cr_id: int,
     body: CommitCreate,
+    response: Response,
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("commit.write")),
 ):
     """在已批准的审核单下提交一个 Commit：ops 原子应用并发布，任何一条失败整体回滚。
-    dryRun=true 完整执行后回滚，返回会得到的结果（不落库、不写审计）。"""
+    dryRun=true 完整执行后回滚，返回会得到的结果（不落库、不写审计）。
+
+    内部整理单：条目总和不变 → 照常落地（200）；只有单条条目的小幅文字改动 → **不落地**，
+    记成待复核（**202**，``status: pending_review``，规格没变），由另一个 key 经
+    ``/commits/{id}/review`` 复核通过后才生效；有实质改动 → 422。"""
     cr = _get_cr(db, key, cr_id)
     commit, outcome = apply_commit(
-        db, cr, body.ops, body.covers, body.change_note, actor=key.hint, dry_run=body.dryRun
+        db, cr, body.ops, body.covers, body.change_note, actor=key.hint, dry_run=body.dryRun,
+        actor_key_id=key.id,
     )
     if body.dryRun:
         return {"dry_run": True, "cr_id": cr_id, **outcome}
+    if outcome["status"] == "pending_review":
+        response.status_code = 202
     return {"dry_run": False, "cr_id": cr_id, "commit_id": commit.id, "seq": commit.seq,
             "covers": json.loads(commit.covers_json), **outcome}
+
+
+@router.get("/reviews")
+def list_pending_reviews(
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("cr.review")),
+):
+    """等待复核的 Commit（内部整理里「字变了、意思没变」的小改动），最早的在前。
+    复核者看这个列表，再用 ``GET /change-requests/{id}`` 看审核单的上下文，最后复核。"""
+    q = db.query(Commit).filter(Commit.status == "pending_review").order_by(Commit.id)
+    out = []
+    for c in q.all():
+        cr = c.change_request
+        if key.project_id is not None and key.project_id != cr.project_id:
+            continue
+        out.append({
+            "cr_id": cr.id,
+            "cr_title": cr.title,
+            "kind_reason": cr.kind_reason,
+            "commit_id": c.id,
+            "seq": c.seq,
+            "submitted_by": c.created_by,
+            "submitted_at": c.created_at,
+            "change_note": c.change_note,
+            "own": c.created_by_key_id == key.id,  # 自己提交的：复核不了
+            "review": json.loads(c.review_json or "{}"),
+        })
+    return out
+
+
+@router.post("/change-requests/{cr_id}/commits/{commit_id}/review")
+def review_commit(
+    cr_id: int,
+    commit_id: int,
+    body: ReviewDecision,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("cr.review")),
+):
+    """复核一个待复核的 Commit：通过 → 重新应用并发布（记录复核人）；不通过 → 不生效，理由可见。
+    **提交者不能复核自己的 Commit**（按 key 判定，同一把 key 403）。复核的是语义：新旧文字
+    的意思有没有变——变了就不通过，让提交者改开业务变更单。"""
+    cr = _get_cr(db, key, cr_id)
+    commit = db.get(Commit, commit_id)
+    if commit is None or commit.cr_id != cr.id:
+        raise HTTPException(status_code=404, detail="commit not found")
+    if commit.status != "pending_review":
+        raise HTTPException(status_code=409, detail=f"这个 Commit 是 {commit.status}，不在待复核状态")
+    _require_status(cr, "approved")
+    own = (
+        commit.created_by_key_id == key.id
+        if commit.created_by_key_id is not None
+        else commit.created_by == key.hint
+    )
+    if own:
+        raise HTTPException(
+            status_code=403,
+            detail="不能复核自己提交的 Commit（同一把 key）：请换另一个角色（扫描 Agent 或人）来复核",
+        )
+    if not body.reason.strip():
+        raise HTTPException(status_code=422, detail="复核必须写理由 reason（通过或不通过都要）")
+    if body.via == "natural_language" and not body.evidence.strip():
+        raise HTTPException(status_code=422, detail="via=natural_language 必须在 evidence 里留下人的原话")
+    reason = body.reason.strip()
+    if body.decision == "approve":
+        commit, outcome = apply_reviewed(
+            db, cr, commit, reviewer_hint=key.hint, reviewer_key_id=key.id,
+            via=body.via, reason=reason, evidence=body.evidence,
+        )
+        return {"status": "applied", "cr_id": cr.id, "commit_id": commit.id, **outcome}
+    commit.status = "review_rejected"
+    commit.review_decision = "rejected"
+    commit.reviewed_by = key.hint
+    commit.reviewed_by_key_id = key.id
+    commit.reviewed_at = utcnow()
+    commit.review_via = body.via
+    commit.review_note = reason
+    commit.review_evidence = body.evidence
+    audit(db, key.hint, "commit_review_rejected", f"cr:{cr.id}/commit:{commit.id}",
+          {"reason": reason, "via": body.via, "evidence": body.evidence,
+           "submitted_by": commit.created_by,
+           "changes": json.loads(commit.review_json or "{}").get("changes", [])})
+    db.commit()
+    return {"status": "review_rejected", "cr_id": cr.id, "commit_id": commit.id, "reason": reason}
 
 
 @router.post("/change-requests/{cr_id}/complete")
@@ -484,8 +607,15 @@ def complete_cr(
     （声明是否属实由后续验证环节负责，不由 Core 判断。）"""
     cr = _get_cr(db, key, cr_id)
     _require_status(cr, "approved")
-    if not cr.commits:
-        raise HTTPException(status_code=409, detail="还没有任何 Commit，不能标记完成")
+    waiting = [c.id for c in cr.commits if c.status == "pending_review"]
+    if waiting:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "还有待复核的 Commit，复核通过（生效）或不通过之后才能标记完成",
+                    "pending_review_commits": waiting},
+        )
+    if not _applied(cr):
+        raise HTTPException(status_code=409, detail="还没有任何已落地的 Commit，不能标记完成")
     covered = _covered(cr)
     missing = [a["id"] for a in json.loads(cr.acceptance_json or "[]") if a["id"] not in covered]
     if missing:
@@ -495,6 +625,6 @@ def complete_cr(
         )
     cr.status = "applied"
     cr.applied_at = utcnow()
-    audit(db, key.hint, "cr_applied", f"cr:{cr.id}", {"commits": len(cr.commits)})
+    audit(db, key.hint, "cr_applied", f"cr:{cr.id}", {"commits": len(_applied(cr))})
     db.commit()
     return cr_out(cr)

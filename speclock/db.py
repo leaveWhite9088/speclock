@@ -73,6 +73,18 @@ def _ensure_columns() -> None:
             "kind": "TEXT NOT NULL DEFAULT 'business'",
             "kind_reason": "TEXT NOT NULL DEFAULT ''",
         },
+        "commits": {
+            "created_by_key_id": "INTEGER",
+            "status": "TEXT NOT NULL DEFAULT 'applied'",
+            "review_json": "TEXT NOT NULL DEFAULT '{}'",
+            "reviewed_by": "TEXT NOT NULL DEFAULT ''",
+            "reviewed_by_key_id": "INTEGER",
+            "reviewed_at": "DATETIME",
+            "review_decision": "TEXT NOT NULL DEFAULT ''",
+            "review_via": "TEXT NOT NULL DEFAULT ''",
+            "review_note": "TEXT NOT NULL DEFAULT ''",
+            "review_evidence": "TEXT NOT NULL DEFAULT ''",
+        },
     }
     dropped = {
         "capabilities": ["doc_type"],

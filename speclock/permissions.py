@@ -29,6 +29,7 @@ PERMISSIONS: dict[str, tuple[str, bool]] = {
     "cr.read": ("查看审核单与其 Commit", False),
     "cr.write": ("创建、编辑、提交、撤回审核单", False),
     "cr.approve": ("批准或驳回审核单（人的授权）", True),
+    "cr.review": ("复核「内部整理」里待复核的 Commit：通过 / 不通过 + 理由（不能复核自己提交的）", False),
     "cr.internal": ("开「内部整理」类审核单：不改变业务内容的重组，提交即生效、不经人批准（Core 机械检查）", False),
     "commit.write": ("在已批准的审核单下提交 Commit，改写规格库", False),
     "audit.read": ("查看审计日志与回执看板", False),
@@ -41,7 +42,12 @@ HUMAN_ONLY = frozenset(name for name, (_, human_only) in PERMISSIONS.items() if 
 # name, kind, description, permissions
 PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
     ("admin", "human", "管理员：拥有全部权限", list(PERMISSIONS)),
-    ("reviewer", "human", "审核人：只能查看并批准 / 驳回审核单", ["spec.read", "cr.read", "cr.approve"]),
+    (
+        "reviewer",
+        "human",
+        "审核人：查看并批准 / 驳回审核单，复核内部整理里待复核的改动",
+        ["spec.read", "cr.read", "cr.approve", "cr.review"],
+    ),
     (
         "requirements-agent",
         "agent",
@@ -63,8 +69,8 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
     (
         "scanner-agent",
         "agent",
-        "扫描 Agent：通读规格找问题，只能提建议（和需求 Agent 讨论或请人确认），不能开审核单、不能改规格",
-        ["spec.read", "cr.read", "exec.read"],
+        "扫描 Agent：通读规格找问题，只能提建议；可以复核内部整理里待复核的小改动，不能开审核单、不能提交 Commit",
+        ["spec.read", "cr.read", "cr.review", "exec.read"],
     ),
 ]
 
@@ -140,6 +146,12 @@ def seed_roles(db: Session) -> None:
         if role is not None and role.builtin:
             have = set(json.loads(role.permissions_json or "[]"))
             role.permissions_json = json.dumps(sorted(have | {"cr.read"}))
+    if _once(db, "cr_review_permission"):
+        for name in ("admin", "reviewer", "scanner-agent"):
+            role = existing.get(name)
+            if role is not None and role.builtin:
+                have = set(json.loads(role.permissions_json or "[]"))
+                role.permissions_json = json.dumps(sorted(have | {"cr.review"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()
