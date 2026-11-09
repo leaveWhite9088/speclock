@@ -1,89 +1,63 @@
-# SpecLock
+![SpecLock](docs/assets/logo.svg#gh-light-mode-only)
+![SpecLock](docs/assets/logo-dark.svg#gh-dark-mode-only)
 
-**业务规格的单一信源。** 让人和 AI Agent 围绕同一份、带版本、改动可追溯的业务文档协作。
+**为 AI Agent 团队设计的业务规格基础设施。**
 
-SpecLock 只是一个**记录工具**：它保存业务规格、守住版本和文档的准确，记下谁在什么时候做了什么。
-它不做判断，也不是 Agent；谁来写、谁来实现、谁来测，由你的 Agent 通过 MCP 来完成。
+当写代码的是 Agent，需求就不能再是一份谁都能改的文档。SpecLock 把规格锁起来：Agent 只读已发布的版本，想改只有一条路，而且要人点头；每个任务钉在一个版本上，做完要有证据，验收由另一个 Agent 完成，每一步都有记录。
 
-- 规格按 **项目 → 大业务 → 小业务 → 模块** 管理，每次改动产生不可变的新版本，带结构化 diff；
-- 规格库**只有一条写入通道**：Agent 开审核单 → **人批准** → Agent 提交 Commit；
-- 每个模块的版本有**执行记录**：谁认领、实现到哪、是否被另一个 Agent 独立验收；
-- 一个只读网页，让人随时看到全貌和 Agent 的动向。
+它不是 Agent，也不是 Agent 框架，而是 Agent 团队底下那层确定性的记录。
+
+## 为什么需要它
+
+把需求写成 Markdown 放进仓库，对人来说够用。动手的换成 Agent 以后，问题就来了：
+
+- 测试过不去，Agent 会顺手把需求改掉，然后报告完成。
+- 需求改过几轮，说不清这段代码是照哪一版写的。
+- "做完了"只是一句话，没有逐条证据，也没有第二个人验过。
+
+## 工作方式
+
+![SpecLock 的工作方式](docs/assets/how-it-works.svg)
+
+人只看审核单：为什么变、变成什么样、怎么算做对，都是人话。拆成哪些模块、怎么写进规格库，是需求 Agent 的事。批准之后发布新版本，执行 Agent 领到的是锁定在这个版本上的完整规格；规格再变，没做完的旧任务自动作废。
+
+## 架构
+
+![SpecLock 架构](docs/assets/architecture.svg)
+
+SpecLock 只负责记录：规格、版本、审核单、执行记录、权限和审计。谁什么时候被叫醒、消息怎么转发，交给你自己的 Agent 框架；每个 Agent 该怎么做事，写在 [`roles/`](roles/) 的提示词里。
+
+## 原则
+
+- **规格只能经人批准修改。** 唯一的写入通道是审核单到 Commit，靠权限保证，不靠提示词。
+- **人管意图，Agent 管结构。** 人从不需要读 diff 或模块拆分。
+- **每次实现都对应一个版本。** 领任务时拿到的规格不会在中途变。
+- **完成需要证据。** 每条验收条件都要附证据，验收者不能是实现者。
+- **Core 不做判断。** 不含任何 LLM，结果可以复现；判断留给 Agent，授权留给人。
 
 ## 快速开始
 
-需要 Python ≥ 3.11。
+需要 Python 3.11 以上。
 
 ```bash
-git clone <本仓库> speclock
-cd speclock && python -m venv .venv
-.venv/Scripts/pip install -e .          # Linux / macOS：.venv/bin/pip install -e .
+pip install -e .                       # 在 SpecLock 源码目录里
+cd /path/to/your/project
+speclock init                          # 创建 .speclock/，生成你的 admin key
+speclock serve                         # 启动服务；网页免登录、只读
+speclock key create --role requirements-agent --label 需求
 ```
 
-然后进入**你自己的项目目录**：
+最后一条会打印一段可以直接放进 Agent `.mcp.json` 的配置。把 [`roles/`](roles/) 里对应的提示词放进它的 `AGENTS.md`，这个 Agent 就可以开始工作了。完整步骤见[使用指南](docs/GUIDE.md)。
 
-```bash
-cd /你的/项目
-/路径/到/speclock/.venv/Scripts/speclock init      # 创建 .speclock/，打印 admin key 和 .mcp.json 片段
-/路径/到/speclock/.venv/Scripts/speclock serve     # 启动服务和网页（地址 init 时打印了）
-```
+## 文档
 
-> 把 `.venv/Scripts`（Linux/macOS 是 `.venv/bin`）加进 PATH，就可以直接敲 `speclock`。
-
-`init` 做四件事：创建 `.speclock/`（配置和数据库）、生成一把**随机**的 admin key（只显示这一次，库里只存哈希）、再生成一把网页用的只读 key、
-打印一段 `.mcp.json`——合并进你项目的 `.mcp.json`，Agent 就接上了。网页**不用登录**：打开服务地址就能看，它自动使用一把只读 key（`.speclock/web.key`，不进 git），什么都改不了。admin key 只留给你自己和 Agent，不会出现在网页里；**丢了的话**运行 `speclock init --new-admin` 再发一把。
-
-## 两种用法
-
-| | 跟项目走 | 跟电脑走 |
-|---|---|---|
-| 怎么建 | 在项目根目录 `speclock init` | `speclock init --global` |
-| 数据在 | `<项目>/.speclock/` | `~/.speclock/` |
-| 端口 | 自动选一个空闲的 | 固定 `47821` |
-| 适合 | 每个项目一套规格，数据跟着项目 | 起一个服务，你所有项目都连它 |
-
-SpecLock 源码放哪都行（项目里面、或电脑上任意位置），**数据永远不在源码目录里**。
-命令会像 git 找 `.git` 那样，从当前目录往上找最近的 `.speclock/`，找不到再用 `~/.speclock/`。
-数据库默认不进 git（`.speclock/.gitignore` 已处理），`config.toml` 可以提交。
-
-## 让 Agent 干活：角色和提示词
-
-SpecLock 只强制**权限**（谁能调用什么接口、验收者不能是实现者）；**行为约定**写在提示词里。
-[`roles/`](roles/) 是我们推荐的一套，复制到各目录的 `AGENTS.md` 即用：
-
-| 角色 | 做什么 |
-|---|---|
-| 需求 Agent | 理解业务、开审核单、写规格；自己判断是「业务变更」还是「内部整理」 |
-| 执行 Agent | 按锁定版本的规格实现，逐条验收条件给证据 |
-| 测试 Agent | 独立验收，不给「差不多」的通过 |
-| 扫描 Agent | 只读通读规格找问题，写成建议 |
-
-人的批准：Agent 把审核单讲给你听，你在对话里明确同意，Agent 带着你的原话和内容哈希调用批准；
-也可以自己用命令：`speclock cr list` / `cr show 1` / `cr approve 1` / `cr reject 1 --reason …`。
-创建其他角色的 key 是危险操作，只有 admin 能做，且 Agent 必须先问你、拿到你的明确同意。
-
-## key 都放在哪
-
-- **admin key**：`init` 时只显示一次，请自己保管（`.mcp.json` 里会有一份给你的 Agent 用）。
-- **Agent 的 key**（需求 / 执行 / 测试 / 扫描）：创建时由 SpecLock 直接存成 `.speclock/keys/` 里的文件，一把一个，文件名是「角色--名称」，
-  **明文不经过对话**。`keys/README.md` 告诉 Agent 只读自己的那个；你可以用 `speclock key show <id>` 查看，吊销时文件一并删除。
-  Agent 的配置里只写**文件名**，比如 `speclock mcp --key-file tester-agent--qa.key`。
-- **网页用的只读 key**：`.speclock/web.key`，自动使用。
-
-## 常用命令
-
-```bash
-speclock init [--global]      # 创建 .speclock/（--new-admin：admin key 丢了再发一把）
-speclock serve                # 启动服务和网页
-speclock mcp                  # MCP 入口（Agent 用，由 .mcp.json 启动）
-speclock cr list|show|approve|reject    # 审核单
-speclock key list|create|show|delete    # 密钥（Agent 的 key 存成 .speclock/keys/ 里的文件）
-```
-
-## 更多
-
-- [完整特性、接口与规则](docs/REFERENCE.md)
-- [开发指南与设计决策](docs/DEVELOPMENT.md)
+- [使用指南](docs/GUIDE.md)：安装、两种用法、接入 Agent、key 的存放、批准、备份与导出
+- [参考手册](docs/REFERENCE.md)：完整的特性、接口、规则和 33 个 MCP 工具
+- [网页嵌入](docs/EMBED.md)：把只读网页嵌进你自己的前端
+- [角色提示词](roles/)：需求、执行、测试、扫描 Agent 的工作守则
+- [开发指南](docs/DEVELOPMENT.md)：产品边界、设计决策、代码地图
 - [版本记录](docs/CHANGELOG.md)
 
-MIT License
+## License
+
+MIT

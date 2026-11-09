@@ -1,12 +1,9 @@
 # SpecLock 参考手册
 
-> 上手只看根目录的 [README](../README.md)。这里是完整的特性、接口与规则说明。
+> 上手看 [使用指南](GUIDE.md)。这里是完整的特性、接口与规则说明。
 
 > **其他 spec 工具把文档放进 repo 让 agent 可以改；SpecLock 把文档放在只读 API 后面。**
 
-![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-%E2%89%A50.110-009688)
-![License](https://img.shields.io/badge/license-MIT-green)
 
 SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**，为"AI 参与开发"的团队设计：
 
@@ -100,7 +97,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 ## 快速开始
 
-见 [README](../README.md)。
+见 [使用指南](GUIDE.md)。
 
 ### 网页的页面
 
@@ -121,6 +118,8 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，`.speclock/web.key`），只对本机地址、同源请求开放。
 
+**嵌入**：网页可以被一键嵌进别的前端（`/embed.js` + `?embed=1`），只读、高度自适应、有 `postMessage` 通信，只有 `embed_origins` 里允许的来源能嵌，详见 [EMBED.md](EMBED.md)。
+
 前端开发模式（热更新，vite 把 `/api` 代理到 `SPECLOCK_URL`，默认 47821）：
 
 ```bash
@@ -130,6 +129,19 @@ cd web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
 所有 API 请求带 `X-API-Key` 请求头。
 
 > SpecLock 是**本机个人使用**的需求管理工具，不是为公网部署设计的，服务只监听 127.0.0.1。
+
+## 备份与导出
+
+两件不同的事，都是**本机命令**，直接读 `.speclock/` 里的库，不走 HTTP、不需要 key：
+
+| 命令 | 做什么 |
+|---|---|
+| `speclock backup [--out 文件]` | **完整备份**：用 SQLite 在线备份拷出整个库（服务在跑也安全），含全部版本历史、审核单、执行记录、密钥哈希。默认放 `.speclock/backups/`（被 `.gitignore` 忽略）。已有同名文件不覆盖 |
+| `speclock restore <备份文件>` | 用备份恢复：先检查是 SpecLock 的库且完整；**服务还在运行就拒绝**；原来的库改名留着（`speclock.db-before-restore-时间`） |
+| `speclock export [--out 目录]` | **可读的文本快照**：当前已发布的规格（`<项目>/<大业务>/<小业务>/<模块>.md`）、每张审核单（`change-requests/`）、`index.md`、`spec.json`。**没有时间戳、按 id 排序**，重复导出内容一字不差，可以提交进 git 对照历史。默认 `.speclock/export/` |
+
+`export` 是单向的只读快照，不能导回库里（要还原用 `restore`）；已归档的模块不导出，它们在完整备份里。
+导出目录必须是空目录或以前导出过的目录（里面有 `.speclock-export` 标记），否则拒绝，避免误删别的文件。
 
 ## 配置与数据目录（`.speclock/`）
 
@@ -196,7 +208,8 @@ curl -X POST -H "X-API-Key: $QA" -H "Content-Type: application/json" http://127.
 ### 人批准：CLI
 
 ```bash
-export SPECLOCK_URL=http://127.0.0.1:<端口> SPECLOCK_KEY=<人类 key>
+# 不设 SPECLOCK_KEY 也行：在终端里运行时会提示输入 admin / reviewer key（输入不显示），不用把它存进任何文件
+export SPECLOCK_KEY=<人类 key>   # 或者设环境变量 / 传 --key；服务地址默认取自 .speclock/config.toml
 speclock cr list --status pending_review
 speclock cr show 1
 speclock cr approve 1 [--hash <内容哈希前缀>] [--via natural_language --evidence "同意，按这个来"]
@@ -207,26 +220,35 @@ speclock key show 3                                                  # 查看已
 
 ### MCP（Claude Code 等）
 
-`.mcp.json`（或 `claude mcp add` 等价配置）：
+给某个 Agent 的 `.mcp.json`：**用 `speclock key create` 创建 key 时会直接打印这段**（经 MCP 的 `create_api_key` 创建时，响应里的 `mcp_config` 也是这段），不用手写：
 
 ```json
 {
   "mcpServers": {
     "speclock": {
-      "command": "speclock",
-      "args": ["mcp", "--key-file", "<该 Agent 的 key 文件名，如 tester-agent--qa.key>"],
-      "env": { "SPECLOCK_URL": "http://127.0.0.1:<端口>" }
+      "command": "<python 的绝对路径>",
+      "args": ["-m", "speclock", "mcp", "--key-file", "tester-agent--qa.key"],
+      "env": { "SPECLOCK_HOME": "<.speclock 的绝对路径>" }
     }
   }
 }
 ```
 
-MCP server 暴露 **29 个工具**，key 的角色决定哪些能用（没权限的返回 403；admin key 全部可用）：
+要点：里面只有 key 的**文件名**，没有 key 本身；`SPECLOCK_HOME` 写死，MCP 据此找到服务地址和 `keys/`，所以**不管客户端从哪个目录启动都能用**，
+跟项目走（`<项目>/.speclock`）和跟电脑走（`~/.speclock`）两种用法完全一样。
+
+**admin key 不要写进项目里的 `.mcp.json`**（同目录的 Agent 读得到）。需要让客户端以管理员身份代你操作时，配在用户级的 MCP 配置里（如 `claude mcp add --scope user`），
+并且只在你自己跟它对话的那个会话里用。
+
+MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限的返回 403；admin key 全部可用）：
 
 | 工具 | 权限 | 用途 |
 |---|---|---|
 | `whoami` | 任意 | 当前 key 的角色与权限 |
 | `get_index` / `get_block` / `get_capability` / `get_diff` | `spec.read` | 读规格：索引树、模块（带版本级别标签与 cr_id / commit_id）、小业务 manifest、版本 diff |
+| `list_projects` | `spec.read` | 看得到的项目（全局 key 开审核单、建 key 绑项目要用 id） |
+| `create_project` / `rename_project` | `project.manage` | 创建项目 / 项目改名（人类专属权限，只有 admin 能做；先问人） |
+| `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 翻页 |
 | `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
 | `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |

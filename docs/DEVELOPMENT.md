@@ -1,6 +1,6 @@
 # SpecLock — 开发指南
 
-> 给**开发 SpecLock 本身**的人和 AI agent 读。使用者看 [README](../README.md)，接口和规则细节看 [REFERENCE](REFERENCE.md)，
+> 给**开发 SpecLock 本身**的人和 AI agent 读。使用者看 [README](../README.md) 和 [使用指南](GUIDE.md)，接口和规则细节看 [REFERENCE](REFERENCE.md)，
 > 给业务 Agent 的提示词在 [`roles/`](../roles/)。
 >
 > 本文件只描述**现在的样子**，不记历史。决策有变更时，先改本文件，再改代码；做完的事不留"已实施"标记，不做的事不留计划。
@@ -92,6 +92,8 @@ Project（项目）            隔离单元，key 可绑定到一个项目
   所以明文不经过对话；人类 key（admin / reviewer）不存文件，只在创建时返回一次。吊销时文件一并删除。
   MCP 用 `--key-file` / `SPECLOCK_KEY_FILE` / `use_api_key(key_file=…)` 直接读文件。`keys/README.md` 告诉 Agent 只读自己的那个。
   同目录的 Agent 互相看得见文件，"只读自己的"是约定，Core 强制不了；把人类 key 排除在外，是为了让越界读取最多拿到低权限。
+- **admin key 不进 Agent 读得到的文件**：`init` 只打印一次，不再生成含 admin key 的 `.mcp.json` 片段；人用的 CLI 没有 key 时在终端里提示输入（`getpass`）；
+  创建 Agent key 时返回现成的 `mcp_config`（`home.mcp_config`：key 文件名 + 写死的 `SPECLOCK_HOME` + Python 绝对路径），所以 MCP 不依赖启动时的工作目录，两种用法一致。
 - 新建的 Agent key 立即可用；`use_api_key` 在会话内切换，不用重启客户端（无效的 key 保持原身份）。
 - **身份靠提示词**：同一目录下多个 Agent 彼此看得见对方的文件，所以不靠 key 保密隔离角色；key 的作用是角色权限 + 项目隔离，
   Agent 的身份靠各目录 `AGENTS.md` 里的提示词（`roles/`）。
@@ -124,13 +126,15 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 
 ## 8. 开发约定
 
-- 改动同步：测试、REFERENCE / README、`roles/`（如果影响 Agent 的用法）。
+- 改动同步：测试、GUIDE / REFERENCE / README、`roles/`（如果影响 Agent 的用法）。
 - 版本号的源头是 `speclock/__version__`（pyproject 和 FastAPI 都读它）；对外接口有变化时升它，同时改 `web/src/App.vue` 的版本标签和 `web/package.json`，并在 [CHANGELOG](CHANGELOG.md) 记一条。
 - 环境：Python 虚拟环境在 `.venv/`，前端在 `web/`。
 
 ```bash
 .venv/Scripts/python.exe -m pytest -q          # 后端测试
 cd web && npm test                             # 前端单元测试（vitest）
+python tests/e2e_real_flow.py                  # 端到端（跟项目走）：真的 init + serve，用 MCP 工具走完整个业务流程
+python tests/e2e_real_flow.py --global         # 同上（跟电脑走）
 cd web && npm run dev                          # 前端热更新（代理 /api 到 SPECLOCK_URL，默认 47821）
 speclock init && speclock serve                # 在一个测试目录里跑起来
 ```
@@ -155,15 +159,18 @@ git add -f web/dist        # 发布提交里带上；日常开发提交不带
 - `api_admin.py`：读视图（树 / 版本 / 归档 / 审计 / 活动）+ 项目 / 密钥 / 角色管理。
 - `api_search.py`：搜索（已发布模块的当前版本 + 审核单，子串匹配，项目隔离）。
 - `keyfiles.py`：Agent key 文件的读写与 `keys/README.md`。
+- `exporter.py`：完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git）；`cli.py` 的 `backup` / `restore` / `export` 直接调它，不走 HTTP。
+- `static/embed.js`：给外层页面引用的嵌入脚本（`GET /embed.js`，不依赖网页构建）；`main.py` 给所有响应加 `frame-ancestors`（来源由 `config.toml` 的 `embed_origins` 决定，默认只有本机）；没有构建网页时 `/` 返回构建提示页。
 - `permissions.py`：权限目录、预置角色、`require_permission`、一次性迁移。
 - `webkey.py` + `api_web.py`：网页用的只读 key 的准备与自动发放。
 - `home.py` + `settings.py`：`.speclock/` 的查找、`config.toml`、`init_home`。
 - `cli.py`：统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`。
-- `mcp_server.py`：stdio MCP，29 个工具，经 HTTP 调用本系统 REST。
+- `mcp_server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。
 - `models.py`、`schemas.py`（请求体全部 `StrictModel`）、`db.py`（含迁移）、`auth.py`（key 哈希 + 审计）、`main.py`（应用装配 + 托管 `web/dist`）。
 
 前端 `web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**，不用登录（key 只存在内存里）。**不提供任何修改操作**，新增页面也不要加；
 只调用公开 REST 接口，不依赖 Core 内部实现。页面：总览、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动、Agent 与密钥、搜索、归档、AI 接入。
+嵌入模式（`?embed=1`，`src/embed.js`）：只显示内容、站内跳转保持参数、用 `postMessage` 报告路径与高度并接受外层的跳转指令，用法见 [EMBED.md](EMBED.md)。
 结构：`api/`（客户端 + `resources.js`）、`composables/`（取数、轮询、自动刷新）、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；
 整理逻辑是纯函数并有测试。
 
