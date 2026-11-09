@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------- structured API entries (编辑与 diff 的真相源) ----------
+
+
+
+class StrictModel(BaseModel):
+    """请求体：不认识的字段直接 422，而不是悄悄忽略——拼错字段名、或者客户端比服务端新
+    （发了服务端还不认识的字段）时，调用方能立刻发现，而不是误以为生效了。"""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ApiField(BaseModel):
@@ -52,7 +60,7 @@ class ProjectCreate(BaseModel):
     name: str
 
 
-class KeyCreate(BaseModel):
+class KeyCreate(StrictModel):
     role: str  # 角色名（见 GET /roles）；key 的类别（human / agent）由角色的 kind 决定
     label: str = ""
     # 项目隔离：绑定项目后该 key 只能访问该项目的内容；None = 全局。
@@ -77,7 +85,7 @@ class RoleUpdate(BaseModel):
 # ---------- 审核单（Change Request）与 Commit ----------
 
 
-class CRCreate(BaseModel):
+class CRCreate(StrictModel):
     """新建审核单（草稿，可以先不完整；提交时才校验完备性）。"""
 
     project_id: int | None = None  # 项目绑定的 key 可省略
@@ -93,7 +101,7 @@ class CRCreate(BaseModel):
     kind_reason: str = ""  # internal 必填：为什么这不算业务变更
 
 
-class CRUpdate(BaseModel):
+class CRUpdate(StrictModel):
     """编辑草稿审核单：只传要改的字段；acceptance 是整体替换（带 id 的条目保留 id）。"""
 
     title: str | None = None
@@ -107,27 +115,27 @@ class CRUpdate(BaseModel):
     kind_reason: str | None = None
 
 
-class CRApprove(BaseModel):
+class CRApprove(StrictModel):
     content_hash: str  # 批准的就是人看到的那一版：必须与审核单当前内容哈希一致
     via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""  # via=natural_language 时必填：人的原话
     note: str = ""
 
 
-class CRReject(BaseModel):
+class CRReject(StrictModel):
     reason: str  # 驳回理由（必填）：需求 Agent 据此另开新审核单
     via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""
 
 
-class CommitCreate(BaseModel):
+class CommitCreate(StrictModel):
     ops: list[dict]  # 见 commits.py 顶部的 op 清单
     covers: list[str] = []  # 本 Commit 满足审核单的哪些验收条件（AC-n）
     change_note: str = ""
     dryRun: bool = False  # 预览：完整执行后回滚，返回会得到的版本 / 级别标签 / delta
 
 
-class AcResult(BaseModel):
+class AcResult(StrictModel):
     """对一条验收条件的结果：实现方自测 / 验证方独立验收都用它。"""
 
     ac_id: str
@@ -135,12 +143,12 @@ class AcResult(BaseModel):
     evidence: str  # 证据：测试输出、接口返回、观察到的现象等（必填）
 
 
-class WorkResults(BaseModel):
+class WorkResults(StrictModel):
     results: list[AcResult]
     note: str = ""
 
 
-class WorkReason(BaseModel):
+class WorkReason(StrictModel):
     reason: str
 
 

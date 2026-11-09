@@ -134,6 +134,12 @@ def seed_roles(db: Session) -> None:
             if role is not None and role.builtin:
                 have = set(json.loads(role.permissions_json or "[]"))
                 role.permissions_json = json.dumps(sorted(have | {"cr.internal"}))
+    if _once(db, "scanner_cr_read"):
+        # 扫描 Agent 要能读审核单，才知道规格「为什么这样定」、哪些问题已经在处理
+        role = existing.get("scanner-agent")
+        if role is not None and role.builtin:
+            have = set(json.loads(role.permissions_json or "[]"))
+            role.permissions_json = json.dumps(sorted(have | {"cr.read"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()

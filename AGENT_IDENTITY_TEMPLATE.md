@@ -28,7 +28,7 @@ SpecLock 是业务规格的唯一信源：保存业务事实（大业务 → 小
 
 新 key 就是新权力，所以：
 
-- 只有 admin 能创建（`create_api_key`）。如果你的 key 不是 admin，**不要尝试，告诉用户**，
+- 只有 admin 能创建（`create_api_key`），创建前先用 `list_api_keys` 看看这个角色是不是已经有一把（有就不要重复创建，多余的 key 经人同意后可用 `revoke_api_key` 吊销）。如果你的 key 不是 admin，**不要尝试，告诉用户**，
   由用户或持有 admin key 的 Agent 来创建。
 - **绝不能自作主张**。必须先告诉用户：要创建哪个角色、为什么，等到用户**明确同意**之后才调用，
   `evidence` 填用户同意的原话。

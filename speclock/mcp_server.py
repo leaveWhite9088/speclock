@@ -18,9 +18,10 @@ Tools:
   behalf: it MUST pass the human's own words as ``evidence`` (and the content hash of the
   version the human saw), which the server records in the audit trail. Never approve
   without an explicit instruction from the human in the conversation.
-- keys: create_api_key (``key.manage``, admin only) is a DANGEROUS operation — only after the
-  human explicitly agreed in the conversation. use_api_key switches the key this session
-  uses (no client restart needed), e.g. to a key you just created.
+- keys: create_api_key / revoke_api_key (``key.manage``, admin only) are DANGEROUS operations —
+  only after the human explicitly agreed in the conversation; list_api_keys shows what exists.
+  use_api_key switches the key this session uses (no client restart needed), e.g. to a key you
+  just created.
 
 Configure with:
   SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
@@ -49,6 +50,10 @@ mcp = MCPServer("speclock")
 def _call(method: str, path: str, **kwargs) -> str:
     if not AGENT_KEY:
         return json.dumps({"error": "SPECLOCK_KEY is not set"}, ensure_ascii=False)
+    if not AGENT_KEY.isascii():
+        # 请求头只能是 ASCII；真正的密钥都是 ASCII，含其他字符的一定不是有效密钥
+        return json.dumps({"status": 401, "body": {"detail": "密钥里含有非 ASCII 字符，不是有效的密钥"}},
+                          ensure_ascii=False)
     try:
         r = httpx.request(
             method,
@@ -57,7 +62,7 @@ def _call(method: str, path: str, **kwargs) -> str:
             timeout=30,
             **kwargs,
         )
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, UnicodeError) as exc:
         return json.dumps({"error": f"cannot reach SpecLock at {BASE_URL}: {exc}"},
                           ensure_ascii=False)
     try:
@@ -105,7 +110,7 @@ def get_index(business: str = "") -> str:
     "'level' (a mechanically computed label for how this version differs from "
     "the previous one: major / minor / patch / initial — a hint only, it does "
     "not tell you what to do), 'status' ('current', or 'deprecated' with "
-    "'superseded_by' when a newer version exists) and 'cr_id' / 'commit_id' "
+    "'superseded_by' = the CURRENT latest version, not merely the next one) and 'cr_id' / 'commit_id' "
     "(the Change Request and Commit that produced this version — read it with "
     "get_change_request to learn WHY it changed). Requires spec.read."
 ))
@@ -145,9 +150,11 @@ def get_capability(capability_id: int, version: str = "") -> str:
     "'level' label, change_note, delta (what was added / removed / modified, by stable "
     "id), the Change Request and Commit that produced it (cr_id / commit_id — read the "
     "request with get_change_request to learn WHY), and status ('current' or "
-    "'deprecated' with 'superseded_by'). Use it to see how a module evolved; read a "
-    "version's content with get_block (pin the version) and the difference between two "
-    "versions with get_diff. Requires spec.read."
+    "'deprecated'; 'superseded_by' is always the CURRENT latest version, not the next "
+    "one). Use it to see how a module evolved; read a version's content with get_block "
+    "(pin the version) and the difference between two versions with get_diff. Renaming "
+    "a module (title / summary) creates no version, so it does not appear here — see "
+    "the Change Request or the activity log. Requires spec.read."
 ))
 def get_block_history(block_id: int) -> str:
     return _call("GET", f"/api/v1/blocks/{block_id}/history")
@@ -156,7 +163,10 @@ def get_block_history(block_id: int) -> str:
 @mcp.tool(description=(
     "Version history of one capability (小业务), oldest first: each version's manifest "
     "(module → version), which module triggered it, change_note, cr_id / commit_id and "
-    "status. Replay one historical manifest with get_capability (pin the version). "
+    "status ('superseded_by' is the CURRENT latest version). Replay one historical "
+    "manifest with get_capability (pin the version). Renaming a business / capability "
+    "or changing its summary creates no version, so a rename is not visible here — read "
+    "the Change Request that did it (get_change_request) or the activity log. "
     "Requires spec.read."
 ))
 def get_capability_history(capability_id: int) -> str:
@@ -275,14 +285,39 @@ def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
     "your own AGENTS.md or .mcp.json already holds a key for the role — never create a "
     "duplicate. The plaintext key is returned ONCE and works immediately: call "
     "use_api_key to act with it now, and record it in the AGENTS.md / MCP config of the "
-    "agent that will use it long-term. Do not repeat the key in chat. project_id binds "
-    "the key to one project. Requires key.manage."
+    "agent that will use it long-term (if you were told not to write it to a file, tell "
+    "the human so: a key held only in this conversation is lost when the client "
+    "restarts, and it cannot be recovered — revoke it with revoke_api_key and create a "
+    "new one). Do not repeat the key in chat. project_id binds the key to one project. "
+    "Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
     if project_id is not None:
         body["project_id"] = project_id
     return _call("POST", "/api/v1/keys", json=body)
+
+
+@mcp.tool(description=(
+    "List the API keys (never the plaintext): id, hint, role, label, project, creation "
+    "time, last activity and the actions / reads of the last 7 days. Use it to check "
+    "whether a key for a role already exists BEFORE creating another, and to find stale "
+    "ones. Requires key.manage."
+))
+def list_api_keys() -> str:
+    return _call("GET", "/api/v1/keys")
+
+
+@mcp.tool(description=(
+    "Revoke (delete) an API key: it stops working immediately and cannot be restored — "
+    "create a new one instead. Do it only after the human explicitly agreed in this "
+    "conversation (pass THEIR words as 'evidence'; it is recorded in the audit log). "
+    "The last admin key cannot be revoked. Get key ids from list_api_keys. "
+    "Requires key.manage."
+))
+def revoke_api_key(key_id: int, evidence: str) -> str:
+    return _call("DELETE", f"/api/v1/keys/{key_id}",
+                 params={"via": "natural_language", "evidence": evidence})
 
 
 @mcp.tool(description=(
@@ -301,9 +336,16 @@ def use_api_key(key: str = "") -> str:
         return json.dumps({"error": "SPECLOCK_KEY is not set and no key was given"},
                           ensure_ascii=False)
     previous, AGENT_KEY = AGENT_KEY, candidate
-    result = json.loads(_call("GET", "/api/v1/me"))
-    if result.get("status") != 200:
-        AGENT_KEY = previous
+    switched = False
+    try:
+        result = json.loads(_call("GET", "/api/v1/me"))
+        switched = result.get("status") == 200
+    except Exception as exc:  # noqa: BLE001 — 任何意外都不能让会话停在一把坏 key 上
+        result = {"error": str(exc)}
+    finally:
+        if not switched:
+            AGENT_KEY = previous  # 无论是无效密钥还是调用过程中出了任何异常，都保持原来的身份
+    if not switched:
         return json.dumps({"error": "该密钥无效，已保持原来的身份不变", "detail": result},
                           ensure_ascii=False)
     return json.dumps({"switched": True, "identity": result["body"]}, ensure_ascii=False)
@@ -423,7 +465,10 @@ def submit_change_request(cr_id: int) -> str:
 
 @mcp.tool(description=(
     "Withdraw a pending_review Change Request back to draft so it can be edited again "
-    "(the earlier content hash becomes void). Requires cr.write."
+    "(the earlier content hash becomes void). Also works for an 'internal' request that "
+    "was auto-approved but has no commit applied yet (e.g. its commit was rejected and "
+    "you want to abandon or redo it) — a request a human approved can never be withdrawn. "
+    "Only the key that created it, or an admin, may withdraw. Requires cr.write."
 ))
 def withdraw_change_request(cr_id: int) -> str:
     return _call("POST", f"/api/v1/change-requests/{cr_id}/withdraw")
@@ -475,8 +520,11 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "create_block {capability:'$cap', ...} — not {'$ref': 'biz'}. Incremental ops "
     "locate items by STABLE id (R-n / AC-n from get_block): {op:'upsert', id, entry:"
     "{name, detail}} modifies, upsert without id adds, {op:'delete', id} removes; api_ops "
-    "locate by 'api' ('GET /path'). In a full replacement only items that carry their id "
-    "count as the same item. Unknown ids → 409. 'covers' lists which of the request's "
+    "locate by 'api' ('GET /path'). To MODIFY an existing rule / acceptance item use "
+    "rule_ops / acceptance_ops with its id, or keep its id inside a full replacement: in a "
+    "full replacement an item WITHOUT an id is a NEW item and every old item not carried "
+    "over is removed — so rewriting a whole list shows up as removed + added in the delta, "
+    "never as modified, and the old ids are retired. Unknown ids → 409. 'covers' lists which of the request's "
     "acceptance ids (AC-n) this commit satisfies (may be empty, e.g. for an "
     "archive-only commit); complete_change_request requires "
     "every AC to be covered by some commit. Each touched block gets a new version whose "

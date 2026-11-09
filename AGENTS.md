@@ -82,6 +82,14 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - 新操作 `move_block {id, capability}`：把已发布模块搬到同项目的另一个小业务，模块身份、历史版本、执行记录不变，不产生新的模块版本；原小业务和新小业务各派生一个小业务版本。业务变更单里也能用。只改标题 / 摘要本来就不产生模块版本。
 - 不做事后撤销口子（先靠审计）。
 
+### 联调 v2 之后的补充（已实施）
+
+- **请求体不认识的字段直接 422**（`StrictModel`）：拼错字段名、或客户端比服务端新时立刻发现，不再静默忽略（联调时旧后端悄悄丢掉了 `kind`）。
+- **卡在 approved 的内部整理单可以撤回**：内部整理单提交即生效，若 Commit 被「条目总和变了」拦下又不想继续，创建它的 key（或 admin）可以 `withdraw` 回草稿（批准痕迹清掉，审计留记录）；已经有 Commit 落地的、以及人批准过的审核单都不能撤回。
+- **scanner-agent 补上 `cr.read`**（一次性迁移 `scanner_cr_read`，之前的老库里它只有 spec.read / exec.read）。
+- **MCP 的坏 key 不再毁掉会话**：`use_api_key` 遇到含中文等非 ASCII 的 key 或任何异常都保持原身份；新增 `list_api_keys` / `revoke_api_key`（吊销要先问人并附原话）。
+- 改名、改简述（大业务 / 小业务 / 模块的 title / summary）**不产生版本**，所以不出现在版本历史里；要查是谁改的看审核单或活动日志。`superseded_by` 永远是**当前最新版本**，不是「下一个版本」。整体替换列表时没带 id 的条目是**新条目**、旧条目被删除，delta 里是 removed + added 而不是 modified——要改某一条请用 `rule_ops` 或在整体替换里保留它的 id。
+
 ### 草稿归属（已实施）
 
 草稿审核单只有开单的那把 key（或拥有 `key.manage` 的管理员）能修改、提交、撤回，其他有 `cr.write` 的 key 一律 403，避免多个 Agent 同时开单时误改别人的草稿。
@@ -148,7 +156,7 @@ cd web && npm test                             # 前端单元测试（vitest）
 - `speclock/cli.py`：`speclock-cli`，人用人类 key 查看 / 批准 / 驳回审核单。
 - `speclock/diffing.py`：结构化 API / 规则校验、字段级 delta、版本级别标签、OpenAPI 生成、版本号计算。
 - `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
-- `speclock/mcp_server.py`：stdio MCP，27 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
+- `speclock/mcp_server.py`：stdio MCP，29 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
 - `web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**（计划与每步的实际做法见 `WEB_PLAN.md`）：总览（需要人关注的事）、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明；每页自动刷新。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。结构：`api/`（客户端 + `resources.js`）、`composables/`、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；整理逻辑是纯函数并有测试（`npm test`）。
 - `speclock/api_search.py`：搜索（已发布模块的当前版本 + 审核单，内存里子串匹配，项目隔离）。`/activity` 支持按谁 / 动作 / 对象 / 时间筛选与游标翻页；`/keys` 带活动统计。

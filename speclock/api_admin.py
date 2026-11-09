@@ -547,9 +547,17 @@ def create_key(
 @router.delete("/keys/{key_id}")
 def delete_key(
     key_id: int,
+    via: str = Query(default="api", pattern="^(cli|natural_language|api)$"),
+    evidence: str = Query(default="", description="Agent 代人删除时：人同意的原话"),
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
+    """删除（吊销）密钥，立即失效、不可恢复。Agent 代人删除须 via=natural_language 并附原话。"""
+    if via == "natural_language" and not evidence.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Agent 代人删除密钥必须附 evidence：人同意删除它的原话（先问人，不要自己决定）",
+        )
     k = db.get(ApiKey, key_id)
     if k is None:
         raise HTTPException(status_code=404, detail="key not found")
@@ -559,7 +567,8 @@ def delete_key(
                 status_code=409,
                 detail="这是最后一把管理员 key（拥有 key.manage），删除后无人能管理系统，已拒绝",
             )
-    audit(db, key.hint, "key_delete", f"apikey:{k.hint}", {"label": k.label})
+    audit(db, key.hint, "key_delete", f"apikey:{k.hint}",
+          {"label": k.label, "via": via, "evidence": evidence})
     db.delete(k)
     db.commit()
     return {"id": key_id, "deleted": True}

@@ -352,14 +352,28 @@ def withdraw_cr(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("cr.write")),
 ):
-    """撤回待审核的审核单回到草稿（内容解冻，之前的哈希作废）。"""
+    """撤回审核单回到草稿（内容解冻，之前的哈希作废）。
+
+    - 待审核（pending_review）的都可以撤回；
+    - **内部整理单**提交即生效（approved），但没有任何人的批准可言：如果它还没有任何 Commit
+      落地（例如 Commit 被「条目总和变了」拦下，不想继续了），也可以撤回，免得留下一张
+      永远停在 approved 的空单。人批准过的审核单不能这样撤回（批准后不可修改）。"""
     cr = _get_cr(db, key, cr_id)
     _require_owner(cr, key)
-    _require_status(cr, "pending_review")
+    stranded_internal = cr.status == "approved" and cr.kind == "internal" and not cr.commits
+    if not stranded_internal:
+        _require_status(cr, "pending_review")
     cr.status = "draft"
     cr.submitted_at = None
     cr.content_hash = ""
-    audit(db, key.hint, "cr_withdraw", f"cr:{cr.id}", {})
+    if stranded_internal:
+        cr.decided_by = ""
+        cr.decided_at = None
+        cr.decision_via = ""
+        cr.decision_evidence = ""
+        cr.decision_note = ""
+    audit(db, key.hint, "cr_withdraw", f"cr:{cr.id}",
+          {"was": "approved_internal_without_commits"} if stranded_internal else {})
     db.commit()
     return cr_out(cr)
 

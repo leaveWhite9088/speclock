@@ -250,7 +250,7 @@ speclock-cli key create --role executor-agent --label "后端执行 Agent"   # �
 }
 ```
 
-MCP server 暴露 **27 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
+MCP server 暴露 **29 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
 
 | 工具 | 权限 | 用途 |
 |---|---|---|
@@ -261,6 +261,7 @@ MCP server 暴露 **27 个工具**，key 的角色决定哪些能用（没权限
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |
 | `verify_work` | `exec.verify` | 测试 Agent 独立验收：逐条给结果，全通过 → verified，有不通过 → failed；验证者不能是实现者 |
 | `create_api_key` | `key.manage` | **危险操作**，只有 admin 能做：必须先问人并等到明确同意，附人同意的原话 `evidence`；明文只返回一次，创建后立即可用 |
+| `list_api_keys` / `revoke_api_key` | `key.manage` | 列出密钥（带活动统计，不含明文）/ 吊销密钥（不可恢复；**危险操作**，须先问人并附原话 `evidence`；最后一把管理员 key 删不掉） |
 | `use_api_key` | 任意 | 在当前 MCP 会话里切换使用的 key（例如刚创建的那把），不用重启客户端；传空切回配置里的那把 |
 | `list_change_requests` / `get_change_request` | `cr.read` | 读审核单（含状态、覆盖情况、人的决定与驳回理由） |
 | `create_change_request` / `update_change_request` / `submit_change_request` / `withdraw_change_request` | `cr.write` | 整理审核单：草稿 → 提交（冻结）→ 需要改时撤回 |
@@ -297,7 +298,7 @@ speclock/            # FastAPI 纯 JSON API
 ├── auth.py        # key 生成 / 哈希 / 脱敏 + 审计
 ├── cli.py         # speclock-cli：人用人类 key 查看 / 批准 / 驳回审核单，管理密钥
 ├── diffing.py     # 结构化 API/规则校验、字段级 delta、版本级别标签、OpenAPI 生成、两级 semver
-├── mcp_server.py  # stdio MCP，27 工具，经 HTTP 调本系统 REST
+├── mcp_server.py  # stdio MCP，29 工具，经 HTTP 调本系统 REST
 └── seed.py        # demo 数据 + 打印两个开发 key
 web/               # Vue 3 + Vite 只读展示网页（总览 / 文档树 / 模块 / 版本 diff / 审核单 / 待办 / 活动 / Agent / 搜索 / 归档 / AI 接入）；npm test 跑前端测试，npm run build 产出 dist/，已 gitignore
 tools/demo_scenario.py  # 往空库灌一套有代表性的场景（待确认 / 内部整理 / 卡住的任务等），用来在网页上看各页面
