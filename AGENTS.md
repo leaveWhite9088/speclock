@@ -74,13 +74,34 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - **Commit 可新建结构**：新建 Business / Capability / Block、下线 Block 都只能通过带 CR 的 Commit 完成，不再有直接的人工建 / 改 / 发布接口。Commit 原子应用，任何一条 op 失败整体回滚；应用成功即发布，不经过草稿。
 - **批准的渠道**（已定：不做按钮）：人在对话里的明确输入（自然语言，由 Agent 经 MCP 代人调用，必须带内容哈希和人的原话）、CLI（人类 key）。Core 只认"出示了人类 key"，不区分渠道，渠道（`cli` / `natural_language` / `api`）与原话留痕。
 
-### 内部整理（已实施，0.6.0）：纯重组不用人批准
+### 内部整理（已实施）：三档，纯重组与小幅文字改动不必走完整的业务审核单
 
-- 审核单有 `kind`：`business`（默认，须人批准）或 `internal`（内部整理）。**由需求 Agent 自己判定**这次是业务变更还是纯重组（改名、搬模块、拆分 / 合并模块，且规则、验收条件、API 一字未改），选 `internal` 必须写 `kind_reason`（为什么不算业务变更），并且需要 `cr.internal` 权限（预置给 admin 和 requirements-agent，可随时收回）。拿不准就选 `business`。
-- 内部整理单**提交即生效**（`approved`，`decision_via=agent_declared`，理由记为 `decision_evidence`），不经人批准，但留痕：审计里 `cr_approve` 标明 `agent_declared`，网页上有「内部整理」标记和说明，人事后随时能看。不能取代其他审核单。
-- **Core 的机械兜底**：Commit 时比较项目里在线模块的规则 / 验收条件 / API **条目总和**（只看内容，忽略编号和所在模块，多重集合）：搬动、拆分、合并、改名不改变总和，通过；只要有一条被改、增、删（包括归档、恢复）就 422，提示改开业务变更单，整个 Commit 回滚。**留给 Agent 判断的缝隙**：背景叙述 `content_md` 允许变（拆分时一定会变），靠理由 + 审计 + 网页标记来盯。
-- 新操作 `move_block {id, capability}`：把已发布模块搬到同项目的另一个小业务，模块身份、历史版本、执行记录不变，不产生新的模块版本；原小业务和新小业务各派生一个小业务版本。业务变更单里也能用。只改标题 / 摘要本来就不产生模块版本。
-- 不做事后撤销口子（先靠审计）。
+审核单有 `kind`：`business`（默认，须人批准）或 `internal`（内部整理）。**由需求 Agent 自己声明**这次是业务变更还是内部整理，选 `internal` 必须写 `kind_reason`（为什么意思没变），并且需要 `cr.internal` 权限（预置给 admin 和 requirements-agent，可随时收回）。拿不准就选 `business`。内部整理单**提交即生效**（`approved`，`decision_via=agent_declared`），不经人批准，但留痕；不能取代其他审核单。
+
+**Commit 落地时 Core 分三档判定**（`review.py`，确定性，不含 LLM；比较的是整理前后项目里在线模块的规则 / 验收条件 / API）：
+
+1. **条目总和完全不变**（改名、搬动、拆分、合并）：机械通过，直接生效（200，`status: applied`）。
+2. **条目的字变了，但还是同一条、改动很小**（错别字、标点、个别措辞）：**不直接拒绝，也不直接生效**。Commit 记成「待复核」（HTTP 202，`status: pending_review`），**规格一个字都不变**，把新旧文字逐条记下来；由**另一个角色**复核通过后才应用并发布。
+3. **有实质增、删、改**：422，要求改开业务变更单让人批准，说明**哪条**是实质改动、为什么。第 2 档的小改动和实质改动混在同一批里，**整批按第 3 档拒绝**。
+
+**第 2 档的限定**：
+- 「同一条」靠稳定 id（R-n / AC-n）判断，**不靠名称**：整体替换时没带 id、或 id 对不上，就是「新增 + 删除」，按第 3 档。
+- 只限规则 / 验收条件的名称与详述；**任何 API 改动、增删条目、新建 / 归档 / 恢复模块、整条重写都是第 3 档**。
+- 阈值写在 `speclock.toml` 的 `[review]` 节（不写死在代码里），保守的默认值：一个 Commit 最多 3 条条目、每个字段最多改 6 个字且不超过原文的 15%、单段文字不超过 2000 字；`enabled = false` 可关掉这一档（回到「字变了就拒绝」）。
+- 不通过阈值的改动不会被悄悄放行：超过任何一项都按第 3 档处理。
+
+**复核**（`cr.review` 权限，预置给 scanner-agent、reviewer、admin）：
+- `GET /reviews`（MCP `list_pending_reviews`）列出待复核；`POST /change-requests/{id}/commits/{cid}/review`（MCP `review_commit`）提交「通过 / 不通过 + 理由」，**理由必填**；人在对话里复核时 `via=natural_language` 要附原话。
+- **提交者不能复核自己的 Commit**（按 key 判定，同一把 key → 403）。复核者判断的是**语义**：新旧文字的意思有没有变（加了 / 少了「不」、改了数字、范围、条件都要不通过）。
+- 通过 → Core 重新应用 ops 并发布，记录复核人、理由、新旧对比；若规格在提交之后又变过（原 ops 无法应用，或逐条对比对不上），通过会 409——请选「不通过」让提交者重新提交。不通过 → 不生效，理由对提交者可见；审核单仍是 `approved`，可以另行提交 Commit。
+- 有待复核的 Commit 时 `complete_change_request` 会 409；待复核 / 复核不通过的 Commit **不计入验收条件覆盖**。审核单撤回时，它的待复核 Commit 一并作废（`withdrawn`）。
+- 留痕：审计 `commit_review_requested` / `commit_review_approved` / `commit_review_rejected`（含谁、理由、新旧对比）；网页总览有「待复核」一块，审核单详情的落地明细里显示状态、复核人、理由和红绿对比，活动里显示「提交待复核 / 复核通过 / 复核不通过」。
+
+**兜底不变**：第 1 档和第 3 档不依赖任何人的判断。**留给 Agent 判断的缝隙**：背景叙述 `content_md` 允许变（拆分时一定会变），靠理由 + 审计 + 网页标记来盯；第 2 档的语义判断由复核者负责，Core 只保证「复核者不是提交者」和「复核前规格不变」。
+
+新操作 `move_block {id, capability}`：把已发布模块搬到同项目的另一个小业务，模块身份、历史版本、执行记录不变，不产生新的模块版本；原小业务和新小业务各派生一个小业务版本。业务变更单里也能用。只改标题 / 摘要本来就不产生模块版本。
+
+**版本号**：任何条目被修改都算 MAJOR（现有规则，机械标签，仅供参考），所以一个错别字复核通过后也是新的 MAJOR 版本号——这和语义复核无关，版本级别从来不判断「意思变没变」。
 
 ### 联调 v2 之后的补充（已实施）
 
@@ -156,7 +177,7 @@ cd web && npm test                             # 前端单元测试（vitest）
 - `speclock/cli.py`：`speclock-cli`，人用人类 key 查看 / 批准 / 驳回审核单。
 - `speclock/diffing.py`：结构化 API / 规则校验、字段级 delta、版本级别标签、OpenAPI 生成、版本号计算。
 - `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
-- `speclock/mcp_server.py`：stdio MCP，29 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
+- `speclock/mcp_server.py`：stdio MCP，31 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
 - `web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**（计划与每步的实际做法见 `WEB_PLAN.md`）：总览（需要人关注的事）、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明；每页自动刷新。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。结构：`api/`（客户端 + `resources.js`）、`composables/`、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；整理逻辑是纯函数并有测试（`npm test`）。
 - `speclock/api_search.py`：搜索（已发布模块的当前版本 + 审核单，内存里子串匹配，项目隔离）。`/activity` 支持按谁 / 动作 / 对象 / 时间筛选与游标翻页；`/keys` 带活动统计。

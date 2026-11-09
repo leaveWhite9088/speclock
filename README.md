@@ -50,7 +50,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **两级版本** — 模块独立递增 semver，级别标签由代码按结构化 diff 机械算出（有任何删除或修改 → MAJOR，只有新增 → MINOR，其余 PATCH），只是给外部 Agent 的参考，Core 不规定它们据此该做什么；任一模块发布时所属小业务自动派生小业务版本（manifest = 全部模块当前版本清单）
 - **字段级 diff 与版本标签** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；API 侧任何删除（含可选字段）或类型 / 必填标志变更都算 MAJOR 级变更；规则与验收条件按稳定 id 匹配，详述变了算修改，只改名称算 renamed（PATCH）
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→小业务→模块 三层概要树（小业务节点带可选的一句话简述）（模块节点带一句话摘要与当前版本的执行状态），选中后再按需精读，上下文占用最小
-- **内部整理（纯重组免人批准）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（改名、搬模块、拆分 / 合并，由需求 Agent 自行判定并写明理由，提交即生效，需要 `cr.internal` 权限）；Core 机械兜底：落地时规则 / 验收条件 / API 的条目总和必须一字未变，否则 422 回滚；新操作 `move_block`；全程留痕，网页标记「内部整理」
+- **内部整理（三档，纯重组与小幅文字改动免人批准）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（由需求 Agent 声明并写明理由，提交即生效，需要 `cr.internal` 权限）。Commit 落地时 Core 分三档（确定性，不含 LLM）：① 规则 / 验收条件 / API 的条目总和不变（改名、搬动、拆分、合并）→ 直接生效；② 单条条目里的小幅文字改动（错别字、标点、个别措辞，靠稳定 id 判断「还是同一条」，阈值在 `speclock.toml` 的 `[review]` 里配置）→ **进入「待复核」，规格暂时不变**，由另一个角色（scanner-agent 或人，`cr.review` 权限；提交者自己不行，按 key 判定）复核通过后才生效，复核人、理由、新旧对比都留痕；③ 有实质增、删、改 → 422，要求业务变更单让人批准，并指出是哪条；混在一起整批按 ③。新操作 `move_block`；网页总览有「待复核」，审核单详情有红绿对比
 - **溯源与覆盖检查** — 每个模块版本 / 小业务版本记录产生它的 `cr_id` + `commit_id`，从版本能追到「为什么改」，从审核单能追到全部 Commit 与受影响版本；Commit 声明满足审核单的哪些验收条件（`covers`），审核单要进入 `applied`，全部验收条件必须被覆盖（Core 只做这个机械检查，不判断语义）
 - **执行记录（规格状态与执行状态分开）** — 每个已发布的模块版本自动产生一条执行记录：`pending → in_progress → implemented → verified`，另有 `blocked` / `failed`（可重新领取）和 `superseded`（模块发布新版本后，旧版本上没做完的记录被取代）。执行 Agent 领取任务时拿到**锁定到该版本**的完整规格；提交实现结果必须逐条验收条件给 pass + 证据；**测试 Agent 独立验收**，验证者不能是实现者（同一把 key 403）。每次转换写只追加的事件历史。待办看板 `/work` 与模块页版本历史展示状态与事件
 - **全链路审计** — 审核单流转 / Commit / 发布 / 拉取 / 执行记录转换 / 密钥与角色变更全部落 `AuditLog`
@@ -126,7 +126,7 @@ python3 -m venv .venv
 
 | 页面 | 回答什么 |
 |---|---|
-| 总览 `/` | 现在有什么需要我关注的：等我确认的审核单、卡住的任务（被阻塞 / 失败）、Agent 自行判定的内部整理、等验收、进行中，以及数字概览和最近活动 |
+| 总览 `/` | 现在有什么需要我关注的：等我确认的审核单、卡住的任务（被阻塞 / 失败）、Agent 自行判定的内部整理、待复核的小改动、等验收、进行中，以及数字概览和最近活动 |
 | 文档树 `/tree` | 大业务 → 小业务 → 模块；小业务显示「已验收 / 总数」，可按执行状态筛选 |
 | 审核单 `/change-requests` | 全部审核单；详情里有「落地明细」：Commit → 受影响的模块 / 小业务（版本怎么变的）→ 现在的执行状态 |
 | 待办 `/work` | 每个模块版本的执行记录与事件历史 |
@@ -181,7 +181,7 @@ public_url = "https://docs.example.com"
 
 - 密钥**仅在创建时可见一次**：`POST /api/v1/keys` 的响应是唯一能看到明文的地方；数据库只存 SHA-256 哈希与脱敏 hint（如 `human-…26c7`），丢失只能重新生成
 - 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：seed 只发一把 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock-cli key create` 是兜底；吊销即生效（下次请求 401）；拥有 `key.manage` 的最后一把 human key 拒绝删除
-- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（读规格 / 审核单 / 待办，只提建议，不能开单）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
+- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回 + 复核）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（读规格 / 审核单 / 待办，可复核内部整理里待复核的小改动，不能开单、不能提交 Commit）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
 - **给各目录的 Agent 发身份**：同一目录下多个 Agent 彼此看得见对方的文件，身份靠各目录 AGENTS.md 里的提示词。[AGENT_IDENTITY_TEMPLATE.md](AGENT_IDENTITY_TEMPLATE.md) 是模板：一段通用部分（先 `whoami`、已有 key 不重复创建、创建 key 是危险操作必须先问人）加需求 / 执行 / 测试三个角色部分，复制到对应目录的 AGENTS.md 并填好「我的 SpecLock 身份」。key 由人用 `speclock-cli key create` 创建，或在人同意后由持有 admin key 的 Agent 创建，创建后用 `use_api_key` 立即切换使用，不需要重启客户端
 - 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局
 - `GET /api/v1/me` 返回当前 key 的角色与权限
@@ -250,7 +250,7 @@ speclock-cli key create --role executor-agent --label "后端执行 Agent"   # �
 }
 ```
 
-MCP server 暴露 **29 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
+MCP server 暴露 **31 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
 
 | 工具 | 权限 | 用途 |
 |---|---|---|
@@ -261,6 +261,7 @@ MCP server 暴露 **29 个工具**，key 的角色决定哪些能用（没权限
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |
 | `verify_work` | `exec.verify` | 测试 Agent 独立验收：逐条给结果，全通过 → verified，有不通过 → failed；验证者不能是实现者 |
 | `create_api_key` | `key.manage` | **危险操作**，只有 admin 能做：必须先问人并等到明确同意，附人同意的原话 `evidence`；明文只返回一次，创建后立即可用 |
+| `list_pending_reviews` / `review_commit` | `cr.review` | 复核内部整理里待复核的小改动：列出（带新旧对比）/ 通过或不通过 + 理由（必填）；不能复核自己提交的 |
 | `list_api_keys` / `revoke_api_key` | `key.manage` | 列出密钥（带活动统计，不含明文）/ 吊销密钥（不可恢复；**危险操作**，须先问人并附原话 `evidence`；最后一把管理员 key 删不掉） |
 | `use_api_key` | 任意 | 在当前 MCP 会话里切换使用的 key（例如刚创建的那把），不用重启客户端；传空切回配置里的那把 |
 | `list_change_requests` / `get_change_request` | `cr.read` | 读审核单（含状态、覆盖情况、人的决定与驳回理由） |
@@ -278,6 +279,7 @@ MCP server 暴露 **29 个工具**，key 的角色决定哪些能用（没权限
 - **升级到 0.5.0**：移除全部旧的直接写入口（建 / 改 / 删 / 发布模块与小业务、提案收件箱与批准）与 `applied_ops`；新增角色与权限、审核单、Commit、溯源字段、`speclock-cli`。老库在启动时由 `init_db` 自动补列 / 建表 / 补预置角色，没有角色的老 key 回填默认角色（human→admin，agent→executor-agent）；旧的 `proposals` 表不再使用也不删除。agent 端需升级 MCP wheel（工具集已变）。
 - **术语与升级**：Business（大业务）/ Capability（小业务）/ Block（模块）；0.4.0 起原 Domain / Document 改名为 Business / Capability（接口 `/domains`→`/businesses`、`/documents`→`/capabilities`，MCP `get_document`→`get_capability`，不保留旧别名）。老库在启动时由 `init_db` 自动迁移（表与外键列改名、删除 `doc_type`、新增小业务 `summary`），幂等；agent 端需升级 MCP wheel。
 - **执行状态机**：见 `executions.py`。验证者 ≠ 实现者按 key 判定；模块发布新版本时旧版本的未结束记录变 `superseded`，对它们的写操作一律 409 并指向最新版本；归档的模块不出现在待办里，恢复后回来；`verified` 与 `superseded` 是终态，`failed` / `blocked` 可重新领取（不限次数，旧结果清空、历史留在事件里）；不做领取超时。
+- **升级到 0.7.0（接口变化）**：内部整理新增「待复核」一档——`POST .../commits` 对内部整理单可能返回 **202**（`status: pending_review`，规格没变）而不是 200，客户端要处理；新增 `GET /reviews`、`POST /change-requests/{id}/commits/{cid}/review`、权限 `cr.review`（scanner-agent / reviewer / admin）；`/change-requests` 的审核单与 Commit 增加 `status` / `review` / `pending_review_count` / `pending_reviews`；请求体里不认识的字段一律 422；撤回允许用于没有任何 Commit 落地的内部整理单；MCP 新增 `list_pending_reviews` / `review_commit` / `list_api_keys` / `revoke_api_key` / `use_api_key`；阈值配置见 `speclock.toml` 的 `[review]`。老库启动时自动给 commits 表补列、给预置角色补 `cr.review` / `cr.read`。
 - **升级到 0.6.0**：删除 `ack_block` / `Block.completed*` / `acks` 表（被执行记录取代）与版本作废（`spec.void` / `voided_at`）；新增执行记录、`exec.read` / `exec.write` / `exec.verify`、`tester-agent`、`create_api_key`。老库启动时自动删旧列旧表、给已发布模块补 pending 记录、给还没有 exec.* 权限的预置角色补上对应权限。
 - **审计**：审核单流转（含批准渠道与原话）/ Commit / 发布（模块 + 小业务）/ 拉取 / 执行记录转换 / 密钥与角色变更全部写 `AuditLog`
 
@@ -298,7 +300,8 @@ speclock/            # FastAPI 纯 JSON API
 ├── auth.py        # key 生成 / 哈希 / 脱敏 + 审计
 ├── cli.py         # speclock-cli：人用人类 key 查看 / 批准 / 驳回审核单，管理密钥
 ├── diffing.py     # 结构化 API/规则校验、字段级 delta、版本级别标签、OpenAPI 生成、两级 semver
-├── mcp_server.py  # stdio MCP，29 工具，经 HTTP 调本系统 REST
+├── mcp_server.py  # stdio MCP，31 工具
+├── review.py      # 内部整理的三档判定（条目总和 / 小幅文字改动 / 实质改动），经 HTTP 调本系统 REST
 └── seed.py        # demo 数据 + 打印两个开发 key
 web/               # Vue 3 + Vite 只读展示网页（总览 / 文档树 / 模块 / 版本 diff / 审核单 / 待办 / 活动 / Agent / 搜索 / 归档 / AI 接入）；npm test 跑前端测试，npm run build 产出 dist/，已 gitignore
 tools/demo_scenario.py  # 往空库灌一套有代表性的场景（待确认 / 内部整理 / 卡住的任务等），用来在网页上看各页面
