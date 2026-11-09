@@ -164,6 +164,7 @@ public_url = "https://docs.example.com"
 - 密钥**仅在创建时可见一次**：`POST /api/v1/keys` 的响应是唯一能看到明文的地方；数据库只存 SHA-256 哈希与脱敏 hint（如 `human-…26c7`），丢失只能重新生成
 - 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：seed 只发一把 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock-cli key create` 是兜底；吊销即生效（下次请求 401）；拥有 `key.manage` 的最后一把 human key 拒绝删除
 - **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
+- **给各目录的 Agent 发身份**：同一目录下多个 Agent 彼此看得见对方的文件，身份靠各目录 AGENTS.md 里的提示词。[AGENT_IDENTITY_TEMPLATE.md](AGENT_IDENTITY_TEMPLATE.md) 是模板：一段通用部分（先 `whoami`、已有 key 不重复创建、创建 key 是危险操作必须先问人）加需求 / 执行 / 测试三个角色部分，复制到对应目录的 AGENTS.md 并填好「我的 SpecLock 身份」。key 由人用 `speclock-cli key create` 创建，或在人同意后由持有 admin key 的 Agent 创建，创建后用 `use_api_key` 立即切换使用，不需要重启客户端
 - 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局
 - `GET /api/v1/me` 返回当前 key 的角色与权限
 - 审计只记录 hint，不记录明文
