@@ -2,12 +2,16 @@
 // 小业务详情：模块清单 + 小业务版本时间线（每版可展开 manifest 快照）。
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
+import { errText } from '../errors.js'
+import { BLOCK_STATUS } from '../labels.js'
 import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
+import LoadingState from '../components/LoadingState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
 const { keyName } = useKeyNames()
 
@@ -20,12 +24,7 @@ const doc = ref(null) // { id, title, current_version, blocks, projectName, busi
 const versions = ref([])
 const openManifest = ref({}) // version -> bool
 
-const STATUS_TEXT = { draft: '草稿', published: '已发布', archived: '已归档' }
-
-function errText(e) {
-  const d = e?.detail ?? e
-  return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
+const STATUS_TEXT = BLOCK_STATUS
 
 function cmpVersion(a, b) {
   const pa = String(a).split('.').map(Number)
@@ -58,8 +57,8 @@ async function load() {
   error.value = ''
   try {
     const [tree, vers] = await Promise.all([
-      api.get('/tree'),
-      api.get(`/capabilities/${docId.value}/versions`),
+      resources.tree(),
+      resources.capabilities.versions(docId.value),
     ])
     let found = null
     for (const p of tree) {
@@ -90,12 +89,8 @@ watch(docId, load, { immediate: true })
 
 <template>
   <div class="page doc-page">
-    <p v-if="loading" class="muted">加载中…</p>
-
-    <div v-else-if="error" class="card state-card">
-      <p class="error-text">{{ error }}</p>
-      <button type="button" class="btn" @click="load">重试</button>
-    </div>
+    <LoadingState v-if="loading" />
+    <ErrorState v-else-if="error" :message="error" @retry="load" />
 
     <template v-else-if="doc">
       <AppBreadcrumb :capability-id="docId" />

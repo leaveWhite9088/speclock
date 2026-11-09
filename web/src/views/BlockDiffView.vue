@@ -6,11 +6,14 @@
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
+import { errText } from '../errors.js'
 import VersionChip from '../components/VersionChip.vue'
 import BlockDeltaGroups from '../components/BlockDeltaGroups.vue'
 import BlockTextDiff from '../components/BlockTextDiff.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
+import LoadingState from '../components/LoadingState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,13 +31,6 @@ const singleMessage = ref('')
 const diffLoading = ref(false)
 const diffError = ref('')
 
-function errText(e) {
-  const d = e && e.detail
-  if (!d) return '请求失败，请检查网络后重试。'
-  if (typeof d === 'string') return d
-  return d.error || JSON.stringify(d)
-}
-
 async function runDiff() {
   diffData.value = null
   singleMessage.value = ''
@@ -42,9 +38,7 @@ async function runDiff() {
   if (!fromV.value || !toV.value || fromV.value === toV.value) return
   diffLoading.value = true
   try {
-    const res = await api.get(
-      `/blocks/${bid}/diff?from=${encodeURIComponent(fromV.value)}&to=${encodeURIComponent(toV.value)}`,
-    )
+    const res = await resources.blocks.diff(bid, { from: fromV.value, to: toV.value })
     if (res.message) singleMessage.value = res.message
     else diffData.value = res
   } catch (e) {
@@ -58,12 +52,12 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const vs = await api.get(`/blocks/${bid}/versions`)
+    const vs = await resources.blocks.versions(bid)
     versions.value = [...vs].sort((a, b) =>
       String(a.published_at || '').localeCompare(String(b.published_at || '')),
     )
     if (versions.value.length) {
-      const snap = await api.get(`/blocks/${bid}/versions/${versions.value.at(-1).version}`)
+      const snap = await resources.blocks.version(bid, versions.value.at(-1).version)
       title.value = snap.title
     }
     const q = route.query
@@ -146,12 +140,8 @@ const groups = computed(() => {
 
 <template>
   <div class="page diff-page">
-    <div v-if="loading" class="muted">正在加载…</div>
-
-    <div v-else-if="loadError" class="card load-fail">
-      <p class="error-text" role="alert">{{ loadError }}</p>
-      <button type="button" class="btn" @click="load">重新加载</button>
-    </div>
+    <LoadingState v-if="loading" />
+    <ErrorState v-else-if="loadError" :message="loadError" @retry="load" />
 
     <template v-else>
       <AppBreadcrumb :block-id="bid" append="版本对比" />

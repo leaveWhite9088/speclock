@@ -1,9 +1,9 @@
-// key hint（agent-…1a2b）→ key 名称（label）的展示映射。
-// 数据来自 /keys（admin 接口）；key 已删除或 hint 冲突时回退显示 hint 本身。
+// key hint（agent-…1a2b）→ key 信息（备注 label、角色 role）的展示映射。
+// 数据来自 /keys（需要 key.manage 的接口）；没有权限、key 已删除或 hint 冲突时回退显示 hint 本身。
 import { ref } from 'vue'
 import { api } from './client.js'
 
-const names = ref(new Map())
+const infos = ref(new Map())
 let loading = null
 
 export function useKeyNames() {
@@ -15,14 +15,17 @@ export function useKeyNames() {
         for (const k of list) dup[k.hint] = (dup[k.hint] || 0) + 1
         const m = new Map()
         for (const k of list) {
-          if (k.label && dup[k.hint] === 1) m.set(k.hint, k.label)
+          if (dup[k.hint] === 1) m.set(k.hint, { label: k.label || '', role: k.role || '' })
         }
-        names.value = m
+        infos.value = m
       })
       .catch(() => {})
   }
-  function keyName(hint) {
-    return names.value.get(hint) || hint
+  function keyInfo(hint) {
+    return infos.value.get(hint) || { label: '', role: '' }
   }
-  return { keyName }
+  function keyName(hint) {
+    return keyInfo(hint).label || hint
+  }
+  return { keyName, keyInfo }
 }

@@ -6,7 +6,9 @@
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
+import { errText } from '../errors.js'
+import { EXEC_EVENT, EXEC_STATUS, label } from '../labels.js'
 import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
@@ -16,6 +18,8 @@ import BlockApiDetail from '../components/BlockApiDetail.vue'
 import BlockMd from '../components/BlockMd.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
+import LoadingState from '../components/LoadingState.vue'
+import ErrorState from '../components/ErrorState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,13 +35,6 @@ const selected = ref('')
 const opError = ref('')
 const openEvents = ref({}) // 版本号 -> 是否展开执行历史
 
-function errText(e) {
-  const d = e && e.detail
-  if (!d) return '请求失败，请检查网络后重试。'
-  if (typeof d === 'string') return d
-  return d.error || JSON.stringify(d)
-}
-
 function sorted(list) {
   return [...list].sort((a, b) =>
     String(a.published_at || '').localeCompare(String(b.published_at || '')),
@@ -45,7 +42,7 @@ function sorted(list) {
 }
 
 async function loadVersion(v) {
-  snap.value = await api.get(`/blocks/${bid}/versions/${v}`)
+  snap.value = await resources.blocks.version(bid, v)
   selected.value = v
 }
 
@@ -53,7 +50,7 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [tree, vs] = await Promise.all([api.get('/tree'), api.get(`/blocks/${bid}/versions`)])
+    const [tree, vs] = await Promise.all([resources.tree(), resources.blocks.versions(bid)])
     let d = null
     for (const p of tree)
       for (const biz of p.businesses)
@@ -140,12 +137,8 @@ function toggleEvents(v) {
 
 <template>
   <div class="page view-page">
-    <div v-if="loading" class="muted">正在加载…</div>
-
-    <div v-else-if="loadError" class="card load-fail">
-      <p class="error-text" role="alert">{{ loadError }}</p>
-      <button type="button" class="btn" @click="load">重新加载</button>
-    </div>
+    <LoadingState v-if="loading" />
+    <ErrorState v-else-if="loadError" :message="loadError" @retry="load" />
 
     <template v-else-if="meta">
       <AppBreadcrumb :block-id="bid" />
@@ -327,8 +320,8 @@ function toggleEvents(v) {
                     <ol class="events">
                       <li v-for="(e, i) in v.events" :key="i">
                         <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
-                        <span class="ev-name">{{ e.event }}</span>
-                        <span class="muted">{{ e.from || '—' }} → {{ e.to }}</span>
+                        <span class="ev-name">{{ label(EXEC_EVENT, e.event) }}</span>
+                        <span class="muted">{{ label(EXEC_STATUS, e.from) }} → {{ label(EXEC_STATUS, e.to) }}</span>
                         <span class="muted">{{ keyName(e.actor) }}</span>
                         <span v-if="e.note">{{ e.note }}</span>
                       </li>

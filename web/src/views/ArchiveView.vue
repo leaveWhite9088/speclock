@@ -1,56 +1,32 @@
 <script setup>
 // 归档：已归档模块列表（只读）。恢复由 Agent 经审核单 + Commit（restore_block）完成。
-import { onMounted, ref } from 'vue'
-import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
+import { useAsync } from '../composables/useAsync.js'
 import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
+import PageHeader from '../components/PageHeader.vue'
+import AsyncState from '../components/AsyncState.vue'
 
-const loading = ref(true)
-const error = ref('')
-const rows = ref([])
-function errText(e) {
-  const d = e?.detail ?? e
-  return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    rows.value = await api.get('/archive')
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
+const { data: rows, loading, error, reload } = useAsync(() => resources.archive())
 </script>
 
 <template>
   <div class="page archive-page">
-    <p class="page-eyebrow">Archive</p>
-    <h1 class="page-title">归档管理</h1>
-    <p class="page-desc">
-      归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。归档与恢复都由 Agent 经审核单的 Commit 完成，并立即派生所属小业务的新版本（MINOR）。
-    </p>
+    <PageHeader
+      eyebrow="Archive"
+      title="归档管理"
+      desc="归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。归档与恢复都由 Agent 经审核单的 Commit 完成，并立即派生所属小业务的新版本（MINOR）。"
+    />
 
-    <p v-if="loading" class="muted">加载中…</p>
-
-    <div v-else-if="error" class="card state-card">
-      <p class="error-text">{{ error }}</p>
-      <button type="button" class="btn" @click="load">重试</button>
-    </div>
-
-    <div v-else-if="!rows.length" class="card state-card">
-      <p class="muted">
-        没有已归档的模块。模块下线由 Agent 经审核单归档——归档后历史版本仍然保留，可随时恢复。
-      </p>
-      <RouterLink to="/" class="btn">回到文档树</RouterLink>
-    </div>
-
-    <div v-else class="row-list">
+    <AsyncState
+      :loading="loading"
+      :error="error"
+      :empty="!rows?.length"
+      empty-title="没有已归档的模块"
+      empty-text="模块下线由 Agent 经审核单归档——归档后历史版本仍然保留，可随时恢复。"
+      @retry="reload"
+    >
+    <div class="row-list">
       <article v-for="row in rows" :key="row.id" class="card arch-row">
         <div class="arch-main">
           <p class="arch-path mono muted">
@@ -74,6 +50,7 @@ onMounted(load)
 
       </article>
     </div>
+    </AsyncState>
   </div>
 </template>
 

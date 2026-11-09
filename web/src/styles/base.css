@@ -257,6 +257,23 @@ pre,
   opacity: 0;
 }
 
+/* ---------- 窄屏适配（质量底线：能读、能用，不追求精致） ---------- */
+
+@media (max-width: 900px) {
+  .page {
+    padding: var(--sp-5) var(--sp-4);
+  }
+
+  /* 卡片里的宽表格可以横向滚动，不撑破页面 */
+  .card {
+    overflow-x: auto;
+  }
+
+  .page-title {
+    flex-wrap: wrap;
+  }
+}
+
 /* ---------- 动效收敛 ---------- */
 
 @media (prefers-reduced-motion: reduce) {

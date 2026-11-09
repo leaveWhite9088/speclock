@@ -4,48 +4,27 @@
  * 面向“人”的部分在前：为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明 / 决定；
  * 面向“Agent”的落地明细（Commit、模块版本）默认收起，人不需要看模块拆分。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api/client.js'
-import { useKeyNames } from '../api/keyNames.js'
+import { resources } from '../api/resources.js'
+import { useAsync } from '../composables/useAsync.js'
+import { DECISION_VIA, label } from '../labels.js'
 import { fmtTime } from '../time.js'
 import CRStatusBadge from '../components/CRStatusBadge.vue'
 import VersionChip from '../components/VersionChip.vue'
+import LoadingState from '../components/LoadingState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import KeyChip from '../components/KeyChip.vue'
 
-const { keyName } = useKeyNames()
 const route = useRoute()
 const crId = computed(() => Number(route.params.id))
 
-const cr = ref(null)
-const loading = ref(true)
-const error = ref('')
+const { data: cr, loading, error, reload: load } = useAsync(() => resources.crs.get(crId.value), {
+  watch: [crId],
+})
 const showOps = ref({})
 
-function errText(e) {
-  const d = e?.detail ?? e
-  return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    cr.value = await api.get(`/change-requests/${crId.value}`)
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-watch(crId, load, { immediate: true })
-
-const VIA_TEXT = {
-  cli: '命令行',
-  natural_language: '对话中明确表态',
-  api: '接口',
-  agent_declared: 'Agent 自行判定（内部整理，未经人批准）',
-}
+const VIA_TEXT = DECISION_VIA
 
 const covered = computed(() => new Set(cr.value?.coverage?.covered || []))
 
@@ -72,12 +51,8 @@ function capRows(c) {
   <div class="page cr-page">
     <p class="crumb"><RouterLink to="/change-requests">← 审核单</RouterLink></p>
 
-    <p v-if="loading" class="muted">加载中…</p>
-
-    <div v-else-if="error" class="card state-card">
-      <p class="error-text">{{ error }}</p>
-      <button type="button" class="btn" @click="load">重试</button>
-    </div>
+    <LoadingState v-if="loading" />
+    <ErrorState v-else-if="error" :message="error" @retry="load" />
 
     <template v-else-if="cr">
       <div class="title-row">
@@ -89,7 +64,7 @@ function capRows(c) {
         </span>
       </div>
       <p class="muted meta">
-        {{ keyName(cr.created_by) }} 创建于 {{ fmtTime(cr.created_at) }}
+        <KeyChip :hint="cr.created_by" /> 创建于 {{ fmtTime(cr.created_at) }}
         <template v-if="cr.submitted_at"> · 提交于 {{ fmtTime(cr.submitted_at) }}</template>
         <template v-if="cr.applied_at"> · 落地于 {{ fmtTime(cr.applied_at) }}</template>
       </p>
@@ -172,7 +147,7 @@ function capRows(c) {
       <section v-if="decided || cr.status === 'rejected'" class="card sec">
         <h2 class="sec-title">{{ cr.status === 'rejected' ? '驳回记录' : cr.kind === 'internal' ? '生效记录' : '批准记录' }}</h2>
         <p class="meta-line">
-          {{ keyName(cr.decided_by) }} · {{ fmtTime(cr.decided_at) }} · 方式：{{ VIA_TEXT[cr.decision_via] || cr.decision_via }}
+          <KeyChip :hint="cr.decided_by" /> · {{ fmtTime(cr.decided_at) }} · 方式：{{ label(VIA_TEXT, cr.decision_via) }}
         </p>
         <p v-if="cr.decision_evidence" class="quote">“{{ cr.decision_evidence }}”</p>
         <p v-if="cr.decision_note" class="prose">

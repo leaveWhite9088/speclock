@@ -3,15 +3,14 @@
  * HomeView（/）—— 文档树导航页：项目 → 大业务 → 小业务 → 模块 四级可展开树，
  * 纯展示（没有任何修改操作）；模块节点显示版本印章与状态徽标。
  */
-import { ref, computed, onMounted } from 'vue'
-import { api } from '../api/client.js'
+import { ref, computed, watch } from 'vue'
+import { resources } from '../api/resources.js'
+import { useAsync } from '../composables/useAsync.js'
 import TreeNode from '../components/TreeNode.vue'
+import AsyncState from '../components/AsyncState.vue'
 
 const PROJECT_KEY = 'speclock_project'
 
-const tree = ref([])
-const loading = ref(true)
-const pageError = ref('')
 
 const selectedProjectId = ref(Number(localStorage.getItem(PROJECT_KEY)) || null)
 const onlyPending = ref(false)
@@ -63,30 +62,18 @@ function toNode(p) {
   }
 }
 
-async function load() {
-  loading.value = true
-  pageError.value = ''
-  try {
-    const raw = await api.get('/tree')
-    tree.value = raw.map(toNode)
-    // 选中项目已不存在（被删/首次进入）时回落到第一个项目
-    if (tree.value.length && !tree.value.some((n) => n.id === selectedProjectId.value)) {
-      pickProject(tree.value[0].id)
-    }
-  } catch (e) {
-    pageError.value = fmtErr(e)
-  } finally {
-    loading.value = false
-  }
-}
+const {
+  data: treeData,
+  loading,
+  error: pageError,
+  reload: load,
+} = useAsync(async () => (await resources.tree()).map(toNode))
+const tree = computed(() => treeData.value || [])
 
-onMounted(load)
-
-function fmtErr(e) {
-  const d = e && e.detail
-  if (!d) return '请求失败，请检查网络后重试。'
-  return typeof d === 'string' ? d : d.error || JSON.stringify(d)
-}
+// 选中项目已不存在（被删 / 首次进入）时回落到第一个项目
+watch(tree, (t) => {
+  if (t.length && !t.some((n) => n.id === selectedProjectId.value)) pickProject(t[0].id)
+})
 </script>
 
 <template>
@@ -115,22 +102,21 @@ function fmtErr(e) {
       所有修改都由 Agent 经「审核单」完成。
     </p>
 
-    <p v-if="pageError" class="error-text page-err" role="alert">{{ pageError }}</p>
-
-    <div v-if="loading" class="muted loading">正在加载文档树…</div>
-
-    <div v-else-if="!tree.length" class="card empty">
-      <p class="empty-title">还没有内容</p>
-      <p class="muted">
-        文档树是空的。让 Agent 创建审核单、你确认后，由它提交 Commit 来建立 大业务 → 小业务 → 模块。
-      </p>
-    </div>
-
-    <div v-else class="tree">
-      <ul class="tree-root">
-        <TreeNode v-for="n in visibleTree" :key="`project-${n.id}`" :node="n" />
-      </ul>
-    </div>
+    <AsyncState
+      :loading="loading"
+      :error="pageError"
+      :empty="!tree.length"
+      loading-text="正在加载文档树…"
+      empty-title="还没有内容"
+      empty-text="文档树是空的。让 Agent 创建审核单、你确认后，由它提交 Commit 来建立 大业务 → 小业务 → 模块。"
+      @retry="load"
+    >
+      <div class="tree">
+        <ul class="tree-root">
+          <TreeNode v-for="n in visibleTree" :key="`project-${n.id}`" :node="n" />
+        </ul>
+      </div>
+    </AsyncState>
   </div>
 </template>
 

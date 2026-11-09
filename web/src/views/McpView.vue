@@ -2,6 +2,8 @@
 // AI 接入：接口契约 MCP（文档树，MCP stdio）的接入说明与 agent 活动。
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
+import { errText } from '../errors.js'
 import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
 
@@ -140,17 +142,12 @@ async function copyText(text, which) {
   setTimeout(() => (copied.value = false), 1500)
 }
 
-function errText(e) {
-  const d = e?.detail ?? e
-  return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
     ;[activities.value] = await Promise.all([
-      api.get('/activity?limit=50'),
+      resources.activity({ limit: 50 }),
       // 客户端包下载信息（wheel 未构建时 404，忽略即可，安装命令用占位形式）
       api
         .get('/agent/client-package')

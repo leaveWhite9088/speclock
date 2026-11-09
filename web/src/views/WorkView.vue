@@ -3,89 +3,70 @@
  * WorkView（/work）—— 待办看板：每个已发布模块版本的执行记录。纯展示：
  * 领取 / 实现 / 验收都由 Agent 经 MCP（或 REST）完成。
  */
-import { ref, computed, onMounted } from 'vue'
-import { api } from '../api/client.js'
-import { useKeyNames } from '../api/keyNames.js'
+import { ref, computed, watch } from 'vue'
+import { resources } from '../api/resources.js'
+import { useAsync } from '../composables/useAsync.js'
+import { errText } from '../errors.js'
+import { EXEC_EVENT, EXEC_STATUS, label } from '../labels.js'
 import { fmtTime } from '../time.js'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
-
-const { keyName } = useKeyNames()
+import PageHeader from '../components/PageHeader.vue'
+import AsyncState from '../components/AsyncState.vue'
+import KeyChip from '../components/KeyChip.vue'
 
 const FILTERS = [
   ['', '全部（除已被取代）'],
-  ['pending', '待领取'],
-  ['in_progress', '进行中'],
-  ['blocked', '被阻塞'],
-  ['failed', '失败'],
-  ['implemented', '待验收'],
-  ['verified', '已验收'],
-  ['superseded', '已被取代'],
+  ...Object.entries(EXEC_STATUS),
 ]
 
 const status = ref('')
-const rows = ref([])
-const loading = ref(true)
-const pageError = ref('')
 const opened = ref({}) // work id -> 详情（含事件）
-const counts = ref({})
+const openError = ref('')
 
-function errText(e) {
-  const d = e && e.detail
-  if (!d) return '请求失败，请检查网络后重试。'
-  return typeof d === 'string' ? d : d.error || JSON.stringify(d)
-}
-
-async function load() {
-  loading.value = true
-  pageError.value = ''
-  try {
+const { data, loading, error: pageError, reload: load } = useAsync(
+  async () => {
     const [list, all] = await Promise.all([
-      api.get(status.value ? `/work?status=${status.value}` : '/work'),
-      api.get('/work'),
+      resources.work.list({ status: status.value }),
+      resources.work.list(),
     ])
-    rows.value = list
-    const c = {}
-    for (const r of all) c[r.status] = (c[r.status] || 0) + 1
-    counts.value = c
-  } catch (e) {
-    pageError.value = errText(e)
-  } finally {
-    loading.value = false
-  }
-}
+    const counts = {}
+    for (const r of all) counts[r.status] = (counts[r.status] || 0) + 1
+    return { rows: list, counts }
+  },
+  { watch: [status] },
+)
+const rows = computed(() => data.value?.rows || [])
+const counts = computed(() => data.value?.counts || {})
 
 async function toggle(r) {
+  openError.value = ''
   if (opened.value[r.id]) {
     const { [r.id]: _drop, ...rest } = opened.value
     opened.value = rest
     return
   }
   try {
-    opened.value = { ...opened.value, [r.id]: await api.get(`/work/${r.id}`) }
+    opened.value = { ...opened.value, [r.id]: await resources.work.get(r.id) }
   } catch (e) {
-    pageError.value = errText(e)
+    openError.value = errText(e)
   }
 }
 
 function pick(s) {
   status.value = s
   opened.value = {}
-  load()
 }
 
 const total = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0))
-
-onMounted(load)
 </script>
 
 <template>
   <div class="page work-page">
-    <p class="page-eyebrow">Execution</p>
-    <h1 class="page-title">待办</h1>
-    <p class="page-desc">
-      每个已发布的模块版本都会自动产生一条执行记录：执行 Agent 领取并实现，测试 Agent 独立验收。
-      新版本发布后，旧版本上没做完的记录会被取代。这里只做展示。
-    </p>
+    <PageHeader
+      eyebrow="Execution"
+      title="待办"
+      desc="每个已发布的模块版本都会自动产生一条执行记录：执行 Agent 领取并实现，测试 Agent 独立验收。新版本发布后，旧版本上没做完的记录会被取代。这里只做展示。"
+    />
 
     <p v-if="total" class="stats-line muted">
       共 {{ total }} 条 ·
@@ -105,16 +86,17 @@ onMounted(load)
       </button>
     </div>
 
-    <p v-if="pageError" class="error-text" role="alert">{{ pageError }}</p>
-    <div v-if="loading" class="muted">正在加载…</div>
+    <p v-if="openError" class="error-text" role="alert">{{ openError }}</p>
 
-    <div v-else-if="!rows.length" class="card state-card">
-      <p class="muted">
-        这里还没有记录。模块经审核单 Commit 发布后，会自动出现一条「待领取」。
-      </p>
-    </div>
-
-    <div v-else class="card list">
+    <AsyncState
+      :loading="loading"
+      :error="pageError"
+      :empty="!rows.length"
+      empty-title="这里还没有记录"
+      empty-text="模块经审核单 Commit 发布后，会自动出现一条「待领取」。"
+      @retry="load"
+    >
+    <div class="card list">
       <div v-for="r in rows" :key="r.id" class="item">
         <div class="item-head">
           <ExecStatusBadge :status="r.status" />
@@ -123,7 +105,7 @@ onMounted(load)
           </RouterLink>
           <span class="mono muted">v{{ r.version }}</span>
           <span class="muted item-path">{{ r.business }} / {{ r.capability_title }}</span>
-          <span v-if="r.claimed_by" class="muted item-who">领取：{{ keyName(r.claimed_by) }}</span>
+          <span v-if="r.claimed_by" class="muted item-who">领取：<KeyChip :hint="r.claimed_by" /></span>
           <span class="muted mono item-time">{{ fmtTime(r.updated_at) }}</span>
           <a href="#" class="item-toggle" @click.prevent="toggle(r)">
             {{ opened[r.id] ? '收起' : '历史' }}
@@ -135,14 +117,15 @@ onMounted(load)
         <ol v-if="opened[r.id]" class="events">
           <li v-for="(e, i) in opened[r.id].events" :key="i">
             <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
-            <span class="ev-name">{{ e.event }}</span>
-            <span class="muted">{{ e.from || '—' }} → {{ e.to }}</span>
-            <span class="muted">{{ keyName(e.actor) }}</span>
+            <span class="ev-name">{{ label(EXEC_EVENT, e.event) }}</span>
+            <span class="muted">{{ label(EXEC_STATUS, e.from) }} → {{ label(EXEC_STATUS, e.to) }}</span>
+            <span class="muted"><KeyChip :hint="e.actor" /></span>
             <span v-if="e.note" class="ev-note">{{ e.note }}</span>
           </li>
         </ol>
       </div>
     </div>
+    </AsyncState>
   </div>
 </template>
 

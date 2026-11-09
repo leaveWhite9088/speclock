@@ -4,48 +4,23 @@
  * 审核单由 Agent 经 MCP 创建、提交、落地；人在对话里确认。本页只负责让人看清楚
  * “有哪些变更、到哪一步了”，不提供任何操作。
  */
-import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '../api/client.js'
-import { useKeyNames } from '../api/keyNames.js'
+import { computed, ref } from 'vue'
+import { resources } from '../api/resources.js'
+import { useAsync } from '../composables/useAsync.js'
+import { CR_STATUS } from '../labels.js'
 import { fmtTime } from '../time.js'
 import CRStatusBadge from '../components/CRStatusBadge.vue'
+import PageHeader from '../components/PageHeader.vue'
+import AsyncState from '../components/AsyncState.vue'
+import KeyChip from '../components/KeyChip.vue'
 
-const { keyName } = useKeyNames()
-
-const STATUS_OPTIONS = [
-  ['', '全部'],
-  ['pending_review', '待确认'],
-  ['approved', '已批准'],
-  ['applied', '已落地'],
-  ['draft', '草稿'],
-  ['rejected', '已驳回'],
-  ['superseded', '已被取代'],
-]
+const STATUS_OPTIONS = [['', '全部'], ...Object.entries(CR_STATUS)]
 
 const status = ref('')
-const rows = ref([])
-const loading = ref(true)
-const error = ref('')
-
-function errText(e) {
-  const d = e?.detail ?? e
-  return typeof d === 'string' ? d : JSON.stringify(d, null, 2)
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    rows.value = await api.get(status.value ? `/change-requests?status=${status.value}` : '/change-requests')
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
-watch(status, load)
+const { data, loading, error, reload } = useAsync(() => resources.crs.list(status.value), {
+  watch: [status],
+})
+const rows = computed(() => data.value || [])
 
 const pendingCount = computed(() => rows.value.filter((r) => r.status === 'pending_review').length)
 
@@ -61,34 +36,31 @@ function when(r) {
 
 <template>
   <div class="page cr-list-page">
-    <p class="page-eyebrow">Change Requests</p>
-    <div class="head">
-      <h1 class="page-title">审核单</h1>
-      <select v-model="status" class="input status-pick" aria-label="按状态筛选">
-        <option v-for="[v, label] in STATUS_OPTIONS" :key="v" :value="v">{{ label }}</option>
-      </select>
-    </div>
-    <p class="page-desc">
-      审核单是你和需求 Agent 之间的约定：只写业务意图——为什么变、变成什么样、验收条件。
-      批准 / 驳回由你在对话里告诉 Agent，本页只做展示。
-    </p>
+    <PageHeader
+      eyebrow="Change Requests"
+      title="审核单"
+      desc="审核单是你和需求 Agent 之间的约定：只写业务意图——为什么变、变成什么样、验收条件。批准 / 驳回由你在对话里告诉 Agent，本页只做展示。"
+    >
+      <template #actions>
+        <select v-model="status" class="input status-pick" aria-label="按状态筛选">
+          <option v-for="[v, label] in STATUS_OPTIONS" :key="v" :value="v">{{ label }}</option>
+        </select>
+      </template>
+    </PageHeader>
 
     <p v-if="pendingCount && !status" class="pending-hint">
       有 {{ pendingCount }} 个审核单正等你确认。
     </p>
 
-    <p v-if="loading" class="muted">加载中…</p>
-
-    <div v-else-if="error" class="card state-card">
-      <p class="error-text">{{ error }}</p>
-      <button type="button" class="btn" @click="load">重试</button>
-    </div>
-
-    <div v-else-if="!rows.length" class="card state-card">
-      <p class="muted">这里还没有审核单。让需求 Agent 把你的想法整理成一个审核单吧。</p>
-    </div>
-
-    <div v-else class="card table-card">
+    <AsyncState
+      :loading="loading"
+      :error="error"
+      :empty="!rows.length"
+      empty-title="这里还没有审核单"
+      empty-text="让需求 Agent 把你的想法整理成一个审核单吧；它提交后会出现在这里，等你确认。"
+      @retry="reload"
+    >
+    <div class="card table-card">
       <table class="cr-table">
         <thead>
           <tr>
@@ -112,11 +84,12 @@ function when(r) {
             <td class="mono">{{ coverage(r) }}</td>
             <td class="mono">{{ r.commit_count }}</td>
             <td class="mono muted">{{ when(r) }}</td>
-            <td class="muted">{{ keyName(r.created_by) }}</td>
+            <td class="muted"><KeyChip :hint="r.created_by" /></td>
           </tr>
         </tbody>
       </table>
     </div>
+    </AsyncState>
   </div>
 </template>
 

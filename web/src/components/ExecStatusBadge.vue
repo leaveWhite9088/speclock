@@ -1,20 +1,12 @@
 <script setup>
 // 执行状态徽标（与后端 executions.py 的状态一一对应）。
-defineProps({ status: { type: String, default: '' } })
+import { EXEC_STATUS, label } from '../labels.js'
 
-const TEXT = {
-  pending: '待领取',
-  in_progress: '进行中',
-  blocked: '被阻塞',
-  failed: '失败',
-  implemented: '待验收',
-  verified: '已验收',
-  superseded: '已被取代',
-}
+defineProps({ status: { type: String, default: '' } })
 </script>
 
 <template>
-  <span v-if="status" class="exec-badge" :class="`is-${status}`">{{ TEXT[status] || status }}</span>
+  <span v-if="status" class="exec-badge" :class="`is-${status}`">{{ label(EXEC_STATUS, status) }}</span>
 </template>
 
 <style scoped>

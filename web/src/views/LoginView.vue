@@ -1,6 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { resources } from '../api/resources.js'
+import { errText } from '../errors.js'
 import { api, setKey, clearKey } from '../api/client.js'
 import VersionChip from '../components/VersionChip.vue'
 
@@ -22,20 +24,18 @@ async function submit() {
   // 先暂存密钥，用 GET /projects 试一次；失败立即清掉，不留坏密钥在本地
   setKey(value)
   try {
-    await api.get('/projects')
+    await resources.projects()
     const from = typeof route.query.from === 'string' ? route.query.from : '/'
     router.push(from)
   } catch (e) {
     clearKey()
     if (e.status === 401) {
       error.value =
-        '这把密钥不存在或已被吊销。请确认粘贴的是完整的密钥原文（human- 开头），或让管理员在「密钥管理」重新签发一把。'
+        '这把密钥不存在或已失效。请确认粘贴的是完整的密钥原文；没有的话，用 speclock-cli key create 创建，或让持有 admin key 的 Agent 在你同意后创建。'
     } else if (e.status === 403) {
-      error.value =
-        '这是一把 agent 密钥，只读，不能登录管理端。请使用 human- 开头的管理密钥。'
+      error.value = '这把密钥的角色没有读取规格的权限（spec.read），看不了内容。请换一把有权限的密钥。'
     } else {
-      error.value =
-        '连不上 SpecLock 服务。请确认后端已启动（默认 127.0.0.1:8000）后重试。'
+      error.value = errText(e)
     }
   } finally {
     pending.value = false

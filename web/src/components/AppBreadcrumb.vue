@@ -7,7 +7,7 @@
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '../api/client.js'
+import { resources } from '../api/resources.js'
 
 const props = defineProps({
   blockId: { type: Number, default: null },
@@ -20,7 +20,7 @@ const items = ref([])
 
 onMounted(async () => {
   try {
-    const tree = await api.get('/tree')
+    const tree = await resources.tree()
     items.value = findTrail(tree) || []
   } catch {
     items.value = []

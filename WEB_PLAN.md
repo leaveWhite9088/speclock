@@ -34,13 +34,15 @@ views/        薄页面：取数据 + 拼组件
 
 ## 第 1 步：地基
 
-- [ ] 安装 vitest + @vue/test-utils，`npm test` 可用；给 `api/client.js`、`labels.js` 写第一批测试
-- [ ] `api/resources.js`：把现有页面里散落的 `api.get(...)` 收进来
-- [ ] `composables/useAsync`、`usePolling`；`components/` 里的 `EmptyState`、`ErrorState`、`PageHeader`、`TimeAgo`、`KeyChip`
-- [ ] 基础响应式：侧边栏在窄屏折叠成顶部菜单，表格可横向滚动
-- [ ] 现有页面改用新的统一状态组件（不改功能）
+- [x] 安装 vitest + @vue/test-utils，`npm test` 可用；给 `api/client.js`、`labels.js` 写第一批测试
+- [x] `api/resources.js`：把现有页面里散落的 `api.get(...)` 收进来
+- [x] `composables/useAsync`、`usePolling`；`components/` 里的 `EmptyState`、`ErrorState`、`PageHeader`、`TimeAgo`、`KeyChip`
+- [x] 基础响应式：侧边栏在窄屏折叠成顶部菜单，表格可横向滚动
+- [x] 现有页面改用新的统一状态组件（不改功能）
 
-**验收**：现有所有页面行为不变；`npm test` 通过；窄屏下能用。
+**验收**：现有所有页面行为不变；`npm test` 通过（8 个文件 54 个用例）；窄屏下能用（已在 375px 宽度下看过待办页和模块页）。
+
+**实际做法**：除计划里列的以外，还新增了 `errors.js`（把请求错误翻成人话）、`labels.js`（全站统一中文文案，含审计动作和执行事件）、`LoadingState` / `AsyncState`（四种状态收在一起）；`KeyChip` 额外显示角色。所有页面改用 `resources` 取数、`errors.js` 报错，审核单列表 / 待办 / 归档 / 审核单详情 / 文档树改用 `useAsync` + `AsyncState`。
 
 ## 第 2 步：总览首页（`/`，文档树挪到 `/tree`）
 

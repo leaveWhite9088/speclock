@@ -1,19 +1,12 @@
 <script setup>
 // 审核单状态徽标。
-defineProps({ status: { type: String, required: true } })
+import { CR_STATUS, label } from '../labels.js'
 
-const TEXT = {
-  draft: '草稿',
-  pending_review: '待确认',
-  approved: '已批准',
-  applied: '已落地',
-  rejected: '已驳回',
-  superseded: '已被取代',
-}
+defineProps({ status: { type: String, required: true } })
 </script>
 
 <template>
-  <span class="cr-badge" :class="`is-${status}`">{{ TEXT[status] || status }}</span>
+  <span class="cr-badge" :class="`is-${status}`">{{ label(CR_STATUS, status) }}</span>
 </template>
 
 <style scoped>

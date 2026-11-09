@@ -19,3 +19,22 @@ export function fmtTime(iso) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
+
+/**
+ * 相对时间：刚刚 / 5 分钟前 / 3 小时前 / 2 天前；超过 30 天显示日期。
+ * now 可注入，方便测试。空值 / 非法值返回 '-'。
+ */
+export function fmtAgo(iso, now = Date.now()) {
+  const d = parseTs(iso)
+  if (!d) return '-'
+  const sec = Math.round((now - d.getTime()) / 1000)
+  if (sec < 0) return '刚刚'
+  if (sec < 45) return '刚刚'
+  const min = Math.round(sec / 60)
+  if (min < 60) return `${min} 分钟前`
+  const hour = Math.round(min / 60)
+  if (hour < 24) return `${hour} 小时前`
+  const day = Math.round(hour / 24)
+  if (day <= 30) return `${day} 天前`
+  return fmtTime(iso).slice(0, 10)
+}

@@ -189,21 +189,50 @@ function logout() {
   flex: 1;
 }
 
-/* 窄屏：侧边栏收为顶部通栏（质量底线，不是设计目标） */
-@media (max-width: 760px) {
+/* 窄屏：侧边栏收成顶部的一条横向导航（可左右滑动），主区占满宽度 */
+@media (max-width: 900px) {
   .shell {
     flex-direction: column;
   }
 
   .sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    inset: auto;
     width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
     border-right: none;
     border-bottom: 1px solid var(--hairline);
+    overflow-x: auto;
+  }
+
+  .side-nav {
+    flex-direction: row;
+    flex: none;
+  }
+
+  .side-link {
+    white-space: nowrap;
+  }
+
+  .side-bottom {
+    margin-top: 0;
+    margin-left: auto;
+    border-top: none;
+    padding-top: 0;
   }
 
   .main {
     margin-left: 0;
+  }
+
+  .topbar {
+    position: static;
+    padding: 0 var(--sp-4);
   }
 }
 </style>
