@@ -13,14 +13,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from speclock import __version__, api_admin, api_agent, api_cr, api_exec, api_search, api_web
+from speclock import __version__, home, api_admin, api_agent, api_cr, api_exec, api_search, api_web
 from speclock.db import init_db
 
 BASE_DIR = Path(__file__).resolve().parent
 DIST_DIR = BASE_DIR.parent / "web" / "dist"
+STATIC_DIR = BASE_DIR / "static"
+
+
+NO_WEB_PAGE = """<!doctype html><meta charset="utf-8"><title>SpecLock</title>
+<body style="font:16px/1.6 system-ui;max-width:42rem;margin:4rem auto;padding:0 1rem">
+<h1>SpecLock 服务在运行</h1>
+<p>但这份代码里没有构建好的网页（<code>web/dist/</code>）。要看网页，先构建一次：</p>
+<pre>cd web &amp;&amp; npm install &amp;&amp; npm run build</pre>
+<p>构建完刷新本页即可。接口文档在 <a href="/docs">/docs</a>。</p>"""
 
 
 def create_app() -> FastAPI:
@@ -34,6 +43,21 @@ def create_app() -> FastAPI:
         ),
     )
     init_db()
+
+    frame_ancestors = "frame-ancestors 'self' " + " ".join(home.embed_origins())
+
+    @app.middleware("http")
+    async def allow_embedding(request, call_next):
+        # 网页可以被嵌进别的页面（见 docs/EMBED.md），但只有配置里允许的来源才行，防止被恶意页面套壳
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = frame_ancestors
+        return response
+
+    @app.get("/embed.js", include_in_schema=False)
+    def embed_js():
+        return FileResponse(STATIC_DIR / "embed.js", media_type="application/javascript",
+                            headers={"Cache-Control": "no-cache"})
+
     app.include_router(api_admin.router)
     app.include_router(api_cr.router)
     app.include_router(api_agent.router)
@@ -56,6 +80,10 @@ def create_app() -> FastAPI:
             if full_path == "api" or full_path.startswith("api/"):
                 return JSONResponse({"detail": "Not Found"}, status_code=404)
             return FileResponse(index_html)
+    else:
+        @app.get("/", include_in_schema=False)
+        def no_web():
+            return HTMLResponse(NO_WEB_PAGE)
 
     return app
 

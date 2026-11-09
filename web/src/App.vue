@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import VersionChip from './components/VersionChip.vue'
 import { APP_VERSION } from './version.js'
+import { embedded } from './embed.js'
 import FreshnessBadge from './components/FreshnessBadge.vue'
 import { usePolling } from './composables/usePolling.js'
 import { checkOnce } from './composables/useChangeSignal.js'
@@ -20,7 +21,10 @@ const mainNav = [
   { to: '/archive', label: '归档' },
 ]
 
-const bottomNav = [{ to: '/mcp', label: 'AI 接入' }]
+const bottomNav = [
+  { to: '/mcp', label: 'AI 接入' },
+  { to: '/embed', label: '嵌入' },
+]
 
 // ---------- 自动刷新：全站一个定时器，每 5 秒看一眼有没有新的变化 ----------
 usePolling(checkOnce, 5000, { immediate: true })
@@ -57,9 +61,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="shell">
-    <a href="#main" class="skip-link">跳到主要内容</a>
-    <aside class="sidebar">
+  <div class="shell" :class="{ embedded }">
+    <a v-if="!embedded" href="#main" class="skip-link">跳到主要内容</a>
+    <aside v-if="!embedded" class="sidebar">
       <nav class="side-nav" aria-label="主导航">
         <RouterLink
           v-for="item in mainNav"
@@ -82,7 +86,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </aside>
 
     <div class="main">
-      <header class="topbar">
+      <header v-if="!embedded" class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
           <VersionChip :version="APP_VERSION" />
@@ -118,6 +122,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .shell {
   display: flex;
   min-height: 100vh;
+}
+
+/* 嵌入模式：只剩内容，高度跟着内容走（外层页面据此调整 iframe 高度） */
+.shell.embedded {
+  min-height: 0;
+}
+
+.shell.embedded .main {
+  margin-left: 0;
 }
 
 /* 键盘用户的「跳到主要内容」：平时藏起来，Tab 聚焦时出现 */

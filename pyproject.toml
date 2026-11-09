@@ -29,6 +29,9 @@ speclock-mcp = "speclock.mcp_server:main"
 [tool.setuptools.dynamic]
 version = { attr = "speclock.__version__" }
 
+[tool.setuptools.package-data]
+speclock = ["static/*.js"]
+
 [tool.setuptools.packages.find]
 include = ["speclock*"]
 
