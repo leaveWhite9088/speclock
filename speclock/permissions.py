@@ -29,10 +29,11 @@ PERMISSIONS: dict[str, tuple[str, bool]] = {
     "cr.read": ("查看审核单与其 Commit", False),
     "cr.write": ("创建、编辑、提交、撤回审核单", False),
     "cr.approve": ("批准或驳回审核单（人的授权）", True),
-    "cr.internal": ("开「内部整理」类审核单：不改变业务内容的重组，提交即生效、不经人批准（Core 机械检查）", False),
+    "cr.internal": ("开「内部整理」类审核单：不改变业务内容的重组，提交即生效、不经人批准（由提交者自行判断，Core 不检查内容）", False),
     "commit.write": ("在已批准的审核单下提交 Commit，改写规格库", False),
     "audit.read": ("查看审计日志与回执看板", False),
     "project.manage": ("创建、重命名、删除项目", True),
+    "key.read": ("查看密钥、角色与权限目录（只读，不含明文；网页的 Agent 页用）", False),
     "key.manage": ("管理密钥与角色", True),
 }
 
@@ -42,6 +43,12 @@ HUMAN_ONLY = frozenset(name for name, (_, human_only) in PERMISSIONS.items() if 
 PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
     ("admin", "human", "管理员：拥有全部权限", list(PERMISSIONS)),
     ("reviewer", "human", "审核人：只能查看并批准 / 驳回审核单", ["spec.read", "cr.read", "cr.approve"]),
+    (
+        "viewer",
+        "human",
+        "只读查看：网页自动使用的角色，能看规格、审核单、待办、活动、密钥列表，什么都改不了",
+        ["spec.read", "cr.read", "exec.read", "audit.read", "key.read"],
+    ),
     (
         "requirements-agent",
         "agent",
@@ -140,6 +147,11 @@ def seed_roles(db: Session) -> None:
         if role is not None and role.builtin:
             have = set(json.loads(role.permissions_json or "[]"))
             role.permissions_json = json.dumps(sorted(have | {"cr.read"}))
+    if _once(db, "key_read_permission"):
+        role = existing.get("admin")
+        if role is not None and role.builtin:
+            have = set(json.loads(role.permissions_json or "[]"))
+            role.permissions_json = json.dumps(sorted(have | {"key.read"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()
@@ -167,7 +179,7 @@ def lookup_key(x_api_key: str | None, db: Session) -> ApiKey:
             raise HTTPException(
                 status_code=401,
                 detail="unknown API key：数据库里还没有任何密钥（可能刚清库或换了库）。"
-                "运行 python -m speclock.seed --empty 创建空项目和 admin key；"
+                "运行 speclock init 补一把 admin key；"
                 "清库前创建的其他 key 随库一起失效，需要重新创建",
             )
         raise HTTPException(status_code=401, detail="unknown API key")

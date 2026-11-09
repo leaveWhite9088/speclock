@@ -11,6 +11,10 @@ import pytest
 # Must be set before any speclock import creates an engine.
 _TMP = tempfile.mkdtemp(prefix="speclock-test-")
 os.environ["SPECLOCK_DB_URL"] = f"sqlite:///{_TMP}/test.db"
+# 测试不能碰到真实的 .speclock/：换到一个上面没有 .speclock/ 的临时目录，电脑级的也指到临时目录。
+os.environ.pop("SPECLOCK_HOME", None)
+os.environ["SPECLOCK_GLOBAL_HOME"] = f"{_TMP}/no-global/.speclock"
+os.chdir(_TMP)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

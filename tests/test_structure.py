@@ -218,7 +218,7 @@ def test_init_db_migrates_legacy_db_idempotently(tmp_path):
         assert block.draft_rules_json == "[]" and block.draft_acceptance_json == "[]"
         cols = {r[1] for r in db.execute(__import__("sqlalchemy").text("PRAGMA table_info(blocks)"))}
         assert "draft_nfr_md" not in cols
-        assert db.query(Role).count() == 6
+        assert db.query(Role).count() == 7
         assert "completed" not in cols and "completed_version" not in cols
         roles = {k.prefix: k.role.name for k in db.query(ApiKey).all()}
         assert roles == {"human": "admin", "agent": "executor-agent"}

@@ -24,10 +24,10 @@ Tools:
   just created.
 
 Configure with:
-  SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
-  SPECLOCK_KEY        the agent's API key (legacy name SPECLOCK_AGENT_KEY also accepted)
+  SPECLOCK_URL        default: the address in the discovered .speclock/config.toml
+  SPECLOCK_KEY        the API key this agent uses
 
-Run:  python -m speclock.mcp_server
+Run:  speclock mcp   (or: python -m speclock.mcp_server)
 """
 
 from __future__ import annotations
@@ -38,10 +38,34 @@ import os
 import httpx
 from mcp.server.mcpserver import MCPServer
 
-BASE_URL = os.environ.get("SPECLOCK_URL") or os.environ.get(
-    "SPECLOCK_BASE_URL", "http://127.0.0.1:8000"
-)
-CONFIGURED_KEY = os.environ.get("SPECLOCK_KEY") or os.environ.get("SPECLOCK_AGENT_KEY", "")
+from speclock.home import default_url
+
+BASE_URL = default_url()
+
+
+def _read_key_file(ref: str) -> str:
+    from speclock import keyfiles
+    from speclock.home import find_home
+
+    return keyfiles.read_key(ref, find_home())
+
+
+def _configured_key() -> str:
+    """这个 MCP 进程配置的 key：SPECLOCK_KEY，或 SPECLOCK_KEY_FILE 指向的 key 文件
+    （speclock mcp --key-file ...）。文件读不到时返回空，调用时会提示没有 key。"""
+    key = os.environ.get("SPECLOCK_KEY", "")
+    if key:
+        return key
+    ref = os.environ.get("SPECLOCK_KEY_FILE", "")
+    if ref:
+        try:
+            return _read_key_file(ref)
+        except (OSError, ValueError):
+            return ""
+    return ""
+
+
+CONFIGURED_KEY = _configured_key()
 AGENT_KEY = CONFIGURED_KEY  # use_api_key 可在本进程内切换
 
 mcp = MCPServer("speclock")
@@ -296,19 +320,15 @@ def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
 
 
 @mcp.tool(description=(
-    "DANGEROUS — creates an API key (admin only; roles are granted permissions, so a new "
-    "key is new power). Presets: requirements-agent, executor-agent, tester-agent, "
-    "scanner-agent. NEVER do this on your own initiative: tell the human which role and "
-    "why, wait for their explicit yes in this conversation, and pass THEIR words (the "
-    "approval of creating this key, not test evidence) as 'evidence'. First check whether "
-    "your own AGENTS.md or .mcp.json already holds a key for the role — never create a "
-    "duplicate. The plaintext key is returned ONCE and works immediately: call "
-    "use_api_key to act with it now, and record it in the AGENTS.md / MCP config of the "
-    "agent that will use it long-term (if you were told not to write it to a file, tell "
-    "the human so: a key held only in this conversation is lost when the client "
-    "restarts, and it cannot be recovered — revoke it with revoke_api_key and create a "
-    "new one). Do not repeat the key in chat. project_id binds the key to one project. "
-    "Requires key.manage."
+    "Create an API key for a role (admin only; a new key is new power, so do it only with the "
+    "human's explicit yes — pass their words as 'evidence'; it is recorded in the audit log). "
+    "Presets: requirements-agent, executor-agent, tester-agent, scanner-agent. The key of an "
+    "agent role is saved by the server into .speclock/keys/ and only the FILE NAME is "
+    "returned (the plaintext never passes through the conversation): give that file name to "
+    "the agent that will use it, or switch to it yourself with use_api_key(key_file=...). A "
+    "human-role key (admin, reviewer) is returned in plaintext ONCE instead. Check "
+    "list_api_keys first so you do not create a duplicate. project_id binds the key to one "
+    "project. Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
@@ -340,17 +360,21 @@ def revoke_api_key(key_id: int, evidence: str) -> str:
 
 
 @mcp.tool(description=(
-    "Switch which API key this MCP session uses from now on — no client restart needed. "
-    "Typical use: after create_api_key, use the new key right away (e.g. act as the "
-    "tester). The key is checked with /me first; if it is not valid nothing changes. "
-    "Pass an empty key to go back to the key this server was configured with. Returns "
-    "the new identity (role and permissions). Only switch to a key you were given or "
-    "created with the human's approval; remember that the verifier of a task must not "
-    "be the key that implemented it."
+    "Switch which API key this MCP session uses from now on, no restart needed. Pass "
+    "key_file (a file name in .speclock/keys/, e.g. the one create_api_key returned, or a path) "
+    "to use a saved key without ever seeing it; or pass the key itself. The key is checked "
+    "first; if invalid nothing changes. With neither, it goes back to the configured key. "
+    "Read only YOUR OWN key file. Returns the new identity (role, permissions)."
 ))
-def use_api_key(key: str = "") -> str:
+def use_api_key(key: str = "", key_file: str = "") -> str:
     global AGENT_KEY
-    candidate = key.strip() or CONFIGURED_KEY
+    if key_file.strip():
+        try:
+            key = _read_key_file(key_file.strip())
+        except (OSError, ValueError) as exc:
+            return json.dumps({"error": f"读不到 key 文件，已保持原来的身份不变：{exc}"},
+                              ensure_ascii=False)
+    candidate = key.strip() or CONFIGURED_KEY or _configured_key()
     if not candidate:
         return json.dumps({"error": "SPECLOCK_KEY is not set and no key was given"},
                           ensure_ascii=False)

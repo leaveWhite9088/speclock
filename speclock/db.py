@@ -1,7 +1,7 @@
 """Database engine / session management.
 
-The SQLite URL is read from SPECLOCK_DB_URL, falling back to the active
-profile in speclock.toml (see settings.py). `configure()` re-points the
+The SQLite URL is read from SPECLOCK_DB_URL, falling back to the database in
+the discovered .speclock/ directory (see home.py / settings.py). `configure()` re-points the
 module-level engine; tests use it to get an isolated temporary database
 per run.
 """
@@ -68,6 +68,7 @@ def _ensure_columns() -> None:
         },
         "api_keys": {
             "role_id": "INTEGER REFERENCES roles(id)",
+            "key_file": "TEXT NOT NULL DEFAULT ''",
         },
         "change_requests": {
             "kind": "TEXT NOT NULL DEFAULT 'business'",

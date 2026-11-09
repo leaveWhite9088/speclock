@@ -15,11 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, not_, or_
 from sqlalchemy.orm import Session
 
+from speclock import keyfiles
 from speclock import permissions as perms
 from speclock.api_agent import _check_project_scope
 from speclock.auth import audit, hash_key, key_hint, new_key
 from speclock.db import get_db
 from speclock.engine import published_version
+from speclock.home import find_home
 from speclock.models import (
     ApiKey,
     AuditLog,
@@ -483,6 +485,7 @@ def _key_out(k: ApiKey) -> dict:
         "prefix": k.prefix,
         "role": k.role.name if k.role else None,
         "label": k.label,
+        "key_file": k.key_file or "",
         "project_id": k.project_id,
         "created_at": k.created_at,
     }
@@ -506,7 +509,7 @@ def _key_activity(db: Session) -> dict[str, dict]:
 
 @router.get("/keys")
 def list_keys(
-    db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.manage"))
+    db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.read"))
 ):
     """密钥列表（不含明文 / 哈希），每把带上活动统计，供网页的 Agent 视图使用。"""
     stats = _key_activity(db)
@@ -535,11 +538,19 @@ def create_key(
                role_id=role.id, project_id=body.project_id, label=body.label)
     db.add(k)
     db.flush()
+    home = find_home()
+    if role.kind == "agent" and home is not None:
+        # Agent 类 key：服务端直接写进 .speclock/keys/，响应里只给文件名，明文不经过对话
+        k.key_file = keyfiles.save_key(home, role.name, body.label, k.id, plaintext)
     audit(db, key.hint, "key_create", f"apikey:{k.hint}",
           {"role": role.name, "label": k.label, "project_id": k.project_id,
-           "via": body.via, "evidence": body.evidence})
+           "via": body.via, "evidence": body.evidence, "key_file": k.key_file})
     db.commit()
-    # 明文仅此一次返回，此后任何地方（列表/UI/审计）都不可再见
+    if k.key_file:
+        return {**_key_out(k),
+                "notice": f"key 已保存到 {keyfiles.KEYS_DIRNAME}/{k.key_file}，明文不在这里返回；"
+                          "把这个文件名交给要用它的 Agent，只有它自己去读"}
+    # 人类 key（或没有 .speclock/ 时）：明文仅此一次返回，此后任何地方都不可再见
     return {**_key_out(k), "key": plaintext,
             "notice": "此 key 仅此一次可见，请立即复制保存；系统只存哈希，无法找回"}
 
@@ -569,8 +580,10 @@ def delete_key(
             )
     audit(db, key.hint, "key_delete", f"apikey:{k.hint}",
           {"label": k.label, "via": via, "evidence": evidence})
+    key_file = k.key_file
     db.delete(k)
     db.commit()
+    keyfiles.delete_key_file(find_home(), key_file)
     return {"id": key_id, "deleted": True}
 
 
@@ -587,7 +600,7 @@ def _role_out(r: Role, key_count: int) -> dict:
 
 
 @router.get("/permissions")
-def list_permissions(key: ApiKey = Depends(require_permission("key.manage"))):
+def list_permissions(key: ApiKey = Depends(require_permission("key.read"))):
     """权限目录（由代码定义；角色只能从中挑选）。"""
     return [
         {"name": name, "description": desc, "human_only": human_only}
@@ -597,7 +610,7 @@ def list_permissions(key: ApiKey = Depends(require_permission("key.manage"))):
 
 @router.get("/roles")
 def list_roles(
-    db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.manage"))
+    db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.read"))
 ):
     counts: dict[int, int] = {}
     for k in db.query(ApiKey).all():

@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from speclock import diffing
@@ -38,55 +36,6 @@ from speclock.schemas import (
 router = APIRouter(prefix="/api/v1", tags=["agent"])
 
 REF_RE = re.compile(r"^(?P<id>\d+)(?:@(?P<version>\d+\.\d+\.\d+))?$")
-
-# 客户端 wheel 的存放目录（pyproject.toml 所在层的 dist/，部署时构建）
-CLIENT_DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
-WHEEL_FILENAME_RE = re.compile(r"^speclock-[\d.]+-[\w]+-[\w]+-[\w]+\.whl$")
-
-
-def _find_client_wheel() -> Path | None:
-    """dist/ 下最新的 speclock wheel（按文件名排序取最后一个），没有则 None。"""
-    if not CLIENT_DIST_DIR.is_dir():
-        return None
-    wheels = sorted(CLIENT_DIST_DIR.glob("speclock-*.whl"))
-    return wheels[-1] if wheels else None
-
-
-@router.get("/agent/client-package")
-def get_client_package(request: Request):
-    """MCP 客户端包（speclock wheel）的下载信息。speclock 不上 PyPI，开发
-    agent 用这个接口拿到的 URL 直接 pip install。无需鉴权（wheel 不含敏感数据）。
-
-    url 按请求的 base URL 动态生成；站点走 nginx https 反代时 scheme 会被吃掉，
-    优先取 X-Forwarded-Proto。"""
-    wheel = _find_client_wheel()
-    if wheel is None:
-        raise HTTPException(
-            status_code=404,
-            detail="服务端尚未构建客户端包（dist/ 下没有 speclock-*.whl），请联系运维先执行 python -m build --wheel",
-        )
-    scheme = request.headers.get("x-forwarded-proto", request.base_url.scheme)
-    base = str(request.base_url.replace(scheme=scheme)).rstrip("/")
-    url = f"{base}/api/v1/agent/client-package/{wheel.name}"
-    return {
-        "name": "speclock",
-        "version": wheel.name.split("-")[1],
-        "filename": wheel.name,
-        "url": url,
-        "install_command": f'pip install "speclock @ {url}"',
-    }
-
-
-@router.get("/agent/client-package/{filename}")
-def download_client_package(filename: str):
-    """下载 speclock wheel 文件（attachment）。filename 严格校验防路径穿越。"""
-    if not WHEEL_FILENAME_RE.match(filename):
-        raise HTTPException(status_code=400, detail="invalid wheel filename")
-    path = CLIENT_DIST_DIR / filename
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"client package {filename} not found")
-    return FileResponse(path, filename=filename, media_type="application/octet-stream")
-
 
 def _check_project_scope(key: ApiKey, project_id: int) -> None:
     """项目隔离：绑定了项目的 agent key 只能访问本项目的小业务/模块。

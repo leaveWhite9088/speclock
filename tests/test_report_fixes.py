@@ -81,7 +81,7 @@ def test_unknown_key_on_an_empty_key_table_explains_how_to_recover(env):
     finally:
         db.close()
     r = env["client"].get("/api/v1/me", headers={"X-API-Key": "human-whatever"})
-    assert r.status_code == 401 and "seed --empty" in r.json()["detail"]
+    assert r.status_code == 401 and "speclock init" in r.json()["detail"]
 
 
 def test_unknown_key_with_other_keys_present_stays_terse(env):

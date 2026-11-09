@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from speclock import api_admin, api_agent, api_cr, api_exec, api_search
+from speclock import __version__, api_admin, api_agent, api_cr, api_exec, api_search, api_web
 from speclock.db import init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,7 +26,7 @@ DIST_DIR = BASE_DIR.parent / "web" / "dist"
 def create_app() -> FastAPI:
     app = FastAPI(
         title="SpecLock",
-        version="0.1.0",
+        version=__version__,
         description=(
             "Single source of truth for business specs. Agents read published "
             "versions; the only write channel is a human-approved Change Request "
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(api_agent.router)
     app.include_router(api_exec.router)
     app.include_router(api_search.router)
+    app.include_router(api_web.router)
 
     if DIST_DIR.is_dir():
         index_html = DIST_DIR / "index.html"
@@ -63,12 +64,24 @@ app = create_app()
 
 
 def run() -> None:
-    """按 speclock.toml 当前环境（active / SPECLOCK_ENV）启动服务。"""
+    """按 .speclock/config.toml 的 host / port 启动服务。"""
     import uvicorn
 
     from speclock.settings import load_settings
 
     s = load_settings()
+    from speclock.db import get_engine, init_db
+    from speclock.webkey import ensure_web_key
+
+    get_engine()
+    init_db()
+    ensure_web_key()  # 网页用的只读 key，缺了就补
+    from speclock.home import find_home
+    from speclock.keyfiles import ensure_keys_dir
+
+    home = find_home()
+    if home is not None:
+        ensure_keys_dir(home)
     uvicorn.run("speclock.main:app", host=s.host, port=s.port)
 
 

@@ -281,6 +281,7 @@ class ApiKey(Base):
     role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     label: Mapped[str] = mapped_column(default="")
+    key_file: Mapped[str] = mapped_column(default="")  # Agent 类 key 的文件名（.speclock/keys/ 里），人类 key 为空
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     role: Mapped[Role | None] = relationship()

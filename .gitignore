@@ -13,3 +13,6 @@ dist/
 # web frontend
 web/node_modules/
 web/dist/
+
+# SpecLock 自己的数据目录（在本仓库里试 speclock init 时生成）
+.speclock/
