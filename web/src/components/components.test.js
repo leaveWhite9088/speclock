@@ -11,7 +11,11 @@ import TimeAgo from './TimeAgo.vue'
 vi.mock('../api/keyNames.js', () => ({
   useKeyNames: () => ({
     keyInfo: (hint) =>
-      hint === 'agent-…0001' ? { label: '后端执行 Agent', role: 'executor-agent' } : { label: '', role: '' },
+      hint === 'agent-…0001'
+        ? { label: '后端执行 Agent', role: 'executor-agent' }
+        : hint === 'human-…admin'
+          ? { label: 'admin', role: 'admin' }
+          : { label: '', role: '' },
   }),
 }))
 
@@ -97,6 +101,11 @@ describe('KeyChip', () => {
     expect(w.text()).toContain('后端执行 Agent')
     expect(w.text()).toContain('executor-agent')
     expect(w.attributes('title')).toBe('agent-…0001')
+  })
+
+  it('备注和角色相同（如 admin）时不重复显示', () => {
+    const w = mount(KeyChip, { props: { hint: 'human-…admin' } })
+    expect(w.text()).toBe('admin')
   })
 
   it('查不到时回退显示 hint；空值显示破折号', () => {

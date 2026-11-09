@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getKey } from './api/client.js'
 
 import LoginView from './views/LoginView.vue'
+import OverviewView from './views/OverviewView.vue'
 import HomeView from './views/HomeView.vue'
 import CapabilityView from './views/CapabilityView.vue'
 import BlockView from './views/BlockView.vue'
@@ -19,7 +20,8 @@ const routes = [
     component: LoginView,
     meta: { public: true, title: '登录' },
   },
-  { path: '/', name: 'home', component: HomeView, meta: { title: '文档树' } },
+  { path: '/', name: 'home', component: OverviewView, meta: { title: '总览' } },
+  { path: '/tree', name: 'tree', component: HomeView, meta: { title: '文档树' } },
   {
     path: '/capabilities/:id',
     name: 'capability',

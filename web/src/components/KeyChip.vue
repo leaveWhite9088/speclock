@@ -13,7 +13,7 @@ const name = computed(() => info.value.label || props.hint || '—')
 <template>
   <span class="key-chip" :title="hint">
     <span class="key-name">{{ name }}</span>
-    <span v-if="info.role" class="key-role">{{ info.role }}</span>
+    <span v-if="info.role && info.role !== name" class="key-role">{{ info.role }}</span>
   </span>
 </template>
 

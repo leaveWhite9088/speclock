@@ -65,7 +65,7 @@ function findTrail(tree) {
 
 function goProject(projectId) {
   localStorage.setItem('speclock_project', String(projectId))
-  router.push('/')
+  router.push('/tree')
 }
 
 function onClick(item) {
@@ -80,7 +80,7 @@ function goBack() {
   }
   // 直接打开页面（无历史）时，回到上一级
   const parent = items.value[items.value.length - 2]
-  if (!parent) router.push('/')
+  if (!parent) router.push('/tree')
   else onClick(parent)
 }
 </script>

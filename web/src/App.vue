@@ -13,7 +13,8 @@ const isPublic = computed(() => route.meta.public === true)
 const hint = computed(() => keyHint())
 
 const mainNav = [
-  { to: '/', label: '文档树' },
+  { to: '/', label: '总览' },
+  { to: '/tree', label: '文档树' },
   { to: '/change-requests', label: '审核单' },
   { to: '/work', label: '待办' },
   { to: '/archive', label: '归档' },
