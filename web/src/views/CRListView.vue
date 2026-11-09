@@ -13,6 +13,7 @@ import CRStatusBadge from '../components/CRStatusBadge.vue'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import KeyChip from '../components/KeyChip.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const STATUS_OPTIONS = [['', '全部'], ...Object.entries(CR_STATUS)]
 
@@ -20,6 +21,7 @@ const status = ref('')
 const { data, loading, error, reload } = useAsync(() => resources.crs.list(status.value), {
   watch: [status],
 })
+useAutoRefresh(reload)
 const rows = computed(() => data.value || [])
 
 const pendingCount = computed(() => rows.value.filter((r) => r.status === 'pending_review').length)

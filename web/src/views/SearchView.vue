@@ -11,6 +11,7 @@ import { groupHits, highlightSegments, hitLink, hitPath } from '../search.js'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import CRStatusBadge from '../components/CRStatusBadge.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const route = useRoute()
 const q = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
@@ -20,6 +21,7 @@ const { data, loading, error, reload } = useAsync(
   { watch: [q] },
 )
 
+useAutoRefresh(reload)
 const groups = computed(() => groupHits(data.value?.hits || []))
 const total = computed(() => data.value?.total ?? 0)
 </script>

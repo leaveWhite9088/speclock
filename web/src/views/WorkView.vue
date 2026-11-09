@@ -13,6 +13,7 @@ import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import KeyChip from '../components/KeyChip.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const FILTERS = [
   ['', '全部（除已被取代）'],
@@ -35,6 +36,7 @@ const { data, loading, error: pageError, reload: load } = useAsync(
   },
   { watch: [status] },
 )
+useAutoRefresh(load)
 const rows = computed(() => data.value?.rows || [])
 const counts = computed(() => data.value?.counts || {})
 

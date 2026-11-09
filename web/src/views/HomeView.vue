@@ -8,6 +8,7 @@ import { resources } from '../api/resources.js'
 import { useAsync } from '../composables/useAsync.js'
 import TreeNode from '../components/TreeNode.vue'
 import AsyncState from '../components/AsyncState.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const PROJECT_KEY = 'speclock_project'
 
@@ -68,6 +69,7 @@ const {
   error: pageError,
   reload: load,
 } = useAsync(async () => (await resources.tree()).map(toNode))
+useAutoRefresh(load)
 const tree = computed(() => treeData.value || [])
 
 // 选中项目已不存在（被删 / 首次进入）时回落到第一个项目

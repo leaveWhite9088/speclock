@@ -111,6 +111,17 @@ describe('useAsync', () => {
     expect(seen).toEqual(['a', 'b'])
   })
 
+  it('silentWatch：监听到变化时静默重新取数（不闪加载中）', async () => {
+    const status = ref('a')
+    const result = host(() => useAsync(async () => status.value, { watch: [status], silentWatch: true }))
+    await tick()
+    status.value = 'b'
+    await nextTick()
+    expect(result.loading.value).toBe(false)
+    await tick()
+    expect(result.data.value).toBe('b')
+  })
+
   it('immediate:false 时不自动取数', async () => {
     let called = false
     host(() => useAsync(async () => (called = true), { immediate: false }))

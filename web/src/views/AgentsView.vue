@@ -12,6 +12,7 @@ import { describeKeys, keySummary, permissionMatrix } from '../agents.js'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import TimeAgo from '../components/TimeAgo.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const { data, loading, error, reload } = useAsync(async () => {
   const [keys, roles, permissions, projects] = await Promise.all([
@@ -23,6 +24,7 @@ const { data, loading, error, reload } = useAsync(async () => {
   return { keys, roles, permissions, projects }
 })
 
+useAutoRefresh(reload)
 const rows = computed(() => (data.value ? describeKeys(data.value) : []))
 const matrix = computed(() => (data.value ? permissionMatrix(data.value) : { roles: [], rows: [] }))
 const summary = computed(() => (data.value ? keySummary(rows.value) : ''))

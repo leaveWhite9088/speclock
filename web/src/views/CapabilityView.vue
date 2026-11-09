@@ -12,6 +12,7 @@ import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const { keyName } = useKeyNames()
 
@@ -52,9 +53,11 @@ function toggleManifest(version) {
   openManifest.value = { ...openManifest.value, [version]: !openManifest.value[version] }
 }
 
-async function load() {
-  loading.value = true
-  error.value = ''
+async function load({ silent = false } = {}) {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const [tree, vers] = await Promise.all([
       resources.tree(),
@@ -75,22 +78,23 @@ async function load() {
     }
     doc.value = found
     versions.value = [...vers].sort((a, b) => cmpVersion(b.version, a.version))
-    // 最新一版默认展开 manifest
-    openManifest.value = versions.value.length ? { [versions.value[0].version]: true } : {}
+    // 最新一版默认展开 manifest（静默刷新时保留用户展开 / 收起的状态）
+    if (!silent) openManifest.value = versions.value.length ? { [versions.value[0].version]: true } : {}
   } catch (e) {
-    error.value = errText(e)
+    if (!silent) error.value = errText(e)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
-watch(docId, load, { immediate: true })
+watch(docId, () => load(), { immediate: true })
+useAutoRefresh(load)
 </script>
 
 <template>
   <div class="page doc-page">
     <LoadingState v-if="loading" />
-    <ErrorState v-else-if="error" :message="error" @retry="load" />
+    <ErrorState v-else-if="error" :message="error" @retry="load()" />
 
     <template v-else-if="doc">
       <AppBreadcrumb :capability-id="docId" />

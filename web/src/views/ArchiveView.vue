@@ -6,8 +6,10 @@ import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const { data: rows, loading, error, reload } = useAsync(() => resources.archive())
+useAutoRefresh(reload)
 </script>
 
 <template>

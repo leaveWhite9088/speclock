@@ -17,6 +17,7 @@ import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 import KeyChip from '../components/KeyChip.vue'
 import TimeAgo from '../components/TimeAgo.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const crsQ = useAsync(() => resources.crs.list())
 const workQ = useAsync(() => resources.work.list())
@@ -26,7 +27,7 @@ const activityQ = useAsync(() => resources.activity({ limit: 100 }))
 function reloadAll(opts) {
   return Promise.all([crsQ.reload(opts), workQ.reload(opts), treeQ.reload(opts), activityQ.reload(opts)])
 }
-defineExpose({ reloadAll })
+useAutoRefresh(reloadAll)
 
 const o = computed(() =>
   buildOverview({

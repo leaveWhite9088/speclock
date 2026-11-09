@@ -20,6 +20,7 @@ import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,9 +49,11 @@ async function loadVersion(v) {
   selected.value = v
 }
 
-async function load() {
-  loading.value = true
-  loadError.value = ''
+async function load({ silent = false } = {}) {
+  if (!silent) {
+    loading.value = true
+    loadError.value = ''
+  }
   try {
     const [tree, vs] = await Promise.all([resources.tree(), resources.blocks.versions(bid)])
     let d = null
@@ -63,10 +66,13 @@ async function load() {
     if (!d) throw { detail: '没有找到这个模块（或当前密钥无权访问它所在的项目）。' }
     meta.value = d
     versions.value = sorted(vs)
+    // 静默刷新时保持用户正在看的版本
     const pinned =
-      typeof route.query.version === 'string' && route.query.version
-        ? route.query.version
-        : ''
+      silent && selected.value
+        ? selected.value
+        : typeof route.query.version === 'string' && route.query.version
+          ? route.query.version
+          : ''
     // 依次尝试：URL pin → 当前发布版 → 列表末版；pin 的版本不存在（404）时
     // 回落到最新版本而非整页报错
     const candidates = [
@@ -76,7 +82,7 @@ async function load() {
         ),
       ),
     ]
-    snap.value = null
+    if (!silent) snap.value = null
     let loaded = false
     for (const v of candidates) {
       try {
@@ -93,11 +99,11 @@ async function load() {
         : ''
     }
   } catch (e) {
-    loadError.value = errText(e)
+    if (!silent) loadError.value = errText(e)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
-  scrollToHash()
+  if (!silent) scrollToHash()
 }
 
 // 地址里带 #item-R-2 时（例如从搜索结果跳来），滚动到那一行并闪一下
@@ -112,7 +118,8 @@ async function scrollToHash() {
   setTimeout(() => el.classList.remove('flash'), 2000)
 }
 
-onMounted(load)
+onMounted(() => load())
+useAutoRefresh(load)
 
 function pickVersion(v) {
   if (!v || v === selected.value) return
@@ -161,7 +168,7 @@ async function toggleDetail(v) {
 <template>
   <div class="page view-page">
     <LoadingState v-if="loading" />
-    <ErrorState v-else-if="loadError" :message="loadError" @retry="load" />
+    <ErrorState v-else-if="loadError" :message="loadError" @retry="load()" />
 
     <template v-else-if="meta">
       <AppBreadcrumb :block-id="bid" />

@@ -14,6 +14,7 @@ import { CATEGORIES, RANGES, activityParams, groupByDay, parseTarget } from '../
 import PageHeader from '../components/PageHeader.vue'
 import AsyncState from '../components/AsyncState.vue'
 import ActivityItem from '../components/ActivityItem.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const PAGE = 50
 const route = useRoute()
@@ -57,6 +58,14 @@ const { data, loading, error, reload } = useAsync(
   },
   { watch: [category, actor, range, target] },
 )
+
+// 自动刷新：还在第一页时静默刷新；已经「加载更多」翻过页就不动列表（免得内容跳动），提示有新活动
+const hasNew = ref(false)
+useAutoRefresh((opts) => (extra.value.length ? (hasNew.value = true) : reload(opts)))
+function refreshNow() {
+  hasNew.value = false
+  reload()
+}
 
 const items = computed(() => [...(data.value || []), ...extra.value])
 const groups = computed(() => groupByDay(items.value))
@@ -140,6 +149,10 @@ function clearFilters() {
       <button v-if="hasFilter" type="button" class="btn btn-mini" @click="clearFilters">清除筛选</button>
     </div>
 
+    <p v-if="hasNew" class="new-banner">
+      有新活动。<button type="button" class="link-btn" @click="refreshNow">刷新列表</button>
+    </p>
+
     <AsyncState
       :loading="loading"
       :error="error"
@@ -209,6 +222,26 @@ function clearFilters() {
   cursor: pointer;
   font-size: var(--text-md);
   line-height: 1;
+}
+
+.new-banner {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--contract);
+  border-radius: var(--radius);
+  background: var(--contract-wash);
+  font-size: var(--text-sm);
+}
+
+.link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--contract);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .day {

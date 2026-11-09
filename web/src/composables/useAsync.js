@@ -12,7 +12,7 @@ import { errText } from '../errors.js'
  * - reload({ silent: true }) 静默刷新：不把页面切回「加载中」，用于自动刷新；
  * - 出错时 error 是给人看的中文文案（见 errors.js）。
  */
-export function useAsync(fn, { watch: sources = [], immediate = true, initial = null } = {}) {
+export function useAsync(fn, { watch: sources = [], immediate = true, initial = null, silentWatch = false } = {}) {
   const data = ref(initial)
   const loading = ref(immediate)
   const error = ref('')
@@ -39,7 +39,7 @@ export function useAsync(fn, { watch: sources = [], immediate = true, initial = 
   }
 
   if (immediate) onMounted(() => reload())
-  if (sources.length) watch(sources, () => reload())
+  if (sources.length) watch(sources, () => reload({ silent: silentWatch }))
 
   return { data, loading, error, reload }
 }

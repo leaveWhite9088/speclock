@@ -16,6 +16,7 @@ import TraceChain from '../components/TraceChain.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import KeyChip from '../components/KeyChip.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const route = useRoute()
 const crId = computed(() => Number(route.params.id))
@@ -28,8 +29,9 @@ const { data: cr, loading, error, reload: load } = useAsync(() => resources.crs.
 // 审核单取到之后再取这些关联数据，取不到不影响上面的主要内容
 const traceQ = useAsync(
   async () => buildTrace({ cr: cr.value, ...(await loadTraceData(cr.value)) }),
-  { watch: [cr], immediate: false },
+  { watch: [cr], immediate: false, silentWatch: true },
 )
+useAutoRefresh(load)
 
 const VIA_TEXT = DECISION_VIA
 

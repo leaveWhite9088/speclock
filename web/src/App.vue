@@ -4,6 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearKey, keyHint } from './api/client.js'
 import { useKeyNames } from './api/keyNames.js'
 import VersionChip from './components/VersionChip.vue'
+import FreshnessBadge from './components/FreshnessBadge.vue'
+import { usePolling } from './composables/usePolling.js'
+import { checkOnce } from './composables/useChangeSignal.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +26,9 @@ const mainNav = [
 ]
 
 const bottomNav = [{ to: '/mcp', label: 'AI 接入' }]
+
+// ---------- 自动刷新：全站一个定时器，每 5 秒看一眼有没有新的变化 ----------
+usePolling(checkOnce, 5000, { immediate: true })
 
 // ---------- 全局搜索：回车跳到 /search，「/」键聚焦 ----------
 const searchText = ref('')
@@ -108,6 +114,7 @@ function logout() {
           />
         </form>
         <div class="topbar-right">
+          <FreshnessBadge />
           <span class="key-hint mono" :title="hint">{{ keyName(hint) }}</span>
           <button type="button" class="btn" @click="logout">退出登录</button>
         </div>
