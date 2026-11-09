@@ -67,8 +67,10 @@ const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
             <tbody>
               <tr v-for="r in rows" :key="r.id" :class="{ strong: r.strongPower }">
                 <td>
-                  <span class="name">{{ r.label || '（未命名）' }}<span v-if="r.isMe" class="me">当前登录</span></span>
+                  <span class="name">{{ r.label || '（未命名）' }}<span v-if="r.isMe" class="me">网页在用</span></span>
                   <span class="hint mono muted">{{ r.hint }}</span>
+                  <span v-if="r.keyFile" class="hint mono muted" title="key 保存在 .speclock/keys/ 里（网页看不到内容）">文件：{{ r.keyFile }}</span>
+                  <span v-else-if="r.kind === '人'" class="hint muted">人类 key，由本人保管</span>
                 </td>
                 <td>
                   <span class="mono">{{ r.role || '—' }}</span>

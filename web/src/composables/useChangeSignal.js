@@ -22,7 +22,7 @@ const error = ref('')
 let fallbackTicks = 0
 
 export async function checkOnce() {
-  if (!getKey()) return // 没登录（比如在登录页）不查
+  if (!getKey()) return // 还没拿到网页用的只读 key 就不查
   try {
     const rows = await resources.activity({ limit: 1, exclude_action: 'pull' })
     const id = rows[0]?.id ?? 0

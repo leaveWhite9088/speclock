@@ -1,126 +1,104 @@
 /**
  * SpecLock API 客户端。
  *
- * - baseURL 为相对路径 /api/v1（开发时由 vite proxy 转发到 127.0.0.1:8000）
- * - 自动从 localStorage 读取密钥并带 X-API-Key header
- * - 401：清除本地密钥并跳转 /login（说明密钥已失效或被吊销）
- * - 非 2xx 一律抛出 { status, detail } 形状的错误对象
+ * 网页不用登录：第一次请求前从 /api/v1/web/session 自动拿到一把**只读** key
+ * （服务端只发给本机同源的网页），放在内存里，之后每个请求带 X-API-Key。
+ * key 失效（比如被吊销、库换了）时重新取一次再重试；还不行就抛错。
+ *
+ * 非 2xx 一律抛出 { status, detail } 形状的错误对象。
  *
  * 用法：
- *   import { api } from '@/api/client.js'   // 或相对路径 ../api/client.js
  *   const projects = await api.get('/projects')
- *   await api.post('/blocks', { ... })
  */
 
 const BASE_URL = '/api/v1'
-const STORAGE_KEY = 'speclock_key'
+
+let currentKey = ''
 
 export function getKey() {
-  return localStorage.getItem(STORAGE_KEY)
+  return currentKey
 }
 
 export function setKey(key) {
-  localStorage.setItem(STORAGE_KEY, key)
+  currentKey = key || ''
 }
 
 export function clearKey() {
-  localStorage.removeItem(STORAGE_KEY)
+  currentKey = ''
 }
 
 /** 展示用脱敏形式，与后端 auth.key_hint 保持一致：human-…1a2b */
-export function keyHint(key = getKey()) {
+export function keyHint(key = currentKey) {
   if (!key) return ''
   const prefix = key.split('-', 1)[0]
   return `${prefix}-…${key.slice(-4)}`
 }
 
-async function handleResponse(res) {
-  if (res.status === 401) {
-    clearKey()
-    // 守卫之外唯一的强制登出点：密钥无效时回到登录页
-    if (window.location.pathname !== '/login') {
-      window.location.assign('/login')
-    }
-    throw { status: 401, detail: '密钥无效或已被吊销，请重新登录' }
-  }
-
-  let data = null
+async function readBody(res) {
   const text = await res.text()
-  if (text) {
-    try {
-      data = JSON.parse(text)
-    } catch {
-      data = text
-    }
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
   }
-
-  if (!res.ok) {
-    const detail =
-      (data && typeof data === 'object' && data.detail) ||
-      (typeof data === 'string' ? data : null) ||
-      `请求失败（HTTP ${res.status}）`
-    throw { status: res.status, detail }
-  }
-
-  return data
 }
 
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
-  const key = getKey()
-  const res = await fetch(`${BASE_URL}${path}`, {
+function errorOf(res, data) {
+  const detail =
+    (data && typeof data === 'object' && data.detail) ||
+    (typeof data === 'string' ? data : null) ||
+    `请求失败（HTTP ${res.status}）`
+  return { status: res.status, detail }
+}
+
+/** 没有 key 就向本机服务要一把只读 key；已经有了什么都不做。 */
+export async function ensureSession() {
+  if (currentKey) return
+  let res
+  try {
+    res = await fetch(`${BASE_URL}/web/session`)
+  } catch {
+    throw { status: 0, detail: '连不上 SpecLock 服务，请确认 speclock serve 在运行' }
+  }
+  const data = await readBody(res)
+  if (!res.ok) throw errorOf(res, data)
+  setKey(data.key)
+}
+
+async function send(path, { method, body, headers }) {
+  await ensureSession()
+  return fetch(`${BASE_URL}${path}`, {
     method,
     headers: {
-      ...(key ? { 'X-API-Key': key } : {}),
+      'X-API-Key': currentKey,
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
-  return handleResponse(res)
+}
+
+async function request(path, { method = 'GET', body, headers = {} } = {}) {
+  let res = await send(path, { method, body, headers })
+  if (res.status === 401) {
+    // key 失效：重新要一把，只重试一次
+    clearKey()
+    await ensureSession()
+    res = await send(path, { method, body, headers })
+    if (res.status === 401) {
+      throw { status: 401, detail: '网页用的只读 key 无效，请重启 speclock serve' }
+    }
+  }
+  const data = await readBody(res)
+  if (!res.ok) throw errorOf(res, data)
+  return data
 }
 
 export const api = {
   get: (path, options) => request(path, { ...options, method: 'GET' }),
-  post: (path, body, options) =>
-    request(path, { ...options, method: 'POST', body }),
-  put: (path, body, options) =>
-    request(path, { ...options, method: 'PUT', body }),
-  patch: (path, body, options) =>
-    request(path, { ...options, method: 'PATCH', body }),
+  post: (path, body, options) => request(path, { ...options, method: 'POST', body }),
+  put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
+  patch: (path, body, options) => request(path, { ...options, method: 'PATCH', body }),
   delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
-  /** multipart 上传：不能带 JSON Content-Type，让浏览器自己设 boundary */
-  postForm: async (path, formData) => {
-    const key = getKey()
-    const res = await fetch(`${BASE_URL}${path}`, {
-      method: 'POST',
-      headers: { ...(key ? { 'X-API-Key': key } : {}) },
-      body: formData,
-    })
-    return handleResponse(res)
-  },
-}
-
-/** 带 X-API-Key 下载附件（导出端点不能靠 <a href>，header 带不上）。
- * 文件名从 Content-Disposition 取（优先 RFC 5987 filename*=UTF-8''）。 */
-export async function downloadFile(path) {
-  const key = getKey()
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { ...(key ? { 'X-API-Key': key } : {}) },
-  })
-  if (!res.ok) await handleResponse(res) // 统一 401/错误处理，必定 throw
-  const blob = await res.blob()
-  const cd = res.headers.get('Content-Disposition') || ''
-  let filename = 'download'
-  const star = cd.match(/filename\*=UTF-8''([^;]+)/i)
-  const plain = cd.match(/filename="([^"]+)"/i)
-  if (star) filename = decodeURIComponent(star[1])
-  else if (plain) filename = plain[1]
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
 }

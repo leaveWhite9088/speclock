@@ -7,13 +7,13 @@ function jsonResponse(status, body) {
 
 describe('api client', () => {
   beforeEach(() => {
-    localStorage.clear()
+    clearKey()
   })
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('带上本地保存的密钥，baseURL 是 /api/v1', async () => {
+  it('已有密钥时直接带上，baseURL 是 /api/v1', async () => {
     setKey('human-abc123')
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true }))
     vi.stubGlobal('fetch', fetchMock)
@@ -23,37 +23,72 @@ describe('api client', () => {
     expect(init.headers['X-API-Key']).toBe('human-abc123')
   })
 
-  it('没有密钥时不带 header；POST 带 JSON', async () => {
+  it('没有密钥时先从 /web/session 自动取一把，再带着它请求', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { key: 'human-web-1111' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: 1 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.get('/x')).toEqual({ ok: 1 })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/web/session')
+    expect(fetchMock.mock.calls[1][1].headers['X-API-Key']).toBe('human-web-1111')
+    expect(getKey()).toBe('human-web-1111')
+  })
+
+  it('取不到只读密钥时抛出服务端的说明', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, { detail: '没有网页用的 key' })))
+    await expect(api.get('/x')).rejects.toEqual({ status: 404, detail: '没有网页用的 key' })
+  })
+
+  it('POST 带 JSON', async () => {
+    setKey('human-k')
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {}))
     vi.stubGlobal('fetch', fetchMock)
     await api.post('/x', { a: 1 })
     const init = fetchMock.mock.calls[0][1]
-    expect(init.headers['X-API-Key']).toBeUndefined()
     expect(init.headers['Content-Type']).toBe('application/json')
     expect(init.body).toBe('{"a":1}')
   })
 
   it('非 2xx 抛出 { status, detail }，detail 取后端的说明', async () => {
+    setKey('human-k')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(409, { detail: '冲突了' })))
     await expect(api.get('/x')).rejects.toEqual({ status: 409, detail: '冲突了' })
   })
 
   it('后端没给说明时用 HTTP 状态兜底', async () => {
+    setKey('human-k')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(500)))
     await expect(api.get('/x')).rejects.toMatchObject({ status: 500 })
   })
 
-  it('401：清掉本地密钥并抛错', async () => {
-    setKey('human-bad')
-    vi.stubGlobal('location', { pathname: '/login', assign: vi.fn() })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, { detail: 'unknown API key' })))
+  it('401：重新取一把密钥并重试一次', async () => {
+    setKey('human-old')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { detail: 'unknown API key' }))
+      .mockResolvedValueOnce(jsonResponse(200, { key: 'human-new' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: 2 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.get('/x')).toEqual({ ok: 2 })
+    expect(getKey()).toBe('human-new')
+  })
+
+  it('401 重试后还是 401：抛错，不循环', async () => {
+    setKey('human-old')
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(401, {}))
+        .mockResolvedValueOnce(jsonResponse(200, { key: 'human-new' }))
+        .mockResolvedValueOnce(jsonResponse(401, {})),
+    )
     await expect(api.get('/x')).rejects.toMatchObject({ status: 401 })
-    expect(getKey()).toBeNull()
   })
 
   it('keyHint 与后端的脱敏形式一致', () => {
     expect(keyHint('human-1234567890abcdef')).toBe('human-…cdef')
     expect(keyHint('')).toBe('')
-    clearKey()
   })
 })

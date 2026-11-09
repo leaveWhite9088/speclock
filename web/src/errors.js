@@ -26,7 +26,7 @@ export function errText(e) {
   const text = detailText(e.detail ?? e)
   switch (e.status) {
     case 401:
-      return text || '密钥无效或已失效，请重新登录。'
+      return text || '网页用的只读密钥无效，请重启 speclock serve。'
     case 403:
       return `没有权限：${text || '当前密钥的角色不允许这样做。'}`
     case 404:

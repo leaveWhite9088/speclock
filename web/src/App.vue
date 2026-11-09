@@ -1,19 +1,14 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { clearKey, keyHint } from './api/client.js'
-import { useKeyNames } from './api/keyNames.js'
 import VersionChip from './components/VersionChip.vue'
+import { APP_VERSION } from './version.js'
 import FreshnessBadge from './components/FreshnessBadge.vue'
 import { usePolling } from './composables/usePolling.js'
 import { checkOnce } from './composables/useChangeSignal.js'
 
 const route = useRoute()
 const router = useRouter()
-const { keyName } = useKeyNames()
-
-const isPublic = computed(() => route.meta.public === true)
-const hint = computed(() => keyHint())
 
 const mainNav = [
   { to: '/', label: '总览' },
@@ -51,7 +46,7 @@ function onKeydown(e) {
   if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
   const el = e.target
   const typing = el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))
-  if (typing || isPublic.value) return
+  if (typing) return
   e.preventDefault()
   searchInput.value?.focus()
   searchInput.value?.select()
@@ -59,22 +54,10 @@ function onKeydown(e) {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
-
-function logout() {
-  clearKey()
-  router.push({ name: 'login' })
-}
 </script>
 
 <template>
-  <!-- 登录页等公共路由：不带布局壳 -->
-  <router-view v-if="isPublic" v-slot="{ Component }">
-    <transition name="fade" mode="out-in">
-      <component :is="Component" />
-    </transition>
-  </router-view>
-
-  <div v-else class="shell">
+  <div class="shell">
     <a href="#main" class="skip-link">跳到主要内容</a>
     <aside class="sidebar">
       <nav class="side-nav" aria-label="主导航">
@@ -102,7 +85,7 @@ function logout() {
       <header class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
-          <VersionChip version="0.6.0" />
+          <VersionChip :version="APP_VERSION" />
         </div>
         <form class="search" role="search" @submit.prevent="goSearch">
           <input
@@ -116,8 +99,7 @@ function logout() {
         </form>
         <div class="topbar-right">
           <FreshnessBadge />
-          <span class="key-hint mono" :title="hint">{{ keyName(hint) }}</span>
-          <button type="button" class="btn" @click="logout">退出登录</button>
+          <span class="key-hint" title="网页只读，不能修改任何东西">只读</span>
         </div>
       </header>
 

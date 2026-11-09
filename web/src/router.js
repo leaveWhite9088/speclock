@@ -1,7 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getKey } from './api/client.js'
 
-import LoginView from './views/LoginView.vue'
 import OverviewView from './views/OverviewView.vue'
 import HomeView from './views/HomeView.vue'
 import CapabilityView from './views/CapabilityView.vue'
@@ -17,12 +15,6 @@ import ArchiveView from './views/ArchiveView.vue'
 import McpView from './views/McpView.vue'
 
 const routes = [
-  {
-    path: '/login',
-    name: 'login',
-    component: LoginView,
-    meta: { public: true, title: '登录' },
-  },
   { path: '/', name: 'home', component: OverviewView, meta: { title: '总览' } },
   { path: '/tree', name: 'tree', component: HomeView, meta: { title: '文档树' } },
   {
@@ -73,18 +65,6 @@ export const router = createRouter({
   routes,
   linkActiveClass: 'is-active',
   linkExactActiveClass: 'is-exact',
-})
-
-router.beforeEach((to) => {
-  if (to.meta.public) {
-    // 已登录时访问登录页，直接回工作台
-    if (getKey()) return { name: 'home' }
-    return true
-  }
-  if (!getKey()) {
-    return { name: 'login', query: to.fullPath !== '/' ? { from: to.fullPath } : {} }
-  }
-  return true
 })
 
 router.afterEach((to) => {

@@ -27,6 +27,7 @@ export function describeKeys({ keys = [], roles = [], projects = [], me = '' } =
       id: k.id,
       hint: k.hint,
       label: k.label,
+      keyFile: k.key_file || '',
       role: k.role || '',
       kind: k.prefix === 'human' ? '人' : 'Agent',
       project: k.project_id == null ? '全局' : projectName.get(k.project_id) || `项目 ${k.project_id}`,

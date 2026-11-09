@@ -1,7 +1,6 @@
 <script setup>
-// AI 接入：接口契约 MCP（文档树，MCP stdio）的接入说明与 agent 活动。
+// AI 接入：SpecLock MCP（stdio）的接入说明与 agent 活动。
 import { computed, onMounted, ref } from 'vue'
-import { api } from '../api/client.js'
 import { resources } from '../api/resources.js'
 import { errText } from '../errors.js'
 import { useKeyNames } from '../api/keyNames.js'
@@ -53,25 +52,15 @@ const RULES = [
   '只能读到已发布版本；归档内容不可见。',
 ]
 
-const KEY_PLACEHOLDER = '<admin key——seed / inject_ops 打印的那一把>'
-
-// 客户端包（speclock wheel）下载信息，来自 GET /agent/client-package；
-// 服务端未构建 wheel 时接口 404，pkg 保持 null，安装命令退化为占位形式
-const pkg = ref(null)
-
-const installCommand = computed(
-  () =>
-    pkg.value?.install_command ??
-    `pip install "speclock @ ${window.location.origin}/api/v1/agent/client-package/speclock-<版本>-py3-none-any.whl"`,
-)
+const KEY_PLACEHOLDER = '<admin key——speclock init 打印的那一把>'
 
 const configJson = computed(() =>
   JSON.stringify(
     {
       mcpServers: {
         speclock: {
-          command: 'python',
-          args: ['-m', 'speclock.mcp_server'],
+          command: 'speclock',
+          args: ['mcp'],
           env: {
             SPECLOCK_URL: window.location.origin,
             SPECLOCK_KEY: KEY_PLACEHOLDER,
@@ -92,15 +81,9 @@ const brief = computed(
 
 请按以下步骤自行完成接入。
 
-## 1. 安装 MCP server 包
+## 1. 确认 speclock 命令可用
 
-speclock 包不在 PyPI 上，直接从本站下载 wheel 安装（需要 Python ≥ 3.11 与 pip）：
-
-\`\`\`bash
-${installCommand.value}
-\`\`\`
-
-安装后 \`python -m speclock.mcp_server\` 即为可启动的 MCP server（stdio 方式）。
+SpecLock 装在这台电脑上（\`pip install -e .\` 之后有 \`speclock\` 命令）。\`speclock mcp\` 即为可启动的 MCP server（stdio 方式）；服务本身用 \`speclock serve\` 启动。
 
 ## 2. 写入 MCP 配置
 
@@ -148,16 +131,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    ;[activities.value] = await Promise.all([
-      resources.activity({ limit: 50 }),
-      // 客户端包下载信息（wheel 未构建时 404，忽略即可，安装命令用占位形式）
-      api
-        .get('/agent/client-package')
-        .then((p) => {
-          pkg.value = p
-        })
-        .catch(() => {}),
-    ])
+    activities.value = await resources.activity({ limit: 50 })
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -182,26 +156,9 @@ onMounted(load)
         {{ copied && copyState === 'brief' ? '已复制到剪贴板 ✓' : '复制接入说明' }}
       </button>
       <span class="muted intro-hint">
-        说明包含：安装命令、接入方式、MCP 配置、{{ TOOLS.length }} 个工具清单、使用规则。
+        说明包含：接入方式、MCP 配置、{{ TOOLS.length }} 个工具清单、使用规则。
       </span>
     </div>
-
-    <!-- 第 0 步：安装 MCP server 包 -->
-    <section class="section">
-      <h2 class="section-title">第 0 步：安装 MCP server 包</h2>
-      <div class="card section-card">
-        <p class="step-text">
-          speclock 包不在 PyPI 上，直接从本站下载 wheel 安装（需要 Python ≥ 3.11 与 pip）：
-        </p>
-        <pre class="config-pre mono">{{ installCommand }}</pre>
-        <p v-if="!pkg" class="step-text muted">
-          服务端尚未构建客户端包时上面的 URL 会 404——构建方式见 DEPLOY.md（python -m build --wheel）。
-        </p>
-        <button type="button" class="btn" @click="copyText(installCommand, 'install')">
-          {{ copied && copyState === 'install' ? '已复制到剪贴板 ✓' : '复制安装命令' }}
-        </button>
-      </div>
-    </section>
 
     <!-- 第 1 步：MCP 配置 -->
     <section class="section">
@@ -210,10 +167,10 @@ onMounted(load)
         <p class="step-text">
           把下面 JSON 合并到项目根目录的 <code>.mcp.json</code>（若已有
           <code>mcpServers</code> 字段，只合并其中 <code>speclock</code> 一项），然后重启客户端。
-          MCP server 以 stdio 启动：<code>python -m speclock.mcp_server</code>。
+          MCP server 以 stdio 启动：<code>speclock mcp</code>。
         </p>
         <p class="step-text">
-          把 <code>SPECLOCK_KEY</code> 替换为 admin key（<code>python -m speclock.seed</code> 或 <code>inject_ops.py</code> 打印的那一把；系统只存哈希，丢失只能重新生成）。
+          把 <code>SPECLOCK_KEY</code> 替换为 admin key（<code>speclock init</code> 打印的那一把；系统只存哈希，丢失找不回）。
         </p>
         <pre class="config-pre mono">{{ configJson }}</pre>
         <button type="button" class="btn" @click="copyText(configJson, 'config')">
