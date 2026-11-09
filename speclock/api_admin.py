@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from speclock import permissions as perms
+from speclock.api_agent import _check_project_scope
 from speclock.auth import audit, hash_key, key_hint, new_key
 from speclock.db import get_db
 from speclock.engine import published_version
@@ -324,10 +325,12 @@ def list_versions(
 ):
     """版本历史列表。每个版本附带该版本的执行记录（状态 + 事件历史）。"""
     block = _get_block(db, block_id)
+    _check_project_scope(key, block.capability.business.project_id)
     records = {
         r.version: r
         for r in db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id).all()
     }
+    current = block.current_published_version
     out = []
     for v in block.versions:
         rec = records.get(v.version)
@@ -335,6 +338,8 @@ def list_versions(
             {
                 "version": v.version,
                 "level": v.level,
+                "status": "current" if v.version == current else "deprecated",
+                "superseded_by": None if v.version == current else current,
                 "change_note": v.change_note,
                 "delta": json.loads(v.delta_json),
                 **_trace(v),
@@ -404,9 +409,12 @@ def list_capability_versions(
     doc = db.get(Capability, capability_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="capability not found")
+    _check_project_scope(key, doc.business.project_id)
     return [
         {
             "version": v.version,
+            "status": "current" if v.version == doc.current_version else "deprecated",
+            "superseded_by": None if v.version == doc.current_version else doc.current_version,
             "manifest": json.loads(v.manifest_json),
             "triggered_by_block_id": v.triggered_by_block_id,
             "change_note": v.change_note,

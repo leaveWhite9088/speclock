@@ -97,6 +97,12 @@ def seed_roles(db: Session) -> None:
             )
             db.add(existing[name])
     db.flush()
+    # 清掉权限目录里已经不存在的权限名（如已删除的 ack.write / spec.void）
+    for role in existing.values():
+        have = json.loads(role.permissions_json or "[]")
+        kept = [p for p in have if p in PERMISSIONS]
+        if kept != have:
+            role.permissions_json = json.dumps(sorted(kept))
     # 升级旧库：预置角色若还没有任何 exec.* 权限，补上预置里对应的那几条
     for name, _kind, _desc, perms in PRESET_ROLES:
         role = existing[name]

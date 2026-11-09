@@ -6,7 +6,8 @@ by its ROLE on the server (``whoami`` shows it); a tool the role lacks permissio
 simply returns 403.
 
 Tools:
-- read the spec (``spec.read``): get_index, get_block, get_diff, get_capability
+- read the spec (``spec.read``): get_index, get_block, get_diff, get_capability,
+  get_block_history, get_capability_history
 - execution (``exec.read`` / ``exec.write`` / ``exec.verify``): list_work, get_work,
   claim_work, release_work, report_blocked, report_failed, submit_implementation (executor),
   verify_work (tester — must be a different key from the implementer)
@@ -137,6 +138,29 @@ def get_diff(block_id: int, from_version: str = "", to_version: str = "") -> str
 def get_capability(capability_id: int, version: str = "") -> str:
     ref = f"{capability_id}@{version}" if version else str(capability_id)
     return _call("GET", f"/api/v1/capabilities/{ref}")
+
+
+@mcp.tool(description=(
+    "Version history of one module, oldest first: for every version its mechanical "
+    "'level' label, change_note, delta (what was added / removed / modified, by stable "
+    "id), the Change Request and Commit that produced it (cr_id / commit_id — read the "
+    "request with get_change_request to learn WHY), and status ('current' or "
+    "'deprecated' with 'superseded_by'). Use it to see how a module evolved; read a "
+    "version's content with get_block (pin the version) and the difference between two "
+    "versions with get_diff. Requires spec.read."
+))
+def get_block_history(block_id: int) -> str:
+    return _call("GET", f"/api/v1/blocks/{block_id}/history")
+
+
+@mcp.tool(description=(
+    "Version history of one capability (小业务), oldest first: each version's manifest "
+    "(module → version), which module triggered it, change_note, cr_id / commit_id and "
+    "status. Replay one historical manifest with get_capability (pin the version). "
+    "Requires spec.read."
+))
+def get_capability_history(capability_id: int) -> str:
+    return _call("GET", f"/api/v1/capabilities/{capability_id}/history")
 
 
 # ---------- execution (exec.read / exec.write / exec.verify) ----------

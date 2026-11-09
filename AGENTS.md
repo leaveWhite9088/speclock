@@ -104,7 +104,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 ## 6.1 后续路线（未开始）
 
 - Finding 存储：语义扫描 Agent 只能提交发现，不能改文档（`scanner-agent` 目前只读，等 Finding 做出来再给它 `finding.write`；可能要关联到执行记录）。
-- 读取侧缺专用的 `get_block_history` / `get_capability_history`（现在靠 diff + pin 部分替代）。
+- （已完成）读取侧的 `get_block_history` / `get_capability_history`：`/blocks/{id}/history`、`/capabilities/{id}/history`，只读、项目隔离、已归档 / 未发布对 Agent 不可见；版本状态 `current` / `deprecated`（派生，不存库）也带在管理端的版本列表里。
 - 官方 Agent 脚手架只是最佳实践示范，不属于 Core。
 
 ## 7. 开发约定
@@ -132,6 +132,6 @@ cd web && npm run build                        # 前端构建（产物 web/dist/
 - `speclock/cli.py`：`speclock-cli`，人用人类 key 查看 / 批准 / 驳回审核单。
 - `speclock/diffing.py`：结构化 API / 规则校验、字段级 delta、版本级别标签、OpenAPI 生成、版本号计算。
 - `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
-- `speclock/mcp_server.py`：stdio MCP，25 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
+- `speclock/mcp_server.py`：stdio MCP，27 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
 - `web/`：Vue 3 **只读展示**网页（参考实现，已适配 0.6.0）：文档树、模块 / 版本 / diff（带到审核单的溯源与执行状态）、审核单列表与详情、待办（执行记录与事件）、归档、AI 接入说明。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。

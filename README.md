@@ -231,12 +231,13 @@ speclock-cli key create --role executor-agent --label "后端执行 Agent"   # �
 }
 ```
 
-MCP server 暴露 **25 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
+MCP server 暴露 **27 个工具**，key 的角色决定哪些能用（没权限的返回 403；编码阶段的 admin key 全部可用）：
 
 | 工具 | 权限 | 用途 |
 |---|---|---|
 | `whoami` | 任意 | 当前 key 的角色与权限 |
 | `get_index` / `get_block` / `get_capability` / `get_diff` | `spec.read` | 读规格：索引树、模块（带版本级别标签与 cr_id / commit_id）、小业务 manifest、版本 diff |
+| `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
 | `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |
 | `verify_work` | `exec.verify` | 测试 Agent 独立验收：逐条给结果，全通过 → verified，有不通过 → failed；验证者不能是实现者 |
@@ -277,7 +278,7 @@ speclock/            # FastAPI 纯 JSON API
 ├── auth.py        # key 生成 / 哈希 / 脱敏 + 审计
 ├── cli.py         # speclock-cli：人用人类 key 查看 / 批准 / 驳回审核单，管理密钥
 ├── diffing.py     # 结构化 API/规则校验、字段级 delta、版本级别标签、OpenAPI 生成、两级 semver
-├── mcp_server.py  # stdio MCP，25 工具，经 HTTP 调本系统 REST
+├── mcp_server.py  # stdio MCP，27 工具，经 HTTP 调本系统 REST
 └── seed.py        # demo 数据 + 打印两个开发 key
 web/               # Vue 3 + Vite 只读展示网页（文档树 / 模块 / 版本 diff / 审核单 / 待办 / 归档 / AI 接入）；npm run build 产出 dist/，已 gitignore
 tests/             # pytest：auth / 发布 / diff / 归档 / 执行记录 / 项目隔离 / 环境配置 / SPA 托管等

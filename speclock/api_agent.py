@@ -230,6 +230,74 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     return _block_out(bv, _exec_record(db, block.id, bv.version))
 
 
+@router.get("/blocks/{block_id}/history")
+def get_block_history(
+    block_id: int,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("spec.read")),
+):
+    """模块的版本历史（从旧到新）：每个版本的级别标签、变更说明、delta、产生它的审核单 /
+    Commit、状态（current / deprecated）。内容快照用 ``get_block``（可 pin 版本）读，
+    两个版本之间的差异用 ``get_diff``；执行进展不在这里（见 ``/work``）。"""
+    block = db.get(Block, block_id)
+    if block is None or block.status != "published":
+        raise HTTPException(status_code=404, detail=f"block {block_id} not found")
+    _check_project_scope(key, _block_project_id(block))
+    current = block.current_published_version
+    out = [
+        {
+            "version": v.version,
+            "level": v.level,
+            "status": "current" if v.version == current else "deprecated",
+            "superseded_by": None if v.version == current else current,
+            "change_note": v.change_note,
+            "delta": json.loads(v.delta_json),
+            "cr_id": v.cr_id,
+            "commit_id": v.commit_id,
+            "published_by": v.published_by,
+            "published_at": v.published_at,
+        }
+        for v in block.versions
+    ]
+    audit(db, key.hint, "pull", f"block:{block_id}/history", {"versions": len(out)})
+    db.commit()
+    return out
+
+
+@router.get("/capabilities/{capability_id}/history")
+def get_capability_history(
+    capability_id: int,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("spec.read")),
+):
+    """小业务的版本历史（从旧到新）：每个版本的 manifest（模块 → 版本）、由哪个模块触发、
+    变更说明、产生它的审核单 / Commit、状态。某个历史小业务版本的完整快照用
+    ``get_capability``（pin 版本）读。"""
+    doc = db.get(Capability, capability_id)
+    if doc is None or doc.current_version is None:
+        raise HTTPException(status_code=404, detail=f"capability {capability_id} not found")
+    _check_project_scope(key, doc.business.project_id)
+    current = doc.current_version
+    out = [
+        {
+            "version": v.version,
+            "status": "current" if v.version == current else "deprecated",
+            "superseded_by": None if v.version == current else current,
+            "manifest": json.loads(v.manifest_json),
+            "triggered_by_block_id": v.triggered_by_block_id,
+            "change_note": v.change_note,
+            "cr_id": v.cr_id,
+            "commit_id": v.commit_id,
+            "published_by": v.published_by,
+            "published_at": v.published_at,
+        }
+        for v in doc.versions
+    ]
+    audit(db, key.hint, "pull", f"capability:{capability_id}/history", {"versions": len(out)})
+    db.commit()
+    return out
+
+
 def compute_block_diff(
     db: Session, block: Block, from_: str | None, to: str | None
 ) -> dict:

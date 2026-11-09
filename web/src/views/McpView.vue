@@ -12,6 +12,8 @@ const TOOLS = [
   ['get_block', '读取一个模块的已发布版本（背景 / 规则 / 验收条件 / API，规则与验收条件带稳定 id），可 pin 版本；响应带 cr_id / commit_id 溯源'],
   ['get_capability', '读取小业务 manifest（模块→版本清单），可 pin 历史小业务版本'],
   ['get_diff', '两个已发布版本之间的结构化 + 文本 diff，带机械算出的 level 标签'],
+  ['get_block_history', '模块的版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态'],
+  ['get_capability_history', '小业务的版本历史：每个版本的 manifest、由哪个模块触发、审核单 / Commit、状态'],
   ['list_work', '待办列表：按状态筛选（待领取 / 进行中 / 被阻塞 / 失败 / 待验收 / 已验收）'],
   ['get_work', '一条执行记录：事件历史、已提交的结果、锁定到该版本的完整规格'],
   ['claim_work', '领取任务（执行 Agent）：返回锁定版本的完整规格；失败 / 被阻塞的可重新领取'],
