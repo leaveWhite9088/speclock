@@ -242,3 +242,21 @@ def test_cr_internal_permission_is_on_requirements_and_admin_by_default(env):
     roles = {r["name"]: r["permissions"] for r in env["client"].get("/api/v1/roles", headers=env["human"]).json()}
     assert "cr.internal" in roles["requirements-agent"] and "cr.internal" in roles["admin"]
     assert "cr.internal" not in roles["executor-agent"] and "cr.internal" not in roles["scanner-agent"]
+
+
+def test_internal_cr_does_not_need_acceptance_items(env):
+    """改名、搬模块这类内部整理没有新的业务验收条件，不强求编一条；业务变更仍然必须有。"""
+    c = env["client"]
+    publish_v1(c, env["human"], env["block_id"])
+    body = {"title": "改个名", "intent": "名字更准确", "expected_outcome": "名字改了",
+            "kind": "internal", "kind_reason": "只改名，业务含义不变"}
+    cid = c.post("/api/v1/change-requests", json=body, headers=req_key(env)).json()["id"]
+    r = c.post(f"/api/v1/change-requests/{cid}/submit", headers=req_key(env))
+    assert r.status_code == 200 and r.json()["status"] == "approved"
+    r = commit(env, cid, [{"op": "update_capability", "id": env["capability_id"], "title": "新名字"}], covers=[])
+    assert r.status_code == 200, r.text
+    assert c.post(f"/api/v1/change-requests/{cid}/complete", headers=req_key(env)).json()["status"] == "applied"
+    # 业务变更没有验收条件仍然不能提交
+    bid = c.post("/api/v1/change-requests", json={**body, "kind": "business", "kind_reason": ""},
+                 headers=req_key(env)).json()["id"]
+    assert c.post(f"/api/v1/change-requests/{bid}/submit", headers=req_key(env)).status_code == 422

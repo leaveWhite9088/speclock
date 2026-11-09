@@ -309,7 +309,8 @@ def submit_cr(
         missing.append("intent（为什么变）不能为空")
     if not cr.expected_outcome.strip():
         missing.append("expected_outcome（变成什么样）不能为空")
-    if not json.loads(cr.acceptance_json or "[]"):
+    if cr.kind != "internal" and not json.loads(cr.acceptance_json or "[]"):
+        # 内部整理（改名、搬模块）没有新的业务验收条件可写，不强求
         missing.append("acceptance（验收条件）至少 1 条")
     if missing:
         raise HTTPException(

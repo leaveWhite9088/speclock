@@ -21,7 +21,7 @@ from speclock.api_agent import _check_project_scope
 from speclock.auth import audit, hash_key, key_hint, new_key
 from speclock.db import get_db
 from speclock.engine import published_version
-from speclock.home import find_home
+from speclock.home import find_home, mcp_config
 from speclock.models import (
     ApiKey,
     AuditLog,
@@ -549,7 +549,9 @@ def create_key(
     if k.key_file:
         return {**_key_out(k),
                 "notice": f"key 已保存到 {keyfiles.KEYS_DIRNAME}/{k.key_file}，明文不在这里返回；"
-                          "把这个文件名交给要用它的 Agent，只有它自己去读"}
+                          "把这个文件名交给要用它的 Agent，只有它自己去读",
+                # 可以直接写进那个 Agent 的 .mcp.json（用文件名而不是 key，SPECLOCK_HOME 写死）
+                "mcp_config": mcp_config(home, k.key_file)}
     # 人类 key（或没有 .speclock/ 时）：明文仅此一次返回，此后任何地方都不可再见
     return {**_key_out(k), "key": plaintext,
             "notice": "此 key 仅此一次可见，请立即复制保存；系统只存哈希，无法找回"}

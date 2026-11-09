@@ -7,7 +7,9 @@ simply returns 403.
 
 Tools:
 - read the spec (``spec.read``): get_index, get_block, get_diff, get_capability,
-  get_block_history, get_capability_history
+  get_block_history, get_capability_history, list_projects
+- audit log (``audit.read``): get_activity
+- projects (``project.manage``, admin only): create_project, rename_project
 - execution (``exec.read`` / ``exec.write`` / ``exec.verify``): list_work, get_work,
   claim_work, release_work, report_blocked, report_failed, submit_implementation (executor),
   verify_work (tester — must be a different key from the implementer)
@@ -19,7 +21,8 @@ Tools:
   version the human saw), which the server records in the audit trail. Never approve
   without an explicit instruction from the human in the conversation.
 - keys: create_api_key / revoke_api_key (``key.manage``, admin only) are DANGEROUS operations —
-  only after the human explicitly agreed in the conversation; list_api_keys shows what exists.
+  only after the human explicitly agreed in the conversation; list_api_keys (``key.read``) shows
+  what exists.
   use_api_key switches the key this session uses (no client restart needed), e.g. to a key you
   just created.
 
@@ -316,6 +319,62 @@ def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
                  json={"results": results, "note": note})
 
 
+# ---------- projects, activity ----------
+
+
+@mcp.tool(description=(
+    "List the projects you can see: id and name. A global key must say which project a "
+    "Change Request belongs to (project_id) and which project a new key is bound to — this "
+    "is where you get the ids. A project-bound key sees only its own project. Requires spec.read."
+))
+def list_projects() -> str:
+    return _call("GET", "/api/v1/projects")
+
+
+@mcp.tool(description=(
+    "Create a project (an isolated set of businesses / capabilities / blocks). Only an admin "
+    "key can; ask the human first and tell them the name. Returns the new project id. "
+    "Requires project.manage."
+))
+def create_project(name: str) -> str:
+    return _call("POST", "/api/v1/projects", json={"name": name})
+
+
+@mcp.tool(description=(
+    "Rename a project (its content and history are untouched). Ask the human first. "
+    "Requires project.manage."
+))
+def rename_project(project_id: int, name: str) -> str:
+    return _call("PUT", f"/api/v1/projects/{project_id}", json={"name": name})
+
+
+@mcp.tool(description=(
+    "Read the audit log (newest first): who (key hint) did what to what, and when. Filters "
+    "can be combined: actor (a key hint), action (comma-separated; a trailing * is a prefix, "
+    "e.g. 'cr_*,commit'), exclude_action (e.g. 'pull' to skip reads), target_prefix (e.g. "
+    "'block:3' or 'cr:5'), since / until (ISO times). Page backwards with before_id (the id of "
+    "the last row of the previous page). Requires audit.read."
+))
+def get_activity(
+    limit: int = 50,
+    actor: str = "",
+    action: str = "",
+    exclude_action: str = "",
+    target_prefix: str = "",
+    since: str = "",
+    until: str = "",
+    before_id: int | None = None,
+) -> str:
+    params: dict = {"limit": limit}
+    for name, value in (("actor", actor), ("action", action), ("exclude_action", exclude_action),
+                        ("target_prefix", target_prefix), ("since", since), ("until", until)):
+        if value:
+            params[name] = value
+    if before_id is not None:
+        params["before_id"] = before_id
+    return _call("GET", "/api/v1/activity", params=params)
+
+
 # ---------- keys (key.manage) ----------
 
 
@@ -341,7 +400,7 @@ def create_api_key(role: str, label: str, evidence: str, project_id: int | None 
     "List the API keys (never the plaintext): id, hint, role, label, project, creation "
     "time, last activity and the actions / reads of the last 7 days. Use it to check "
     "whether a key for a role already exists BEFORE creating another, and to find stale "
-    "ones. Requires key.manage."
+    "ones. Requires key.read."
 ))
 def list_api_keys() -> str:
     return _call("GET", "/api/v1/keys")

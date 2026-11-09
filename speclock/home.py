@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,8 @@ DB_NAME = "speclock.db"
 # 电脑级用法的默认端口：挑了个冷门的，避开 8000 / 8080 / 3000 这类常见开发端口
 GLOBAL_PORT = 47821
 DEFAULT_HOST = "127.0.0.1"
+# 默认只允许本机上的页面（任意端口）把网页嵌进去；要嵌进别处，在 config.toml 的 embed_origins 里加
+DEFAULT_EMBED_ORIGINS = ("http://localhost:*", "http://127.0.0.1:*")
 
 
 class NotInitialised(RuntimeError):
@@ -45,6 +48,7 @@ class Config:
     host: str
     port: int
     db_file: str
+    embed_origins: tuple = ("http://localhost:*", "http://127.0.0.1:*")  # 允许把网页嵌进去的来源（CSP frame-ancestors）
 
     @property
     def db_path(self) -> Path:
@@ -90,6 +94,7 @@ def read_config(home: Path) -> Config:
         host=str(data.get("host", DEFAULT_HOST)),
         port=int(data.get("port", GLOBAL_PORT)),
         db_file=str(data.get("db", DB_NAME)),
+        embed_origins=tuple(str(o) for o in data.get("embed_origins", DEFAULT_EMBED_ORIGINS)),
     )
 
 
@@ -124,7 +129,11 @@ def write_home(home: Path, port: int) -> None:
         "# SpecLock 配置。不含任何密钥，可以提交进 git。\n"
         f'host = "{DEFAULT_HOST}"   # 只监听本机\n'
         f"port = {port}\n"
-        f'db = "{DB_NAME}"\n',
+        f'db = "{DB_NAME}"\n'
+        "\n"
+        "# 允许把网页嵌进哪些来源的页面里（见 docs/EMBED.md）。默认只有本机；\n"
+        '# 要嵌进别的地址就加上，如 "https://my.app"；写 "*" 表示任何来源都可以。\n'
+        'embed_origins = ["http://localhost:*", "http://127.0.0.1:*"]\n',
         encoding="utf-8",
     )
     (home / ".gitignore").write_text(
@@ -178,6 +187,32 @@ def init_home(root: Path, *, glob: bool = False, project_name: str | None = None
 
     ensure_keys_dir(home)  # Agent key 的存放目录 + README
     return cfg, key
+
+
+def embed_origins() -> tuple:
+    """允许嵌入网页的来源：当前 .speclock/config.toml 里的 embed_origins，没有就用默认（本机）。"""
+    home = find_home()
+    if home is not None:
+        try:
+            return read_config(home).embed_origins
+        except (NotInitialised, ValueError, OSError):
+            pass
+    return DEFAULT_EMBED_ORIGINS
+
+
+def mcp_config(home: Path, key_file: str) -> dict:
+    """给某个 Agent 用的 .mcp.json 内容：用 key 文件名（不是 key 本身），SPECLOCK_HOME 写死，
+    所以不管客户端从哪个目录启动 MCP 都找得到（跟项目走、跟电脑走两种用法都一样）。
+    command 用当前 Python 的绝对路径，不依赖 PATH。"""
+    return {
+        "mcpServers": {
+            "speclock": {
+                "command": sys.executable,
+                "args": ["-m", "speclock", "mcp", "--key-file", key_file],
+                "env": {"SPECLOCK_HOME": str(home)},
+            }
+        }
+    }
 
 
 def default_url() -> str:
