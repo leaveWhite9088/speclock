@@ -165,26 +165,6 @@ const summary = computed(() => {
       </AttentionSection>
 
       <AttentionSection
-        title="待复核"
-        hint="需求 Agent 提交了单条条目里的小幅文字改动（错别字、标点、措辞），声明意思没变。规格暂时没动，要另一个角色（扫描 Agent 或人）复核通过才会生效。"
-        tone="watch"
-        :count="o.pendingReview.length"
-        :loading="crsQ.loading.value"
-        :error="crsQ.error.value"
-        empty-text="没有待复核的改动。"
-      >
-        <li v-for="p in o.pendingReview" :key="p.commit_id" class="row">
-          <div class="row-line">
-            <RouterLink :to="`/change-requests/${p.cr_id}`" class="row-title">#{{ p.cr_id }} {{ p.cr_title }}</RouterLink>
-            <span class="muted row-meta">Commit #{{ p.seq }} · {{ p.changed_entries }} 条</span>
-            <TimeAgo class="row-time muted" :value="p.created_at" />
-          </div>
-          <p class="row-reason">提交者的说法：{{ p.kind_reason }}</p>
-          <p class="row-meta muted">提交者 <KeyChip :hint="p.created_by" /></p>
-        </li>
-      </AttentionSection>
-
-      <AttentionSection
         title="等验收"
         hint="执行 Agent 已提交实现，等测试 Agent 独立验收。"
         :count="o.waiting.length"

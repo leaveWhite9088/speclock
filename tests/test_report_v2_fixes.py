@@ -106,10 +106,9 @@ def test_stranded_internal_request_can_be_withdrawn_and_redone(env):
     c = env["client"]
     publish_v1(c, env["human"], env["block_id"])
     cid = _internal(env)
-    # Commit 被「条目总和变了」拦下
-    bad = [{"op": "update_block", "id": env["block_id"],
-            "rule_ops": [{"op": "upsert", "id": "R-1", "entry": {"name": RULES_V1[0]["name"], "detail": "改了口径"}}]}]
-    assert commit(env, cid, bad, covers=["AC-1"]).status_code == 422
+    # Commit 因 ops 有误失败（比如指向不存在的模块），审核单卡在已批准、没有任何 Commit
+    bad = [{"op": "update_block", "id": 9999, "title": "x"}]
+    assert commit(env, cid, bad, covers=["AC-1"]).status_code >= 400
     assert c.get(f"{CR}/{cid}", headers=req_key(env)).json()["status"] == "approved"
     # 以前：没有任何办法收场；现在：撤回 → 草稿，批准痕迹清掉
     r = c.post(f"{CR}/{cid}/withdraw", headers=req_key(env))

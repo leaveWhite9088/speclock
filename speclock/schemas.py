@@ -135,16 +135,6 @@ class CommitCreate(StrictModel):
     dryRun: bool = False  # 预览：完整执行后回滚，返回会得到的版本 / 级别标签 / delta
 
 
-class ReviewDecision(StrictModel):
-    """复核内部整理里待复核的 Commit：通过 / 不通过 + 理由（都必填）。"""
-
-    decision: str = Field(pattern="^(approve|reject)$")
-    reason: str  # 为什么通过 / 不通过（留痕，提交者和人都能看到）
-    # 人复核时：via=natural_language 必须附人的原话 evidence；Agent 复核用默认的 api 即可
-    via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
-    evidence: str = ""
-
-
 class AcResult(StrictModel):
     """对一条验收条件的结果：实现方自测 / 验证方独立验收都用它。"""
 

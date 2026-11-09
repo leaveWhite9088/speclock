@@ -202,21 +202,7 @@ class Commit(Base):
     change_note: Mapped[str] = mapped_column(Text, default="")
     result_json: Mapped[str] = mapped_column(Text, default="{}")  # 落地结果：版本 / 新建对象
     created_by: Mapped[str] = mapped_column(default="")
-    created_by_key_id: Mapped[int | None] = mapped_column(nullable=True)  # 复核者不能是它（按 key 判定）
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
-
-    # 语义复核（内部整理里「字变了但意思没变」的小改动）：
-    # status：applied（已落地，默认）| pending_review（待复核，规格还没变）|
-    #         review_rejected（复核不通过，不生效）| withdrawn（审核单被撤回，作废）
-    status: Mapped[str] = mapped_column(default="applied")
-    review_json: Mapped[str] = mapped_column(Text, default="{}")  # 待复核时记下的新旧逐条对比
-    reviewed_by: Mapped[str] = mapped_column(default="")  # 复核者 key hint
-    reviewed_by_key_id: Mapped[int | None] = mapped_column(nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    review_decision: Mapped[str] = mapped_column(default="")  # approved | rejected
-    review_via: Mapped[str] = mapped_column(default="")  # cli | natural_language | api
-    review_note: Mapped[str] = mapped_column(Text, default="")  # 复核理由
-    review_evidence: Mapped[str] = mapped_column(Text, default="")  # 人复核时的原话
 
     change_request: Mapped[ChangeRequest] = relationship(back_populates="commits")
 

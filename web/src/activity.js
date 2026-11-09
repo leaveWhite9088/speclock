@@ -41,10 +41,6 @@ export function parseTarget(target) {
 /** 一句话摘要：理由 / 人的原话 / 备注 / 标题，取最有信息量的一个；没有就返回空串 */
 export function activityNote(item) {
   const d = item?.detail || {}
-  if (item?.action === 'commit_review_requested') {
-    const n = (d.changes || []).length
-    return `${n} 条条目的小幅文字改动，等另一个角色复核${d.kind_reason ? `。提交者的说法：${d.kind_reason}` : ''}`
-  }
   if (d.reason) return String(d.reason)
   if (d.evidence) return `「${d.evidence}」`
   if (d.note) return String(d.note)

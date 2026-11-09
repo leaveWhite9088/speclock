@@ -18,8 +18,6 @@ Tools:
   behalf: it MUST pass the human's own words as ``evidence`` (and the content hash of the
   version the human saw), which the server records in the audit trail. Never approve
   without an explicit instruction from the human in the conversation.
-- review (``cr.review``): list_pending_reviews, review_commit — second opinion on small wording edits
-  of an 'internal' request (typos, phrasing). You can never review your own Commit.
 - keys: create_api_key / revoke_api_key (``key.manage``, admin only) are DANGEROUS operations —
   only after the human explicitly agreed in the conversation; list_api_keys shows what exists.
   use_api_key switches the key this session uses (no client restart needed), e.g. to a key you
@@ -404,17 +402,12 @@ def get_change_request(cr_id: int) -> str:
     "natural, fluent Chinese like explaining to a colleague, no spec-speak. project_id is "
     "optional when your key is bound to a project. supersedes_id replaces an earlier "
     "APPROVED-but-unfinished request when this one is approved. kind: 'business' "
-    "(default — a human must approve it) or 'internal' (a pure reorganisation that does "
-    "NOT change business content: rename, move a module to another capability, split or "
-    "merge modules while every rule / acceptance item / API entry stays word for word). "
-    "YOU judge which one it is; for 'internal' kind_reason must say why it is not a "
-    "business change, and it needs the cr.internal permission. An internal request takes "
-    "effect the moment you submit it (no human approval, but it is audited and shown to "
-    "the human as 'decided by the agent'), and the server rejects its Commit if the "
-    "total set of rules / acceptance items / APIs changed in any way — then open a "
-    "business request instead — EXCEPT small wording edits (typo, punctuation, a word) to "
-    "individual rules / acceptance items, which are not rejected but held as 'pending "
-    "review' (see submit_commit). When in doubt choose 'business'. Requires cr.write."
+    "(default; a human approves it) or 'internal' (a reorganisation the caller itself "
+    "judges not to change business meaning: rename, move or split modules, fix a typo; "
+    "needs kind_reason and the cr.internal permission; it takes effect on submit, with no "
+    "human approval, and is audited as 'declared by the agent'). SpecLock does not check "
+    "the content — the choice is yours; when unsure use 'business'. "
+    "Requires cr.write."
 ))
 def create_change_request(
     title: str,
@@ -553,16 +546,6 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "every AC to be covered by some commit. Each touched block gets a new version whose "
     "'level' label is computed mechanically; each touched capability gets exactly one "
     "new version. Use dry_run=true to preview versions/levels/deltas without writing. "
-    "INTERNAL requests have three outcomes: (1) the total set of rules / acceptance "
-    "items / APIs is unchanged (rename, move, split, merge) → applied (200); (2) only "
-    "small wording edits inside single, same-id rules / acceptance items (typos, "
-    "punctuation, a few words; limits are configured on the server) → NOT applied: "
-    "status 'pending_review' (202), the spec does not change, the old/new text of every "
-    "entry is recorded and ANOTHER key (scanner-agent or a human) must approve it with "
-    "review_commit — you cannot review your own Commit; (3) anything substantive "
-    "(added / removed entries, API changes, big rewrites, too many entries, or a mix of "
-    "typos and substantive changes) → 422 naming each substantive change; use a business "
-    "request. complete_change_request waits until no Commit is pending review. "
     "Requires commit.write."
 ))
 def submit_commit(
@@ -575,37 +558,6 @@ def submit_commit(
     return _call("POST", f"/api/v1/change-requests/{cr_id}/commits",
                  json={"ops": ops, "covers": covers or [], "change_note": change_note,
                        "dryRun": dry_run})
-
-
-@mcp.tool(description=(
-    "List Commits waiting for review: small wording edits (typos, punctuation, phrasing) "
-    "inside an 'internal' Change Request that were held back instead of applied. Each "
-    "entry shows the Change Request, who submitted it, why they say it is not a business "
-    "change (kind_reason) and the OLD and NEW text of every changed rule / acceptance "
-    "item. 'own': true means you submitted it yourself, so you cannot review it. Read "
-    "the whole request with get_change_request for context. Requires cr.review."
-))
-def list_pending_reviews() -> str:
-    return _call("GET", "/api/v1/reviews")
-
-
-@mcp.tool(description=(
-    "Review a pending Commit: decision 'approve' (it is then applied and published, your "
-    "review is recorded) or 'reject' (it never takes effect, your reason is shown to the "
-    "submitter). You are judging MEANING, not spelling: if the new text means something "
-    "different from the old (e.g. it adds or drops a 'not', changes a number, a scope, "
-    "a condition) REJECT it and tell the submitter to open a business Change Request. "
-    "'reason' is required either way. You can NEVER review a Commit submitted with your "
-    "own key (403). If the spec changed after the Commit was submitted, approving gives "
-    "409 — reject it and ask for a resubmission. A human reviewing in conversation passes "
-    "their own words as 'evidence'. Requires cr.review."
-))
-def review_commit(cr_id: int, commit_id: int, decision: str, reason: str, evidence: str = "") -> str:
-    body: dict = {"decision": decision, "reason": reason}
-    if evidence:
-        body["via"] = "natural_language"
-        body["evidence"] = evidence
-    return _call("POST", f"/api/v1/change-requests/{cr_id}/commits/{commit_id}/review", json=body)
 
 
 @mcp.tool(description=(

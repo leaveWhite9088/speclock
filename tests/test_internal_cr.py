@@ -121,37 +121,19 @@ def test_renames_and_summaries_pass_without_new_versions(env):
     assert _versions(env["block_id"]) == ["1.0.0"]  # 标题不进版本快照，不产生新的模块版本
 
 
-def test_changing_a_rule_is_rejected_and_rolled_back(env):
+def test_core_does_not_judge_the_declared_kind(env):
+    """是不是业务变更由提交者（Agent）自己声明，Core 不检查内容：声明为内部整理的改动照常生效，
+    只是留下「声明者 + 理由」的审计记录，供人事后查看。"""
     publish_v1(env["client"], env["human"], env["block_id"])
     cr_id = _internal(env)
     ops = [{"op": "update_block", "id": env["block_id"],
             "rule_ops": [{"op": "upsert", "id": "R-1",
-                          "entry": {"name": RULES_V1[0]["name"], "detail": "悄悄改了口径"}}]}]
+                          "entry": {"name": RULES_V1[0]["name"], "detail": "改了一个错别字"}}]}]
     r = commit(env, cr_id, ops, covers=["AC-1"])
-    assert r.status_code == 422, r.text
-    detail = r.json()["detail"]
-    assert "业务内容" in detail["error"] and detail["added_or_changed"] and detail["removed_or_changed"]
-    assert _versions(env["block_id"]) == ["1.0.0"]  # 整个 Commit 回滚
-    # 同样的改动走业务变更审核单是允许的
-    assert commit(env, open_cr(env), ops, covers=["AC-1"]).status_code == 200
-
-
-def test_adding_removing_or_restoring_content_is_rejected(env):
-    c = env["client"]
-    publish_v1(c, env["human"], env["block_id"])
-    # 新建一个有新内容的模块
-    new = {"op": "create_block", "capability": env["capability_id"], "title": "新增", "content_md": BG,
-           "rules": [{"name": "全新规则", "detail": "之前没有"}], "apis": [], "acceptance": ACCEPTANCE_V1}
-    r = commit(env, _internal(env), [new], covers=["AC-1"])
-    assert r.status_code == 422 and "业务内容" in r.json()["detail"]["error"]
-    # 只归档（知识消失）
-    r = commit(env, _internal(env), [{"op": "archive_block", "id": env["block_id"]}], covers=["AC-1"])
-    assert r.status_code == 422
-    # 业务变更归档后，内部整理不能把它恢复回来（相当于新增内容）
-    assert commit(env, open_cr(env), [{"op": "archive_block", "id": env["block_id"]}],
-                  covers=["AC-1"]).status_code == 200
-    r = commit(env, _internal(env), [{"op": "restore_block", "id": env["block_id"]}], covers=["AC-1"])
-    assert r.status_code == 422
+    assert r.status_code == 200, r.text
+    assert len(_versions(env["block_id"])) == 2
+    cr = env["client"].get(f"/api/v1/change-requests/{cr_id}", headers=env["human"]).json()
+    assert cr["kind"] == "internal" and cr["kind_reason"]
 
 
 def test_merging_modules_keeps_the_totals_and_is_allowed(env):
@@ -247,7 +229,7 @@ def test_scanner_can_read_but_cannot_open_requests_or_write(env):
     c = env["client"]
     scanner = make_key(env, "scanner-agent")
     me = c.get("/api/v1/me", headers=scanner).json()
-    assert me["permissions"] == ["cr.read", "cr.review", "exec.read", "spec.read"]
+    assert me["permissions"] == ["cr.read", "exec.read", "spec.read"]
     assert c.get("/api/v1/index", headers=scanner).status_code == 200
     assert c.get(CR, headers=scanner).status_code == 200
     assert c.post(CR, json=cr_body(), headers=scanner).status_code == 403

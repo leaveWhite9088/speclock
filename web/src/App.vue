@@ -102,7 +102,7 @@ function logout() {
       <header class="topbar">
         <div class="brand">
           <span class="brand-name">SpecLock</span>
-          <VersionChip version="0.7.0" />
+          <VersionChip version="0.6.0" />
         </div>
         <form class="search" role="search" @submit.prevent="goSearch">
           <input

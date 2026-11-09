@@ -97,8 +97,6 @@ export function buildTrace({ cr, tree = [], blockVersions = {}, capVersions = {}
       createdBy: c.created_by,
       createdAt: c.created_at,
       ops: c.ops,
-      status: c.status || 'applied',
-      review: c.review && (c.review.changes || c.review.decision) ? c.review : null,
       createdStructure,
       meta: metaChanges(c.ops).map((m) => ({
         ...m,

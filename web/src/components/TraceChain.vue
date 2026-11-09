@@ -4,8 +4,7 @@
  * 数据来自 trace.js 的 buildTrace；本组件只负责展示。
  */
 import { ref } from 'vue'
-import { COMMIT_STATUS, LEVEL, label } from '../labels.js'
-import { changeWhere, charDiff } from '../reviewDiff.js'
+import { LEVEL, label } from '../labels.js'
 import { fmtTime } from '../time.js'
 import VersionChip from './VersionChip.vue'
 import ExecStatusBadge from './ExecStatusBadge.vue'
@@ -27,35 +26,10 @@ function toggleOps(id) {
     <li v-for="c in commits" :key="c.id" class="commit">
       <div class="commit-head">
         <strong>Commit #{{ c.seq }}</strong>
-        <span v-if="c.status !== 'applied' || c.review" class="cstatus" :class="`is-${c.status}`">{{ label(COMMIT_STATUS, c.status) }}</span>
         <span class="note">{{ c.note }}</span>
         <span class="muted small"><KeyChip :hint="c.createdBy" /> · {{ fmtTime(c.createdAt) }}</span>
       </div>
       <p class="muted small">覆盖验收条件：{{ c.covers.join('、') || '无' }}</p>
-
-      <!-- 语义复核：字变了、意思没变的小改动，另一个角色复核通过才生效 -->
-      <div v-if="c.review" class="review" :class="`is-${c.status}`">
-        <p v-if="c.status === 'pending_review'" class="review-head">
-          这批改动只是单条条目里的小幅文字修改，提交者声明意思没变。<strong>规格暂时没有变</strong>，等另一个角色（扫描 Agent 或人）复核通过才会生效。
-        </p>
-        <p v-else-if="c.review.decision === 'approved'" class="review-head">
-          已由 <KeyChip :hint="c.review.reviewed_by" /> 复核通过（{{ fmtTime(c.review.reviewed_at) }}）。
-        </p>
-        <p v-else-if="c.review.decision === 'rejected'" class="review-head">
-          已由 <KeyChip :hint="c.review.reviewed_by" /> 复核<strong>不通过</strong>（{{ fmtTime(c.review.reviewed_at) }}），这批改动没有生效。
-        </p>
-        <p v-if="c.review.reason" class="review-reason">复核理由：{{ c.review.reason }}<template v-if="c.review.evidence">（原话：「{{ c.review.evidence }}」）</template></p>
-        <ul class="changes">
-          <li v-for="(ch, i) in c.review.changes || []" :key="i">
-            <span class="where muted small">{{ changeWhere(ch) }}</span>
-            <span class="diff">
-              <template v-for="(seg, j) in charDiff(ch.old, ch.new)" :key="j">
-                <del v-if="seg.kind === 'del'">{{ seg.text }}</del><ins v-else-if="seg.kind === 'add'">{{ seg.text }}</ins><template v-else>{{ seg.text }}</template>
-              </template>
-            </span>
-          </li>
-        </ul>
-      </div>
 
       <ul class="effects">
         <li v-for="s in c.createdStructure" :key="`s-${s.type}-${s.id}`" class="effect">
@@ -198,63 +172,5 @@ function toggleOps(id) {
   font-size: var(--text-xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.cstatus {
-  padding: 0 var(--sp-2);
-  font-size: var(--text-xs);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  color: var(--ink-2);
-}
-
-.cstatus.is-pending_review {
-  border-color: var(--warning);
-  color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 8%, var(--card));
-}
-
-.cstatus.is-review_rejected {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.review {
-  margin: var(--sp-2) 0;
-  padding: var(--sp-3);
-  background: var(--paper);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-}
-
-.review-reason {
-  margin-top: var(--sp-1);
-}
-
-.changes {
-  margin-top: var(--sp-2);
-}
-
-.changes li {
-  padding: var(--sp-1) 0;
-}
-
-.where {
-  display: block;
-}
-
-.diff {
-  overflow-wrap: anywhere;
-}
-
-.diff del {
-  background: rgba(196, 53, 28, 0.14);
-  color: var(--danger);
-  text-decoration: line-through;
-}
-
-.diff ins {
-  background: rgba(21, 122, 78, 0.14);
-  color: var(--success);
-  text-decoration: none;
 }
 </style>
