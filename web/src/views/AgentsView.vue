@@ -6,6 +6,7 @@
  * 需要 key.manage 权限才能看。
  */
 import { computed } from 'vue'
+import { keyHint } from '../api/client.js'
 import { resources } from '../api/resources.js'
 import { useAsync } from '../composables/useAsync.js'
 import { describeKeys, keySummary, permissionMatrix } from '../agents.js'
@@ -25,7 +26,7 @@ const { data, loading, error, reload } = useAsync(async () => {
 })
 
 useAutoRefresh(reload)
-const rows = computed(() => (data.value ? describeKeys(data.value) : []))
+const rows = computed(() => (data.value ? describeKeys({ ...data.value, me: keyHint() }) : []))
 const matrix = computed(() => (data.value ? permissionMatrix(data.value) : { roles: [], rows: [] }))
 const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
 </script>
@@ -66,7 +67,7 @@ const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
             <tbody>
               <tr v-for="r in rows" :key="r.id" :class="{ strong: r.strongPower }">
                 <td>
-                  <span class="name">{{ r.label || '（未命名）' }}</span>
+                  <span class="name">{{ r.label || '（未命名）' }}<span v-if="r.isMe" class="me">当前登录</span></span>
                   <span class="hint mono muted">{{ r.hint }}</span>
                 </td>
                 <td>
@@ -80,7 +81,8 @@ const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
                 </td>
                 <td>
                   <span v-if="r.neverUsed" class="never">从未使用</span>
-                  <TimeAgo v-else :value="r.lastActiveAt" />
+                  <TimeAgo v-else-if="r.lastActiveAt" :value="r.lastActiveAt" />
+                  <span v-else class="muted">—</span>
                 </td>
                 <td class="muted num">
                   <template v-if="r.actions7d || r.reads7d">{{ r.actions7d }} 个动作<br />{{ r.reads7d }} 次读取</template>
@@ -215,6 +217,16 @@ tr:last-child td {
 
 tr.strong td:first-child {
   box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.me {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  border: 1px solid var(--contract);
+  border-radius: var(--radius-sm);
+  color: var(--contract);
 }
 
 .never {

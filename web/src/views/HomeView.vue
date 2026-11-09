@@ -8,26 +8,20 @@ import { resources } from '../api/resources.js'
 import { useAsync } from '../composables/useAsync.js'
 import TreeNode from '../components/TreeNode.vue'
 import AsyncState from '../components/AsyncState.vue'
+import EmptyState from '../components/EmptyState.vue'
 import { useAutoRefresh } from '../composables/useAutoRefresh.js'
+import { TREE_FILTERS, filterTree, progressOf } from '../treeFilter.js'
 
 const PROJECT_KEY = 'speclock_project'
 
 
 const selectedProjectId = ref(Number(localStorage.getItem(PROJECT_KEY)) || null)
-const onlyPending = ref(false)
-
-function filterPending(node) {
-  if (node.kind === 'block') {
-    return node.status !== 'archived' && node.version && node.execution_status !== 'verified' ? node : null
-  }
-  const children = (node.children || []).map(filterPending).filter(Boolean)
-  return children.length ? { ...node, children } : null
-}
+const statusFilter = ref('')
 
 const visibleTree = computed(() => {
   let t = tree.value
   if (selectedProjectId.value) t = t.filter((n) => n.id === selectedProjectId.value)
-  if (onlyPending.value) t = t.map(filterPending).filter(Boolean)
+  t = filterTree(t, statusFilter.value)
   return t
 })
 
@@ -45,20 +39,24 @@ function toNode(p) {
       kind: 'business',
       id: d.id,
       name: d.name,
-      children: (d.capabilities || []).map((doc) => ({
-        kind: 'capability',
-        id: doc.id,
-        name: doc.title,
-        version: doc.current_version,
-        children: (doc.blocks || []).map((b) => ({
+      children: (d.capabilities || []).map((doc) => {
+        const children = (doc.blocks || []).map((b) => ({
           kind: 'block',
           id: b.id,
           name: b.title,
           status: b.status,
           version: b.current_published_version,
           execution_status: b.execution_status,
-        })),
-      })),
+        }))
+        return {
+          kind: 'capability',
+          id: doc.id,
+          name: doc.title,
+          version: doc.current_version,
+          progress: progressOf(children),
+          children,
+        }
+      }),
     })),
   }
 }
@@ -71,6 +69,12 @@ const {
 } = useAsync(async () => (await resources.tree()).map(toNode))
 useAutoRefresh(load)
 const tree = computed(() => treeData.value || [])
+const hasModules = computed(() => {
+  let n = 0
+  const walk = (x) => (x.kind === 'block' ? (n += 1) : (x.children || []).forEach(walk))
+  tree.value.forEach(walk)
+  return n > 0
+})
 
 // 选中项目已不存在（被删 / 首次进入）时回落到第一个项目
 watch(tree, (t) => {
@@ -84,10 +88,9 @@ watch(tree, (t) => {
     <div class="tree-head">
       <h1 class="page-title">文档树</h1>
       <div class="tree-head-ops">
-        <label class="pending-filter">
-          <input type="checkbox" v-model="onlyPending" />
-          只看未验收
-        </label>
+        <select v-model="statusFilter" class="input status-filter" aria-label="按执行状态筛选模块">
+          <option v-for="[v, text] in TREE_FILTERS" :key="v" :value="v">{{ text }}</option>
+        </select>
         <select
           v-if="tree.length"
           class="input project-picker"
@@ -118,6 +121,16 @@ watch(tree, (t) => {
           <TreeNode v-for="n in visibleTree" :key="`project-${n.id}`" :node="n" />
         </ul>
       </div>
+      <EmptyState
+        v-if="!hasModules"
+        title="项目里还没有模块"
+        text="让需求 Agent 创建审核单，你在对话里确认后，它会提交 Commit 建立 大业务 → 小业务 → 模块。"
+      />
+      <EmptyState
+        v-else-if="statusFilter && !visibleTree.length"
+        title="没有符合筛选条件的模块"
+        text="换一个状态试试，或选「全部模块」。"
+      />
     </AsyncState>
   </div>
 </template>
@@ -134,6 +147,11 @@ watch(tree, (t) => {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+}
+
+.status-filter {
+  width: auto;
+  min-width: 140px;
 }
 
 .pending-filter {

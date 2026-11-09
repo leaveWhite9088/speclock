@@ -75,6 +75,7 @@ function logout() {
   </router-view>
 
   <div v-else class="shell">
+    <a href="#main" class="skip-link">跳到主要内容</a>
     <aside class="sidebar">
       <nav class="side-nav" aria-label="主导航">
         <RouterLink
@@ -120,7 +121,7 @@ function logout() {
         </div>
       </header>
 
-      <main class="content">
+      <main id="main" class="content" tabindex="-1">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -135,6 +136,27 @@ function logout() {
 .shell {
   display: flex;
   min-height: 100vh;
+}
+
+/* 键盘用户的「跳到主要内容」：平时藏起来，Tab 聚焦时出现 */
+.skip-link {
+  position: fixed;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 100;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--contract);
+  color: #fff;
+  border-radius: var(--radius);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.content:focus {
+  outline: none;
 }
 
 /* ---------- 侧边栏 ---------- */

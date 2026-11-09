@@ -68,7 +68,7 @@ const workSub = computed(() => {
 })
 
 const summary = computed(() => {
-  if (!loadedOnce.value) return ''
+  if (!loadedOnce.value || o.value.isEmpty) return ''
   const n = o.value.pending.length + o.value.stuck.length
   if (n) return `有 ${n} 件事在等你处理。`
   if (o.value.internal.length) return `没有需要你处理的事；有 ${o.value.internal.length} 张 Agent 自行判定的内部整理单可以过目。`

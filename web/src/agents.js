@@ -17,7 +17,7 @@ export function powerTags(permissions = []) {
 }
 
 /** 把 /keys 与 /roles、/projects 合并成页面要显示的行 */
-export function describeKeys({ keys = [], roles = [], projects = [] } = {}) {
+export function describeKeys({ keys = [], roles = [], projects = [], me = '' } = {}) {
   const roleByName = new Map(roles.map((r) => [r.name, r]))
   const projectName = new Map(projects.map((p) => [p.id, p.name]))
   return keys.map((k) => {
@@ -32,7 +32,9 @@ export function describeKeys({ keys = [], roles = [], projects = [] } = {}) {
       project: k.project_id == null ? '全局' : projectName.get(k.project_id) || `项目 ${k.project_id}`,
       createdAt: k.created_at,
       lastActiveAt: k.last_active_at,
-      neverUsed: !k.last_active_at,
+      isMe: !!me && k.hint === me,
+      // 当前登录的这把 key 在网页上的浏览不记审计，不能因此说它「从未使用」
+      neverUsed: !k.last_active_at && !(me && k.hint === me),
       actions7d: k.actions_7d || 0,
       reads7d: k.reads_7d || 0,
       power: powerTags(permissions),

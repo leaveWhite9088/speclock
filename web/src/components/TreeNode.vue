@@ -46,6 +46,14 @@ const link = computed(() => {
       <span class="tmeta">
         <template v-if="node.kind === 'capability'">
           <VersionChip v-if="node.version" :version="node.version" />
+          <span
+            v-if="node.progress && node.progress.total"
+            class="progress"
+            :class="{ done: node.progress.verified === node.progress.total }"
+            :title="`${node.progress.total} 个已发布模块里，当前版本已验收的有 ${node.progress.verified} 个`"
+          >
+            {{ node.progress.verified }}/{{ node.progress.total }} 已验收
+          </span>
         </template>
         <template v-if="isBlock">
           <span class="bid mono">#{{ node.id }}</span>

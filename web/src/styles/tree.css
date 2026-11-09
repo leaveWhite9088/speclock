@@ -162,3 +162,14 @@ a.tname:hover {
   margin: 2px 0 4px 26px;
   font-size: var(--text-xs);
 }
+
+/* 小业务节点上的验收进度 */
+.progress {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.progress.done {
+  color: var(--success);
+}

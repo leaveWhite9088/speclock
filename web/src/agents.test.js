@@ -41,6 +41,12 @@ describe('describeKeys', () => {
     expect(rows[1].neverUsed).toBe(false)
   })
 
+  it('当前登录的 key 不算「从未使用」（网页上的浏览不记审计）', () => {
+    const r = describeKeys({ keys: [{ ...keys[2] }], roles, projects, me: 'agent-…bbbb' })[0]
+    expect(r).toMatchObject({ isMe: true, neverUsed: false })
+    expect(describeKeys({ keys: [keys[2]], roles, projects, me: 'human-…0001' })[0]).toMatchObject({ isMe: false, neverUsed: true })
+  })
+
   it('角色查不到时没有权力标签', () => {
     const r = describeKeys({ keys: [{ ...keys[1], role: '已删除的角色' }], roles, projects })[0]
     expect(r.power).toEqual([])
