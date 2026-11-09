@@ -42,7 +42,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 ## 核心特性
 
-- **角色与权限** — key 绑定角色，角色是权限集合（权限目录由代码定义，角色与映射可自定义，预置 admin / reviewer / requirements-agent / executor-agent / tester-agent / scanner-agent）；接口按权限放行。人类专属权限（批准 / 驳回审核单、管理项目与密钥）不能挂在 agent 类角色上，约束是物理的
+- **角色与权限** — key 绑定角色，角色是权限集合（权限目录由代码定义，角色与映射可自定义，预置 admin / reviewer / requirements-agent / executor-agent / tester-agent / scanner-agent；scanner 只能读和提建议，不能开单）；接口按权限放行。人类专属权限（批准 / 驳回审核单、管理项目与密钥）不能挂在 agent 类角色上，约束是物理的
 - **审核单 + Commit 是唯一写入通道** — 没有任何直接建 / 改 / 发布模块的接口。审核单只含业务意图（为什么变、变成什么样、不再成立的旧认知、验收条件、影响说明），提交即冻结并带内容哈希，批准后不可改；批准渠道（按钮 / CLI / 自然语言）与原话留痕；Commit 是已批准审核单下的原子写入，整体成功或整体回滚
 - **项目级文档隔离** — 项目是文档隔离单元，每个项目有独立的一套 大业务→小业务→模块；key 可绑定到单个项目，绑定后跨项目的模块 / 文档 / 待办 / 审核单访问一律 404；不绑定的 key 保持全局可见
 - **结构化文档模型** — 模块内容不是一整段散文，而是：业务背景（叙述）+ 业务规则清单 + 验收条件（均为结构化，每条带稳定 id，逐条可 diff）+ API 列表（结构化，每条带端点语义）；发布时强制结构完备性校验（见[文档模型](#文档模型)）
@@ -50,6 +50,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **两级版本** — 模块独立递增 semver，级别标签由代码按结构化 diff 机械算出（有任何删除或修改 → MAJOR，只有新增 → MINOR，其余 PATCH），只是给外部 Agent 的参考，Core 不规定它们据此该做什么；任一模块发布时所属小业务自动派生小业务版本（manifest = 全部模块当前版本清单）
 - **字段级 diff 与版本标签** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；API 侧任何删除（含可选字段）或类型 / 必填标志变更都算 MAJOR 级变更；规则与验收条件按稳定 id 匹配，详述变了算修改，只改名称算 renamed（PATCH）
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→小业务→模块 三层概要树（小业务节点带可选的一句话简述）（模块节点带一句话摘要与当前版本的执行状态），选中后再按需精读，上下文占用最小
+- **内部整理（纯重组免人批准）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（改名、搬模块、拆分 / 合并，由需求 Agent 自行判定并写明理由，提交即生效，需要 `cr.internal` 权限）；Core 机械兜底：落地时规则 / 验收条件 / API 的条目总和必须一字未变，否则 422 回滚；新操作 `move_block`；全程留痕，网页标记「内部整理」
 - **溯源与覆盖检查** — 每个模块版本 / 小业务版本记录产生它的 `cr_id` + `commit_id`，从版本能追到「为什么改」，从审核单能追到全部 Commit 与受影响版本；Commit 声明满足审核单的哪些验收条件（`covers`），审核单要进入 `applied`，全部验收条件必须被覆盖（Core 只做这个机械检查，不判断语义）
 - **执行记录（规格状态与执行状态分开）** — 每个已发布的模块版本自动产生一条执行记录：`pending → in_progress → implemented → verified`，另有 `blocked` / `failed`（可重新领取）和 `superseded`（模块发布新版本后，旧版本上没做完的记录被取代）。执行 Agent 领取任务时拿到**锁定到该版本**的完整规格；提交实现结果必须逐条验收条件给 pass + 证据；**测试 Agent 独立验收**，验证者不能是实现者（同一把 key 403）。每次转换写只追加的事件历史。待办看板 `/work` 与模块页版本历史展示状态与事件
 - **全链路审计** — 审核单流转 / Commit / 发布 / 拉取 / 执行记录转换 / 密钥与角色变更全部落 `AuditLog`
@@ -163,7 +164,7 @@ public_url = "https://docs.example.com"
 
 - 密钥**仅在创建时可见一次**：`POST /api/v1/keys` 的响应是唯一能看到明文的地方；数据库只存 SHA-256 哈希与脱敏 hint（如 `human-…26c7`），丢失只能重新生成
 - 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：seed 只发一把 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock-cli key create` 是兜底；吊销即生效（下次请求 401）；拥有 `key.manage` 的最后一把 human key 拒绝删除
-- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
+- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（读规格 / 审核单 / 待办，只提建议，不能开单）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
 - **给各目录的 Agent 发身份**：同一目录下多个 Agent 彼此看得见对方的文件，身份靠各目录 AGENTS.md 里的提示词。[AGENT_IDENTITY_TEMPLATE.md](AGENT_IDENTITY_TEMPLATE.md) 是模板：一段通用部分（先 `whoami`、已有 key 不重复创建、创建 key 是危险操作必须先问人）加需求 / 执行 / 测试三个角色部分，复制到对应目录的 AGENTS.md 并填好「我的 SpecLock 身份」。key 由人用 `speclock-cli key create` 创建，或在人同意后由持有 admin key 的 Agent 创建，创建后用 `use_api_key` 立即切换使用，不需要重启客户端
 - 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局
 - `GET /api/v1/me` 返回当前 key 的角色与权限
@@ -186,7 +187,7 @@ curl -X POST -H "X-API-Key: $REQ" -H "Content-Type: application/json" $H/change-
 curl -X POST -H "X-API-Key: $REQ" $H/change-requests/1/complete        # 覆盖检查通过 → applied
 ```
 
-Commit 的 ops：`create_business` / `update_business` / `create_capability` / `update_capability` / `create_block` / `update_block`（整体替换 `rules` / `apis` / `acceptance`，或增量 `rule_ops` / `api_ops` / `acceptance_ops`）/ `archive_block` / `restore_block`；同一 Commit 里先建的对象起 `ref` 名，后面用 `"$ref"` 引用其 id。`dryRun: true` 预览不落库。
+Commit 的 ops：`create_business` / `update_business` / `create_capability` / `update_capability` / `create_block` / `update_block`（整体替换 `rules` / `apis` / `acceptance`，或增量 `rule_ops` / `api_ops` / `acceptance_ops`）/ `archive_block` / `restore_block` / `move_block`（搬到另一个小业务，保留身份与历史）；同一 Commit 里先建的对象起 `ref` 名，后面用 `"$ref"` 引用其 id。`dryRun: true` 预览不落库。
 
 ### 读规格（REST）
 

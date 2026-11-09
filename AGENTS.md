@@ -74,6 +74,22 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - **Commit 可新建结构**：新建 Business / Capability / Block、下线 Block 都只能通过带 CR 的 Commit 完成，不再有直接的人工建 / 改 / 发布接口。Commit 原子应用，任何一条 op 失败整体回滚；应用成功即发布，不经过草稿。
 - **批准的渠道**（都必须以人类 key 调用 Core，模型本身不持有人类 key）：审核页按钮、CLI / 签名命令、官方 SpecLock-Scaffold 里的按钮或人的明确自然语言批准（由 Scaffold 的代码识别并代人调用，不由模型自己调）。Core 只认"出示了人类 key"，不区分渠道。
 
+### 内部整理（已实施，0.6.0）：纯重组不用人批准
+
+- 审核单有 `kind`：`business`（默认，须人批准）或 `internal`（内部整理）。**由需求 Agent 自己判定**这次是业务变更还是纯重组（改名、搬模块、拆分 / 合并模块，且规则、验收条件、API 一字未改），选 `internal` 必须写 `kind_reason`（为什么不算业务变更），并且需要 `cr.internal` 权限（预置给 admin 和 requirements-agent，可随时收回）。拿不准就选 `business`。
+- 内部整理单**提交即生效**（`approved`，`decision_via=agent_declared`，理由记为 `decision_evidence`），不经人批准，但留痕：审计里 `cr_approve` 标明 `agent_declared`，网页上有「内部整理」标记和说明，人事后随时能看。不能取代其他审核单。
+- **Core 的机械兜底**：Commit 时比较项目里在线模块的规则 / 验收条件 / API **条目总和**（只看内容，忽略编号和所在模块，多重集合）：搬动、拆分、合并、改名不改变总和，通过；只要有一条被改、增、删（包括归档、恢复）就 422，提示改开业务变更单，整个 Commit 回滚。**留给 Agent 判断的缝隙**：背景叙述 `content_md` 允许变（拆分时一定会变），靠理由 + 审计 + 网页标记来盯。
+- 新操作 `move_block {id, capability}`：把已发布模块搬到同项目的另一个小业务，模块身份、历史版本、执行记录不变，不产生新的模块版本；原小业务和新小业务各派生一个小业务版本。业务变更单里也能用。只改标题 / 摘要本来就不产生模块版本。
+- 不做事后撤销口子（先靠审计）。
+
+### 草稿归属（已实施）
+
+草稿审核单只有开单的那把 key（或拥有 `key.manage` 的管理员）能修改、提交、撤回，其他有 `cr.write` 的 key 一律 403，避免多个 Agent 同时开单时误改别人的草稿。
+
+### 扫描 Agent（scanner-agent，已定）
+
+不做 Finding 对象。Scanner 是一个轻量的需求检查 Agent，由外部调度器叫起来：**通读规格，发现问题，只提建议**——可以和需求 Agent 讨论，也可以向人类请求确认。权限只有 `spec.read` / `cr.read` / `exec.read`：**不能开审核单、不能提交 Commit、不能改规格**；要改由需求 Agent 开审核单、人确认。
+
 ### 编码阶段的简化（已定，覆盖上面"批准只落在人能点的地方"的部分）
 
 - SpecLock 是**本机个人使用**的需求管理工具，不做公网部署：不考虑公网安全、会话令牌、跨域加固。
@@ -103,7 +119,6 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 
 ## 6.1 后续路线（未开始）
 
-- Finding 存储：语义扫描 Agent 只能提交发现，不能改文档（`scanner-agent` 目前只读，等 Finding 做出来再给它 `finding.write`；可能要关联到执行记录）。
 - （已完成）读取侧的 `get_block_history` / `get_capability_history`：`/blocks/{id}/history`、`/capabilities/{id}/history`，只读、项目隔离、已归档 / 未发布对 Agent 不可见；版本状态 `current` / `deprecated`（派生，不存库）也带在管理端的版本列表里。
 - 官方 Agent 脚手架只是最佳实践示范，不属于 Core。
 
