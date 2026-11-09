@@ -214,8 +214,9 @@ def report_failed(work_id: int, reason: str) -> str:
     "entry per acceptance criterion of the claimed version: {ac_id: 'AC-1', result: "
     "'pass', evidence: '<test output / response / what you observed>'}. Evidence is "
     "required. Every criterion must pass — if you cannot make one pass, use "
-    "report_failed or report_blocked instead of submitting. A DIFFERENT key (the tester) "
-    "then verifies it. Requires exec.write."
+    "report_failed or report_blocked instead of submitting. 'evidence' here is PROOF of "
+    "your test result (output, response, what you observed). A DIFFERENT key (the "
+    "tester) then verifies it. Requires exec.write."
 ))
 def submit_implementation(work_id: int, results: list[dict], note: str = "") -> str:
     return _call("POST", f"/api/v1/work/{work_id}/implementation",
@@ -226,8 +227,9 @@ def submit_implementation(work_id: int, results: list[dict], note: str = "") -> 
     "Independently verify an implemented task (tester only). Test it yourself against "
     "the pinned spec, then give ONE result per acceptance criterion: {ac_id, result: "
     "'pass' | 'fail', evidence}. All pass → verified; any fail → the task goes back to "
-    "failed with your evidence as the reason. You cannot verify what you implemented "
-    "(same key → 403). Requires exec.verify."
+    "failed with your evidence as the reason. 'evidence' is proof of what YOU observed "
+    "when testing. You cannot verify what you implemented (same key → 403). "
+    "Requires exec.verify."
 ))
 def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
     return _call("POST", f"/api/v1/work/{work_id}/verification",
@@ -240,10 +242,13 @@ def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
 @mcp.tool(description=(
     "Create an API key for an agent role (presets: requirements-agent, executor-agent, "
     "tester-agent, scanner-agent). ONLY after the human has agreed in this conversation "
-    "to creating it — ask first, and pass their own words as 'evidence'. First check "
-    "whether your own AGENTS.md already holds a key for your role — never create a "
-    "duplicate. The plaintext key is returned ONCE: save it where the human told you "
-    "(your AGENTS.md) and tell them. project_id binds the key to one project. "
+    "to creating it — ask first, and pass THEIR words (approval of creating this key, "
+    "not test evidence) as 'evidence'. First check whether your own AGENTS.md or "
+    ".mcp.json already holds a key for your role — never create a duplicate. The "
+    "plaintext key is returned ONCE: record it in the AGENTS.md / MCP config of the "
+    "agent that will use it, and tell the human. A new MCP entry (e.g. a "
+    "'speclock-qa' server in .mcp.json) is only loaded after the client restarts, "
+    "so say that to the human. project_id binds the key to one project. "
     "Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
@@ -393,12 +398,16 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "content_md?, and per list EITHER a full replacement (rules / apis / acceptance) OR "
     "incremental ops (rule_ops / api_ops / acceptance_ops)}; archive_block {id}; "
     "restore_block {id}. Objects created earlier in the same commit can be referenced "
-    "by '$ref' (give them a 'ref' name) wherever an id is expected. Incremental ops "
+    "wherever an id is expected: give the creating op a 'ref' name, then write that "
+    "name WITH a '$' prefix as a plain string, e.g. create_business {name:'运营', "
+    "ref:'biz'} then create_capability {business:'$biz', title:'日报', ref:'cap'} then "
+    "create_block {capability:'$cap', ...} — not {'$ref': 'biz'}. Incremental ops "
     "locate items by STABLE id (R-n / AC-n from get_block): {op:'upsert', id, entry:"
     "{name, detail}} modifies, upsert without id adds, {op:'delete', id} removes; api_ops "
     "locate by 'api' ('GET /path'). In a full replacement only items that carry their id "
     "count as the same item. Unknown ids → 409. 'covers' lists which of the request's "
-    "acceptance ids (AC-n) this commit satisfies; complete_change_request requires "
+    "acceptance ids (AC-n) this commit satisfies (may be empty, e.g. for an "
+    "archive-only commit); complete_change_request requires "
     "every AC to be covered by some commit. Each touched block gets a new version whose "
     "'level' label is computed mechanically; each touched capability gets exactly one "
     "new version. Use dry_run=true to preview versions/levels/deltas without writing. "

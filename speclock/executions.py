@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from speclock.auth import audit
 from speclock.models import (
@@ -121,11 +121,13 @@ def version_acceptance(db: Session, rec: ExecutionRecord) -> list[dict]:
 def _require_current(rec: ExecutionRecord) -> None:
     block = rec.block
     if rec.status == "superseded" or rec.version != block.current_published_version:
+        latest = current_record(object_session(rec), block)
         raise HTTPException(
             status_code=409,
             detail={
                 "error": f"这条记录针对的版本 {rec.version} 已被取代，请改去处理最新版本",
                 "latest_version": block.current_published_version,
+                "latest_work_id": latest.id if latest else None,
             },
         )
     if block.status != "published":
@@ -162,6 +164,7 @@ def claim(db: Session, rec: ExecutionRecord, key: ApiKey) -> None:
     rec.implemented_by_key_id = None
     rec.results_json = "[]"
     rec.verification_json = "[]"
+    rec.reason = ""  # 上一次 blocked / failed 的原因留在事件历史里，不再挂在当前状态上
     _transition(db, rec, "claim", "in_progress", key.hint,
                 "重新领取" if retry else "", {"retry_from": rec.status} if retry else None)
 

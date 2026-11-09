@@ -53,6 +53,7 @@ from speclock.models import Block, Business, Capability, ChangeRequest, Commit, 
 from speclock.schemas import ApiEntry, ApiOp, ItemEntry, ItemOp
 
 MAX_OPS = 200
+REF_HINT = "引用写法：创建它的 op 里给 \"ref\": \"biz\"，后面引用处写字符串 \"$biz\"（带 $ 前缀）"
 REF_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 LEVEL_RANK = {"patch": 0, "minor": 1, "initial": 1, "major": 2}
 
@@ -233,7 +234,12 @@ class _Ctx:
                 raise _422(f"引用 {value} 不存在或不是{what}（ref 必须先于引用它的 op 创建）")
             return obj
         if isinstance(value, bool) or not isinstance(value, int):
-            raise _422(f"{what} id 必须是整数或 $ref，got {value!r}")
+            hint = REF_HINT
+            if isinstance(value, dict) and "$ref" in value:
+                hint = f"不是 {{\"$ref\": ...}} 这种写法；{REF_HINT}"
+            elif isinstance(value, str) and f"${value}" in self.refs:
+                hint = f"你是不是想写 '${value}'？{REF_HINT}"
+            raise _422(f"{what} 必须是整数 id 或引用字符串，got {value!r}。{hint}")
         obj = self.db.get(model, value)
         if obj is None or self._project_of(obj) != self.cr.project_id:
             raise HTTPException(
@@ -310,7 +316,8 @@ def _coerce_apis(raw: object) -> list[dict]:
     if not isinstance(raw, list):
         raise _422("apis 必须是数组")
     items = [_model(ApiEntry, e, f"apis 第 {i} 项").model_dump() for i, e in enumerate(raw, 1)]
-    return validate_apis_or_422(items)
+    # desc 的缺失留给发布关口的结构完备性校验，和其他缺失项一起一次列全
+    return validate_apis_or_422(items, require_desc=False)
 
 
 def _coerce_items(raw: object, kind: str) -> list[dict]:
@@ -357,7 +364,9 @@ def _update_list(block: Block, op: dict, field: str, ops_field: str, kind: str |
         )
     elif ops_field in op:
         if kind is None:
-            items = validate_apis_or_422(apply_api_ops(current, normalize_api_ops(op[ops_field])))
+            items = validate_apis_or_422(
+                apply_api_ops(current, normalize_api_ops(op[ops_field])), require_desc=False
+            )
         else:
             _, label = diffing.ITEM_KINDS[kind]
             merged = apply_item_ops(current, normalize_item_ops(op[ops_field], kind), label)

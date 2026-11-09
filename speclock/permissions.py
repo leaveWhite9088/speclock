@@ -128,6 +128,13 @@ def lookup_key(x_api_key: str | None, db: Session) -> ApiKey:
         raise HTTPException(status_code=401, detail="missing X-API-Key header")
     rec = db.query(ApiKey).filter(ApiKey.key == hash_key(x_api_key)).first()
     if rec is None:
+        if db.query(ApiKey).count() == 0:
+            raise HTTPException(
+                status_code=401,
+                detail="unknown API key：数据库里还没有任何密钥（可能刚清库或换了库）。"
+                "运行 python -m speclock.seed --empty 创建空项目和 admin key；"
+                "清库前创建的其他 key 随库一起失效，需要重新创建",
+            )
         raise HTTPException(status_code=401, detail="unknown API key")
     return rec
 

@@ -23,7 +23,8 @@ def test_api_without_desc_cannot_be_written(env):
     publish_v1(env["client"], env["human"], env["block_id"])
     r = change_block(env, env["block_id"], expect=422, apis=APIS_NO_DESC)
     assert r.status_code == 422
-    assert "desc" in r.json()["detail"]
+    # desc 缺失现在和其他缺失项一起由发布关口列在 missing 里
+    assert any("desc" in m for m in r.json()["detail"]["missing"])
 
 
 def test_api_without_desc_cannot_publish(env):
