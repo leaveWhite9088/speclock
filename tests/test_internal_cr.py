@@ -247,7 +247,7 @@ def test_scanner_can_read_but_cannot_open_requests_or_write(env):
     c = env["client"]
     scanner = make_key(env, "scanner-agent")
     me = c.get("/api/v1/me", headers=scanner).json()
-    assert me["permissions"] == ["cr.read", "exec.read", "spec.read"]
+    assert me["permissions"] == ["cr.read", "cr.review", "exec.read", "spec.read"]
     assert c.get("/api/v1/index", headers=scanner).status_code == 200
     assert c.get(CR, headers=scanner).status_code == 200
     assert c.post(CR, json=cr_body(), headers=scanner).status_code == 403
