@@ -102,3 +102,22 @@ def test_filters_still_need_audit_read(env):
     c = env["client"]
     assert c.get("/api/v1/activity", params={"action": "pull"}, headers=env["agent"]).status_code == 403
     assert c.get("/api/v1/activity", params={"action": "pull"}).status_code == 401
+
+
+# ---------- /keys 的活动统计（Agent 视图用） ----------
+
+
+def test_keys_list_carries_activity_stats(env):
+    c, h = env["client"], env["human"]
+    publish_v1(c, h, env["block_id"])
+    c.get("/api/v1/index", headers=env["agent"])  # 读取
+    work = c.get("/api/v1/work", headers=env["agent"]).json()[0]["id"]
+    c.post(f"/api/v1/work/{work}/claim", headers=env["agent"])  # 一个动作
+    qa = c.post("/api/v1/keys", json={"role": "tester-agent", "label": "没用过的"}, headers=h).json()
+
+    rows = {k["hint"]: k for k in c.get("/api/v1/keys", headers=h).json()}
+    agent = rows[key_hint(env["agent"]["X-API-Key"])]
+    assert agent["actions_7d"] >= 1 and agent["reads_7d"] >= 1 and agent["last_active_at"]
+    unused = rows[qa["hint"]]
+    assert (unused["actions_7d"], unused["reads_7d"], unused["last_active_at"]) == (0, 0, None)
+    assert all("key" not in k and "hash" not in k for k in rows.values())  # 绝不含明文 / 哈希

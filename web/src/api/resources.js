@@ -41,4 +41,5 @@ export const resources = {
   activity: (params) => api.get(`/activity${qs(params)}`),
   keys: () => api.get('/keys'),
   roles: () => api.get('/roles'),
+  permissions: () => api.get('/permissions'),
 }

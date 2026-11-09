@@ -42,6 +42,7 @@ describe('resources', () => {
       [() => resources.capabilities.versions(6), '/api/v1/capabilities/6/versions'],
       [() => resources.keys(), '/api/v1/keys'],
       [() => resources.roles(), '/api/v1/roles'],
+      [() => resources.permissions(), '/api/v1/permissions'],
     ]
     for (const [call, url] of cases) {
       await call()

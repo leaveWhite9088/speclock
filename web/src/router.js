@@ -11,6 +11,7 @@ import CRListView from './views/CRListView.vue'
 import CRDetailView from './views/CRDetailView.vue'
 import WorkView from './views/WorkView.vue'
 import ActivityView from './views/ActivityView.vue'
+import AgentsView from './views/AgentsView.vue'
 import ArchiveView from './views/ArchiveView.vue'
 import McpView from './views/McpView.vue'
 
@@ -55,6 +56,7 @@ const routes = [
   },
   { path: '/work', name: 'work', component: WorkView, meta: { title: '待办' } },
   { path: '/activity', name: 'activity', component: ActivityView, meta: { title: '活动' } },
+  { path: '/agents', name: 'agents', component: AgentsView, meta: { title: 'Agent 与密钥' } },
   {
     path: '/archive',
     name: 'archive',

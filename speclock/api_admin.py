@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import not_, or_
+from sqlalchemy import func, not_, or_
 from sqlalchemy.orm import Session
 
 from speclock import permissions as perms
@@ -33,6 +33,7 @@ from speclock.models import (
     ExecutionRecord,
     Project,
     Role,
+    utcnow,
 )
 from speclock.permissions import require_key, require_permission
 from speclock.schemas import (
@@ -487,11 +488,30 @@ def _key_out(k: ApiKey) -> dict:
     }
 
 
+def _key_activity(db: Session) -> dict[str, dict]:
+    """每个 key（按 hint）的活动统计：最近一次活动、近 7 天的动作数（不含读取）与读取数。
+    审计只记录 hint；两把 key 的 hint 恰好相同时统计会合并（概率极小，只影响展示）。"""
+    since = utcnow().replace(tzinfo=None) - timedelta(days=7)  # 库里存的是 UTC 无时区
+    stats: dict[str, dict] = {}
+    for actor, last in db.query(AuditLog.actor, func.max(AuditLog.created_at)).group_by(AuditLog.actor):
+        stats[actor] = {"last_active_at": last, "actions_7d": 0, "reads_7d": 0}
+    recent = db.query(AuditLog.actor, AuditLog.action, func.count()).filter(
+        AuditLog.created_at >= since
+    ).group_by(AuditLog.actor, AuditLog.action)
+    for actor, action, n in recent:
+        slot = stats.setdefault(actor, {"last_active_at": None, "actions_7d": 0, "reads_7d": 0})
+        slot["reads_7d" if action == "pull" else "actions_7d"] += n
+    return stats
+
+
 @router.get("/keys")
 def list_keys(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.manage"))
 ):
-    return [_key_out(k) for k in db.query(ApiKey).order_by(ApiKey.id).all()]
+    """密钥列表（不含明文 / 哈希），每把带上活动统计，供网页的 Agent 视图使用。"""
+    stats = _key_activity(db)
+    empty = {"last_active_at": None, "actions_7d": 0, "reads_7d": 0}
+    return [{**_key_out(k), **stats.get(k.hint, empty)} for k in db.query(ApiKey).order_by(ApiKey.id).all()]
 
 
 @router.post("/keys", status_code=201)

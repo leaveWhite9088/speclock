@@ -18,6 +18,7 @@ const mainNav = [
   { to: '/change-requests', label: '审核单' },
   { to: '/work', label: '待办' },
   { to: '/activity', label: '活动' },
+  { to: '/agents', label: 'Agent' },
   { to: '/archive', label: '归档' },
 ]
 
