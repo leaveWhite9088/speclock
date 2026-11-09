@@ -56,9 +56,16 @@ export function buildOverview({ crs = [], work = [], tree = [], now = Date.now()
     .filter((w) => w.status === 'in_progress')
     .sort((a, b) => ts(a.updated_at) - ts(b.updated_at))
 
+  // 待复核：内部整理里「字变了、意思没变」的小改动，等另一个角色（扫描 Agent 或人）复核
+  const pendingReview = crs
+    .filter((c) => (c.pending_reviews || []).length)
+    .flatMap((c) => c.pending_reviews.map((p) => ({ ...p, cr_id: c.id, cr_title: c.title, kind_reason: c.kind_reason })))
+    .sort((a, b) => ts(a.created_at) - ts(b.created_at))
+
   const mods = moduleStats(tree)
   return {
     pending,
+    pendingReview,
     internal,
     stuck,
     waiting,
@@ -71,7 +78,7 @@ export function buildOverview({ crs = [], work = [], tree = [], now = Date.now()
       verifiedPercent: mods.published ? Math.round((mods.verified / mods.published) * 100) : 0,
     },
     // 所有「需要人关注」的东西的总数：待确认 + 卡住 + 内部整理（事后过目）
-    attention: pending.length + stuck.length + internal.length,
+    attention: pending.length + stuck.length + internal.length + pendingReview.length,
     isEmpty: !crs.length && !work.length && !mods.published,
   }
 }

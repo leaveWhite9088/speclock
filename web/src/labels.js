@@ -12,6 +12,14 @@ export const CR_STATUS = {
   superseded: '已被取代',
 }
 
+/** Commit 的状态（语义复核：字变了、意思没变的小改动要另一个角色复核通过才生效） */
+export const COMMIT_STATUS = {
+  applied: '已落地',
+  pending_review: '待复核',
+  review_rejected: '复核不通过',
+  withdrawn: '已作废',
+}
+
 export const CR_KIND = {
   business: '业务变更',
   internal: '内部整理',
@@ -82,6 +90,9 @@ export const ACTIONS = {
   cr_reject: '驳回审核单',
   cr_applied: '审核单落地',
   cr_superseded: '审核单被取代',
+  commit_review_requested: '提交待复核',
+  commit_review_approved: '复核通过',
+  commit_review_rejected: '复核不通过',
   exec_claim: '领取任务',
   exec_release: '放弃领取',
   exec_blocked: '报告阻塞',

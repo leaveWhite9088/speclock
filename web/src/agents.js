@@ -7,6 +7,7 @@ export const POWER_TAGS = [
   { perm: 'key.manage', text: '能管理密钥', strong: true },
   { perm: 'cr.approve', text: '能批准审核单', strong: true },
   { perm: 'cr.internal', text: '能自行判定内部整理', strong: false },
+  { perm: 'cr.review', text: '能复核', strong: false },
   { perm: 'commit.write', text: '能改写规格', strong: false },
   { perm: 'exec.verify', text: '能验收', strong: false },
 ]
