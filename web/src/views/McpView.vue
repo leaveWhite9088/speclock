@@ -15,6 +15,10 @@ const TOOLS = [
   ['get_diff', '两个已发布版本之间的结构化 + 文本 diff，带机械算出的 level 标签'],
   ['get_block_history', '模块的版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态'],
   ['get_capability_history', '小业务的版本历史：每个版本的 manifest、由哪个模块触发、审核单 / Commit、状态'],
+  ['list_projects', '看得到的项目 id 与名称（全局 key 开审核单、建 key 绑项目时要用）'],
+  ['get_activity', '审计日志：谁在什么时候对什么做了什么，可筛选、可翻页（需要 audit.read）'],
+  ['create_project', '创建项目（仅 admin，先问人）'],
+  ['rename_project', '项目改名（仅 admin，先问人）'],
   ['list_work', '待办列表：按状态筛选（待领取 / 进行中 / 被阻塞 / 失败 / 待验收 / 已验收）'],
   ['get_work', '一条执行记录：事件历史、已提交的结果、锁定到该版本的完整规格'],
   ['claim_work', '领取任务（执行 Agent）：返回锁定版本的完整规格；失败 / 被阻塞的可重新领取'],
@@ -52,18 +56,17 @@ const RULES = [
   '只能读到已发布版本；归档内容不可见。',
 ]
 
-const KEY_PLACEHOLDER = '<admin key——speclock init 打印的那一把>'
-
+// 只放 key 文件名，不放 key 本身；admin key 不进任何 Agent 的配置。
+// 最准确的版本由 `speclock key create` 直接打印（含 Python 绝对路径和 SPECLOCK_HOME）。
 const configJson = computed(() =>
   JSON.stringify(
     {
       mcpServers: {
         speclock: {
           command: 'speclock',
-          args: ['mcp'],
+          args: ['mcp', '--key-file', '<你的 key 文件名，如 tester-agent--qa.key>'],
           env: {
-            SPECLOCK_URL: window.location.origin,
-            SPECLOCK_KEY: KEY_PLACEHOLDER,
+            SPECLOCK_HOME: '<.speclock 目录的绝对路径>',
           },
         },
       },
@@ -87,7 +90,7 @@ SpecLock 装在这台电脑上（\`pip install -e .\` 之后有 \`speclock\` 命
 
 ## 2. 写入 MCP 配置
 
-把下面的 JSON 合并到项目根目录的 \`.mcp.json\`（若已有 \`mcpServers\` 字段，只合并其中 \`speclock\` 一项），然后重启你的客户端使配置生效。MCP server 以 stdio 方式启动。
+你需要一把**你自己角色**的 key。它由用户用 \`speclock key create --role <你的角色>\` 创建，创建时会打印一段现成的配置（填好了 key 文件名和 \`SPECLOCK_HOME\`）——向用户要这段配置。形状如下，合并到你所在目录的 \`.mcp.json\`（若已有 \`mcpServers\`，只合并其中 \`speclock\` 一项），然后重启客户端。配置里只有 key 的**文件名**，不要把 key 本身写进去；**不要使用 admin key**。
 
 \`\`\`json
 ${configJson.value}
@@ -170,7 +173,10 @@ onMounted(load)
           MCP server 以 stdio 启动：<code>speclock mcp</code>。
         </p>
         <p class="step-text">
-          把 <code>SPECLOCK_KEY</code> 替换为 admin key（<code>speclock init</code> 打印的那一把；系统只存哈希，丢失找不回）。
+          每个 Agent 用<strong>它自己的</strong> key：在终端运行
+          <code>speclock key create --role requirements-agent --label 需求</code>，会直接打印这段配置（填好了 key 文件名和
+          <code>SPECLOCK_HOME</code>），照着贴就行。配置里只有 key 的文件名，没有 key 本身。
+          <strong>admin key 不要写进项目里的 <code>.mcp.json</code></strong>，同目录的 Agent 都读得到。
         </p>
         <pre class="config-pre mono">{{ configJson }}</pre>
         <button type="button" class="btn" @click="copyText(configJson, 'config')">
