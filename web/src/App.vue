@@ -17,6 +17,7 @@ const mainNav = [
   { to: '/tree', label: '文档树' },
   { to: '/change-requests', label: '审核单' },
   { to: '/work', label: '待办' },
+  { to: '/activity', label: '活动' },
   { to: '/archive', label: '归档' },
 ]
 

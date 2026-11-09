@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import not_, or_
 from sqlalchemy.orm import Session
 
 from speclock import permissions as perms
@@ -153,18 +155,61 @@ def list_archive(
     ]
 
 
+def _action_clause(spec: str):
+    """逗号分隔的动作列表；以 * 结尾的是前缀（``cr_*``），其余精确匹配。返回 OR 条件。"""
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    if not parts:
+        raise HTTPException(status_code=422, detail="action 不能为空")
+    clauses = [
+        AuditLog.action.like(p[:-1].replace("%", "") + "%") if p.endswith("*") else AuditLog.action == p
+        for p in parts
+    ]
+    return or_(*clauses)
+
+
+def _parse_time(name: str, value: str) -> datetime:
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{name} 不是合法的时间（ISO 格式）") from exc
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)  # 库里存的是 UTC 无时区
+    return dt
+
+
 @router.get("/activity")
 def list_activity(
     limit: int = Query(default=50, ge=1, le=500),
     actor_prefix: str | None = None,
+    actor: str | None = Query(default=None, description="按 key 的 hint 精确过滤"),
+    action: str | None = Query(default=None, description="只看这些动作，逗号分隔，以 * 结尾为前缀，如 cr_*,commit"),
+    exclude_action: str | None = Query(default=None, description="排除这些动作，写法同 action，如 pull"),
+    target_prefix: str | None = Query(default=None, description="对象前缀，如 block:3 或 cr:5"),
+    since: str | None = Query(default=None, description="起始时间（含），ISO 格式"),
+    until: str | None = Query(default=None, description="截止时间（不含），ISO 格式"),
+    before_id: int | None = Query(default=None, description="游标：只取 id 小于它的（加载更多）"),
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("audit.read")),
 ):
-    """最近审计日志（新的在前）。actor_prefix 可按 key 前缀过滤
-    （如 ``agent`` 只看 AI 活动，供 SPA 的 AI 接入页使用）。"""
+    """审计日志（新的在前，按 id 倒序）。所有筛选条件可以组合；翻页用 ``before_id``
+    （传上一页最后一条的 id）。actor_prefix 可按 key 前缀过滤（如 ``agent`` 只看 AI 活动）。"""
     q = db.query(AuditLog)
     if actor_prefix:
         q = q.filter(AuditLog.actor.like(f"{actor_prefix}%"))
+    if actor:
+        q = q.filter(AuditLog.actor == actor)
+    if action:
+        q = q.filter(_action_clause(action))
+    if exclude_action:
+        q = q.filter(not_(_action_clause(exclude_action)))
+    if target_prefix:
+        q = q.filter(AuditLog.target.like(target_prefix.replace("%", "") + "%"))
+    if since:
+        q = q.filter(AuditLog.created_at >= _parse_time("since", since))
+    if until:
+        q = q.filter(AuditLog.created_at < _parse_time("until", until))
+    if before_id is not None:
+        q = q.filter(AuditLog.id < before_id)
     return [
         {
             "id": a.id,

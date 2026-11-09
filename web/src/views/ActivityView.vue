@@ -1,0 +1,244 @@
+<script setup>
+/**
+ * ActivityView（/activity）—— 活动时间线：谁在什么时候做了什么。
+ * 按天分组；可按类别 / 谁 / 时间范围 / 对象筛选（筛选条件写在地址栏，可以分享）；
+ * 默认不含「读取」（读取占了日志的绝大部分）；「加载更多」按游标翻页。
+ */
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { resources } from '../api/resources.js'
+import { useKeyNames } from '../api/keyNames.js'
+import { useAsync } from '../composables/useAsync.js'
+import { errText } from '../errors.js'
+import { CATEGORIES, RANGES, activityParams, groupByDay, parseTarget } from '../activity.js'
+import PageHeader from '../components/PageHeader.vue'
+import AsyncState from '../components/AsyncState.vue'
+import ActivityItem from '../components/ActivityItem.vue'
+
+const PAGE = 50
+const route = useRoute()
+const router = useRouter()
+const { keyName } = useKeyNames()
+
+const q = (name) => (typeof route.query[name] === 'string' ? route.query[name] : '')
+const category = ref(q('cat'))
+const actor = ref(q('actor'))
+const range = ref(q('range'))
+const target = ref(q('target'))
+
+// 地址栏变化（例如从别的页面带着 ?target=… 跳过来）时，同步到筛选条件
+watch(
+  () => route.query,
+  () => {
+    category.value = q('cat')
+    actor.value = q('actor')
+    range.value = q('range')
+    target.value = q('target')
+  },
+)
+
+// 筛选条件同步到地址栏（replace，不污染历史）
+watch([category, actor, range, target], ([c, a, r, t]) => {
+  router.replace({ query: { cat: c || undefined, actor: a || undefined, range: r || undefined, target: t || undefined } })
+})
+
+const extra = ref([])
+const hasMore = ref(false)
+const loadingMore = ref(false)
+const moreError = ref('')
+
+const { data, loading, error, reload } = useAsync(
+  async () => {
+    extra.value = []
+    moreError.value = ''
+    const page = await resources.activity(activityParams({ category: category.value, actor: actor.value, range: range.value, target: target.value, limit: PAGE }))
+    hasMore.value = page.length >= PAGE
+    return page
+  },
+  { watch: [category, actor, range, target] },
+)
+
+const items = computed(() => [...(data.value || []), ...extra.value])
+const groups = computed(() => groupByDay(items.value))
+
+async function loadMore() {
+  const last = items.value.at(-1)
+  if (!last) return
+  loadingMore.value = true
+  moreError.value = ''
+  try {
+    const page = await resources.activity(
+      activityParams({ category: category.value, actor: actor.value, range: range.value, target: target.value, beforeId: last.id, limit: PAGE }),
+    )
+    extra.value = [...extra.value, ...page]
+    hasMore.value = page.length >= PAGE
+  } catch (e) {
+    moreError.value = errText(e)
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+// 「谁」的候选：有 key.manage 权限时用完整的 key 列表，否则退回到当前已加载记录里出现过的
+const keys = ref([])
+resources
+  .keys()
+  .then((list) => (keys.value = list))
+  .catch(() => {})
+
+const actorOptions = computed(() => {
+  const seen = new Map()
+  for (const k of keys.value) seen.set(k.hint, keyName(k.hint))
+  for (const a of items.value) if (!seen.has(a.actor)) seen.set(a.actor, keyName(a.actor))
+  if (actor.value && !seen.has(actor.value)) seen.set(actor.value, keyName(actor.value))
+  return [...seen.entries()].map(([hint, name]) => ({ hint, name }))
+})
+
+const targetText = computed(() => (target.value ? parseTarget(target.value).text : ''))
+const hasFilter = computed(() => category.value || actor.value || range.value || target.value)
+
+function clearFilters() {
+  category.value = ''
+  actor.value = ''
+  range.value = ''
+  target.value = ''
+}
+</script>
+
+<template>
+  <div class="page activity-page">
+    <PageHeader
+      eyebrow="Activity"
+      title="活动"
+      desc="谁在什么时候做了什么：审核单流转、提交、任务进展、密钥变更。默认不含「读取」。"
+    />
+
+    <div class="filters card">
+      <label class="f">
+        <span class="f-label muted">类别</span>
+        <select v-model="category" class="input">
+          <option v-for="c in CATEGORIES" :key="c.key" :value="c.key">{{ c.label }}</option>
+        </select>
+      </label>
+      <label class="f">
+        <span class="f-label muted">谁</span>
+        <select v-model="actor" class="input">
+          <option value="">所有人</option>
+          <option v-for="o in actorOptions" :key="o.hint" :value="o.hint">{{ o.name }}</option>
+        </select>
+      </label>
+      <label class="f">
+        <span class="f-label muted">时间</span>
+        <select v-model="range" class="input">
+          <option v-for="r in RANGES" :key="r.key" :value="r.key">{{ r.label }}</option>
+        </select>
+      </label>
+      <span v-if="target" class="chip">
+        对象：{{ targetText }}
+        <button type="button" class="chip-x" aria-label="取消对象筛选" @click="target = ''">×</button>
+      </span>
+      <button v-if="hasFilter" type="button" class="btn btn-mini" @click="clearFilters">清除筛选</button>
+    </div>
+
+    <AsyncState
+      :loading="loading"
+      :error="error"
+      :empty="!items.length"
+      :empty-title="hasFilter ? '没有符合条件的活动' : '还没有活动记录'"
+      :empty-text="hasFilter ? '换个筛选条件试试，或清除筛选。' : 'Agent 通过 MCP 或接口做的事情都会记在这里。'"
+      @retry="reload"
+    >
+      <section v-for="g in groups" :key="g.key" class="day">
+        <h2 class="day-title">{{ g.label }}<span class="muted day-count">{{ g.items.length }} 条</span></h2>
+        <div class="card day-card">
+          <ul>
+            <ActivityItem v-for="a in g.items" :key="a.id" :item="a" expandable />
+          </ul>
+        </div>
+      </section>
+
+      <p v-if="moreError" class="error-text more-error" role="alert">{{ moreError }}</p>
+      <div v-if="hasMore" class="more">
+        <button type="button" class="btn" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? '加载中…' : '加载更多' }}
+        </button>
+      </div>
+      <p v-else-if="items.length" class="end muted">已经到底了，共 {{ items.length }} 条。</p>
+    </AsyncState>
+  </div>
+</template>
+
+<style scoped>
+.filters {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.f {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+}
+
+.f-label {
+  font-size: var(--text-xs);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 3px var(--sp-3);
+  border: 1px solid var(--contract);
+  border-radius: 999px;
+  background: var(--contract-wash);
+  color: var(--contract);
+  font-size: var(--text-sm);
+}
+
+.chip-x {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.day {
+  margin-top: var(--sp-5);
+}
+
+.day-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin-bottom: var(--sp-2);
+}
+
+.day-count {
+  margin-left: var(--sp-2);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.day-card {
+  padding: var(--sp-1) var(--sp-5);
+}
+
+.more,
+.end {
+  margin-top: var(--sp-5);
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.more-error {
+  margin-top: var(--sp-3);
+}
+</style>

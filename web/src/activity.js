@@ -7,6 +7,7 @@
  */
 
 import { ACTIONS, label } from './labels.js'
+import { parseTs } from './time.js'
 
 export function parseTarget(target) {
   const t = String(target || '')
@@ -60,4 +61,68 @@ export function actionLabel(item) {
 /** 读取类动作（pull）占了日志的绝大部分，默认不展示 */
 export function isRead(item) {
   return item?.action === 'pull'
+}
+
+/** 类别筛选：对应后端 /activity 的 action / exclude_action 参数 */
+export const CATEGORIES = [
+  { key: '', label: '全部（不含读取）', params: { exclude_action: 'pull' } },
+  { key: 'cr', label: '审核单', params: { action: 'cr_*' } },
+  { key: 'commit', label: '提交与发布', params: { action: 'commit,publish,archive,restore,move' } },
+  { key: 'exec', label: '任务', params: { action: 'exec_*' } },
+  { key: 'admin', label: '密钥、角色、项目', params: { action: 'key_*,role_*,project_*,rename,delete' } },
+  { key: 'read', label: '读取', params: { action: 'pull' } },
+]
+
+/** 时间范围筛选 */
+export const RANGES = [
+  { key: '', label: '全部时间' },
+  { key: 'today', label: '今天' },
+  { key: '7d', label: '最近 7 天' },
+  { key: '30d', label: '最近 30 天' },
+]
+
+function sinceOf(range, now) {
+  const d = new Date(now)
+  if (range === 'today') {
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString()
+  }
+  const days = { '7d': 7, '30d': 30 }[range]
+  return days ? new Date(now - days * 24 * 3600 * 1000).toISOString() : ''
+}
+
+/** 把页面上的筛选条件变成 /activity 的查询参数 */
+export function activityParams({ category = '', actor = '', range = '', target = '', beforeId = null, limit = 50 } = {}, now = Date.now()) {
+  const cat = CATEGORIES.find((c) => c.key === category) || CATEGORIES[0]
+  return {
+    ...cat.params,
+    actor,
+    target_prefix: target,
+    since: sinceOf(range, now),
+    before_id: beforeId,
+    limit,
+  }
+}
+
+function dayKey(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** 按本地日期分组（保持原有顺序）：今天 / 昨天 / 日期 */
+export function groupByDay(items, now = Date.now()) {
+  const today = dayKey(new Date(now))
+  const yesterday = dayKey(new Date(now - 24 * 3600 * 1000))
+  const groups = []
+  for (const item of items) {
+    const t = parseTs(item.created_at)
+    const key = t ? dayKey(t) : '未知时间'
+    let g = groups.at(-1)
+    if (!g || g.key !== key) {
+      g = { key, label: key === today ? '今天' : key === yesterday ? '昨天' : key, items: [] }
+      groups.push(g)
+    }
+    g.items.push(item)
+  }
+  return groups
 }

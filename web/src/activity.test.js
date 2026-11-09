@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actionLabel, activityNote, isRead, parseTarget } from './activity.js'
+import { CATEGORIES, RANGES, actionLabel, activityNote, activityParams, groupByDay, isRead, parseTarget } from './activity.js'
 
 describe('parseTarget', () => {
   it('审核单与 Commit', () => {
@@ -75,5 +75,66 @@ describe('isRead', () => {
   it('只有 pull 算读取', () => {
     expect(isRead({ action: 'pull' })).toBe(true)
     expect(isRead({ action: 'publish' })).toBe(false)
+  })
+})
+
+describe('activityParams', () => {
+  const NOW = Date.parse('2026-11-09T12:00:00Z')
+
+  it('默认：排除读取，每页 50 条', () => {
+    expect(activityParams({}, NOW)).toMatchObject({ exclude_action: 'pull', limit: 50, actor: '', target_prefix: '', since: '', before_id: null })
+  })
+
+  it('类别对应后端的 action 参数', () => {
+    expect(activityParams({ category: 'cr' }, NOW).action).toBe('cr_*')
+    expect(activityParams({ category: 'exec' }, NOW).action).toBe('exec_*')
+    expect(activityParams({ category: 'read' }, NOW).action).toBe('pull')
+    expect(activityParams({ category: 'read' }, NOW).exclude_action).toBeUndefined()
+    expect(activityParams({ category: '不存在' }, NOW).exclude_action).toBe('pull')
+  })
+
+  it('时间范围：最近 N 天 / 今天（本地零点）', () => {
+    expect(activityParams({ range: '7d' }, NOW).since).toBe(new Date(NOW - 7 * 24 * 3600 * 1000).toISOString())
+    expect(activityParams({ range: '30d' }, NOW).since).toBe(new Date(NOW - 30 * 24 * 3600 * 1000).toISOString())
+    const today = new Date(activityParams({ range: 'today' }, NOW).since)
+    expect([today.getHours(), today.getMinutes(), today.getSeconds()]).toEqual([0, 0, 0])
+    expect(activityParams({ range: '' }, NOW).since).toBe('')
+  })
+
+  it('谁、对象、游标、页大小原样带上', () => {
+    expect(activityParams({ actor: 'agent-…1a2b', target: 'block:3', beforeId: 120, limit: 20 }, NOW)).toMatchObject({
+      actor: 'agent-…1a2b',
+      target_prefix: 'block:3',
+      before_id: 120,
+      limit: 20,
+    })
+  })
+
+  it('类别与时间范围都有「全部」选项', () => {
+    expect(CATEGORIES[0].key).toBe('')
+    expect(RANGES[0].key).toBe('')
+  })
+})
+
+describe('groupByDay', () => {
+  const at = (y, mo, d, h) => new Date(y, mo - 1, d, h, 0, 0).toISOString().replace('Z', '')
+  const NOW = new Date(2026, 10, 9, 15, 0, 0).getTime() // 本地 2026-11-09 15:00
+
+  it('今天 / 昨天 / 具体日期，保持原有顺序', () => {
+    const items = [
+      { id: 5, created_at: at(2026, 11, 9, 14) },
+      { id: 4, created_at: at(2026, 11, 9, 9) },
+      { id: 3, created_at: at(2026, 11, 8, 20) },
+      { id: 2, created_at: at(2026, 11, 5, 8) },
+      { id: 1, created_at: at(2026, 11, 5, 7) },
+    ]
+    const g = groupByDay(items, NOW)
+    expect(g.map((x) => x.label)).toEqual(['今天', '昨天', '2026-11-05'])
+    expect(g.map((x) => x.items.map((i) => i.id))).toEqual([[5, 4], [3], [2, 1]])
+  })
+
+  it('空列表返回空数组；缺时间的归到「未知时间」', () => {
+    expect(groupByDay([], NOW)).toEqual([])
+    expect(groupByDay([{ id: 1 }], NOW)[0].label).toBe('未知时间')
   })
 })

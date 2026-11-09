@@ -10,6 +10,7 @@ import BlockDiffView from './views/BlockDiffView.vue'
 import CRListView from './views/CRListView.vue'
 import CRDetailView from './views/CRDetailView.vue'
 import WorkView from './views/WorkView.vue'
+import ActivityView from './views/ActivityView.vue'
 import ArchiveView from './views/ArchiveView.vue'
 import McpView from './views/McpView.vue'
 
@@ -53,6 +54,7 @@ const routes = [
     meta: { title: '审核单详情' },
   },
   { path: '/work', name: 'work', component: WorkView, meta: { title: '待办' } },
+  { path: '/activity', name: 'activity', component: ActivityView, meta: { title: '活动' } },
   {
     path: '/archive',
     name: 'archive',

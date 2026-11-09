@@ -8,10 +8,17 @@ import { actionLabel, activityNote, parseTarget } from '../activity.js'
 import KeyChip from './KeyChip.vue'
 import TimeAgo from './TimeAgo.vue'
 
-const props = defineProps({ item: { type: Object, required: true } })
+const props = defineProps({
+  item: { type: Object, required: true },
+  expandable: { type: Boolean, default: false },
+})
 
 const target = computed(() => parseTarget(props.item.target))
 const note = computed(() => activityNote(props.item))
+const detailText = computed(() => {
+  const d = props.item.detail || {}
+  return Object.keys(d).length ? JSON.stringify(d, null, 2) : ''
+})
 </script>
 
 <template>
@@ -24,6 +31,10 @@ const note = computed(() => activityNote(props.item))
       <TimeAgo class="act-time muted" :value="item.created_at" />
     </div>
     <p v-if="note" class="act-note muted">{{ note }}</p>
+    <details v-if="expandable && detailText" class="act-detail">
+      <summary class="muted">详细内容</summary>
+      <pre class="mono">{{ detailText }}</pre>
+    </details>
   </li>
 </template>
 
@@ -61,6 +72,23 @@ const note = computed(() => activityNote(props.item))
 .act-note {
   margin-top: 2px;
   font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.act-detail {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+}
+
+.act-detail summary {
+  cursor: pointer;
+}
+
+.act-detail pre {
+  margin: var(--sp-1) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 </style>
