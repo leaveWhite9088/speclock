@@ -25,6 +25,7 @@ from speclock.auth import audit
 from speclock.commits import apply_commit
 from speclock.db import get_db
 from speclock.models import ApiKey, ChangeRequest, Commit, Project, utcnow
+from speclock import permissions as perms
 from speclock.permissions import require_permission
 from speclock.schemas import CRApprove, CRCreate, CRReject, CRUpdate, CommitCreate
 
@@ -44,6 +45,8 @@ def content_hash(cr: ChangeRequest) -> str:
         "acceptance": json.loads(cr.acceptance_json or "[]"),
         "impact_note": cr.impact_note,
         "supersedes_id": cr.supersedes_id,
+        "kind": cr.kind,
+        "kind_reason": cr.kind_reason,
     }
     blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
@@ -95,6 +98,8 @@ def cr_out(cr: ChangeRequest, detail: bool = True) -> dict:
         "obsolete": json.loads(cr.obsolete_json or "[]"),
         "acceptance": acceptance,
         "impact_note": cr.impact_note,
+        "kind": cr.kind,
+        "kind_reason": cr.kind_reason,
         "status": cr.status,
         "content_hash": cr.content_hash,
         "supersedes_id": cr.supersedes_id,
@@ -149,6 +154,27 @@ def _check_supersedes(db: Session, project_id: int, supersedes_id: int | None, s
         )
 
 
+def _require_internal_permission(key: ApiKey) -> None:
+    if "cr.internal" not in perms.role_permissions(key.role):
+        raise HTTPException(
+            status_code=403,
+            detail="当前密钥的角色缺少权限：cr.internal（开「内部整理」类审核单需要）",
+        )
+
+
+def _require_owner(cr: ChangeRequest, key: ApiKey) -> None:
+    """草稿只有开单的那把 key（或拥有 key.manage 的管理员）能改、撤回、提交，
+    避免多个 Agent 同时有 cr.write 时误改别人的草稿。"""
+    if cr.created_by == key.hint:
+        return
+    if "key.manage" in perms.role_permissions(key.role):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=f"这张审核单是 {cr.created_by} 开的，只有它（或管理员）能修改、提交或撤回",
+    )
+
+
 def _require_status(cr: ChangeRequest, *allowed: str) -> None:
     if cr.status not in allowed:
         raise HTTPException(
@@ -175,6 +201,8 @@ def create_cr(
     if not body.title.strip():
         raise HTTPException(status_code=422, detail="title 不能为空")
     _check_supersedes(db, project_id, body.supersedes_id, None)
+    if body.kind == "internal":
+        _require_internal_permission(key)
     cr = ChangeRequest(
         project_id=project_id,
         title=body.title.strip(),
@@ -184,6 +212,8 @@ def create_cr(
         acceptance_json=json.dumps(_clean_acceptance(body.acceptance), ensure_ascii=False),
         impact_note=body.impact_note,
         supersedes_id=body.supersedes_id,
+        kind=body.kind,
+        kind_reason=body.kind_reason.strip(),
         created_by=key.hint,
     )
     db.add(cr)
@@ -229,6 +259,7 @@ def update_cr(
     key: ApiKey = Depends(require_permission("cr.write")),
 ):
     cr = _get_cr(db, key, cr_id)
+    _require_owner(cr, key)
     _require_status(cr, "draft")  # 提交起内容冻结；想改先撤回
     changed: list[str] = []
     for field in ("title", "intent", "expected_outcome", "impact_note"):
@@ -248,6 +279,14 @@ def update_cr(
         _check_supersedes(db, cr.project_id, body.supersedes_id, cr.id)
         cr.supersedes_id = body.supersedes_id
         changed.append("supersedes_id")
+    if body.kind is not None:
+        if body.kind == "internal":
+            _require_internal_permission(key)
+        cr.kind = body.kind
+        changed.append("kind")
+    if body.kind_reason is not None:
+        cr.kind_reason = body.kind_reason.strip()
+        changed.append("kind_reason")
     audit(db, key.hint, "cr_update", f"cr:{cr.id}", {"fields": changed})
     db.commit()
     return cr_out(cr)
@@ -263,6 +302,7 @@ def submit_cr(
     key: ApiKey = Depends(require_permission("cr.write")),
 ):
     cr = _get_cr(db, key, cr_id)
+    _require_owner(cr, key)
     _require_status(cr, "draft")
     missing = []
     if not cr.intent.strip():
@@ -275,11 +315,33 @@ def submit_cr(
         raise HTTPException(
             status_code=422, detail={"error": "审核单不完整，不能提交", "missing": missing}
         )
+    if cr.kind == "internal":
+        _require_internal_permission(key)
+        if not cr.kind_reason.strip():
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "审核单不完整，不能提交",
+                        "missing": ["内部整理必须在 kind_reason 里写明：为什么这不算业务变更"]},
+            )
+        if cr.supersedes_id is not None:
+            raise HTTPException(status_code=422, detail="内部整理不能取代其他审核单")
     _check_supersedes(db, cr.project_id, cr.supersedes_id, cr.id)
     cr.status = "pending_review"
     cr.submitted_at = utcnow()
     cr.content_hash = content_hash(cr)
     audit(db, key.hint, "cr_submit", f"cr:{cr.id}", {"content_hash": cr.content_hash})
+    if cr.kind == "internal":
+        # 内部整理：Agent 自行判定，提交即生效，不经人批准；留痕并在 Commit 时由 Core
+        # 机械检查「规则 / 验收条件 / API 的条目总和不变」
+        cr.status = "approved"
+        cr.decided_by = key.hint
+        cr.decided_at = utcnow()
+        cr.decision_via = "agent_declared"
+        cr.decision_evidence = cr.kind_reason
+        cr.decision_note = "内部整理：由 Agent 自行判定不改变业务内容，未经人批准"
+        audit(db, key.hint, "cr_approve", f"cr:{cr.id}",
+              {"via": "agent_declared", "kind": "internal", "reason": cr.kind_reason,
+               "content_hash": cr.content_hash})
     db.commit()
     return cr_out(cr)
 
@@ -292,6 +354,7 @@ def withdraw_cr(
 ):
     """撤回待审核的审核单回到草稿（内容解冻，之前的哈希作废）。"""
     cr = _get_cr(db, key, cr_id)
+    _require_owner(cr, key)
     _require_status(cr, "pending_review")
     cr.status = "draft"
     cr.submitted_at = None

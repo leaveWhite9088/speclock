@@ -88,6 +88,9 @@ class CRCreate(BaseModel):
     acceptance: list[ItemEntry] = []  # 验收条件（id 形如 AC-n，缺省由服务端分配）
     impact_note: str = ""  # 影响说明（需求 Agent 写给人看）
     supersedes_id: int | None = None  # 取代一个已批准但未完成的审核单
+    # business（默认，须人批准）| internal（内部整理，须有 cr.internal 权限，提交即生效）
+    kind: str = Field(default="business", pattern="^(business|internal)$")
+    kind_reason: str = ""  # internal 必填：为什么这不算业务变更
 
 
 class CRUpdate(BaseModel):
@@ -100,6 +103,8 @@ class CRUpdate(BaseModel):
     acceptance: list[ItemEntry] | None = None
     impact_note: str | None = None
     supersedes_id: int | None = None
+    kind: str | None = Field(default=None, pattern="^(business|internal)$")
+    kind_reason: str | None = None
 
 
 class CRApprove(BaseModel):

@@ -16,6 +16,8 @@ ops（``op`` 字段）：
                            rules? | rule_ops?, apis? | api_ops?, acceptance? | acceptance_ops?}
 - ``archive_block``       {id}
 - ``restore_block``       {id}
+- ``move_block``          {id, capability}   把已发布模块搬到同项目的另一个小业务（模块的身份、
+                          历史版本、执行记录都保留，不产生新的模块版本；两个小业务各派生一个版本）
 
 引用：同一 Commit 里先建的对象可以起 ``ref`` 名，后面的 op 用 ``"$名"`` 引用其 id；
 已有对象用整数 id。所有对象必须属于审核单所在项目，否则 404。
@@ -33,6 +35,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -68,6 +71,7 @@ OP_KEYS = {
                      "acceptance", "rule_ops", "api_ops", "acceptance_ops"},
     "archive_block": {"op", "id"},
     "restore_block": {"op", "id"},
+    "move_block": {"op", "id", "capability"},
 }
 
 
@@ -224,6 +228,7 @@ class _Ctx:
         self.touched: dict[int, dict] = {}  # block_id -> {block, created}
         self.archived: dict[int, Block] = {}
         self.restored: dict[int, Block] = {}
+        self.moved: dict[int, tuple[int, Block]] = {}  # block_id -> (原小业务 id, block)
 
     # --- 引用解析 ---
 
@@ -439,6 +444,24 @@ def _op_restore_block(ctx: _Ctx, op: dict) -> None:
     ctx.restored[block.id] = block
 
 
+def _op_move_block(ctx: _Ctx, op: dict) -> None:
+    block = ctx.block(op.get("id"))
+    target = ctx.capability(op.get("capability"))
+    if block.status != "published":
+        raise HTTPException(
+            status_code=409, detail=f"模块 {block.id} 当前是 {block.status}，只有已发布模块能搬动"
+        )
+    if block.id in ctx.archived:
+        raise HTTPException(status_code=409, detail=f"模块 {block.id} 在本 Commit 中已被归档")
+    if block.id in ctx.moved:
+        raise HTTPException(status_code=409, detail=f"模块 {block.id} 在本 Commit 中已被搬动过")
+    if block.capability_id == target.id:
+        raise _422(f"模块 {block.id} 已经在小业务 {target.id} 下，无需搬动")
+    ctx.moved[block.id] = (block.capability_id, block)
+    block.capability_id = target.id
+    ctx.db.flush()
+
+
 HANDLERS = {
     "create_business": _op_create_business,
     "update_business": _op_update_business,
@@ -448,6 +471,7 @@ HANDLERS = {
     "update_block": _op_update_block,
     "archive_block": _op_archive_block,
     "restore_block": _op_restore_block,
+    "move_block": _op_move_block,
 }
 
 
@@ -487,6 +511,66 @@ def _wrap(i: int, op: dict, exc: HTTPException) -> HTTPException:
     return exc
 
 
+def _entry_key(kind: str, entry: dict) -> tuple:
+    """条目的规范形式（忽略编号，只看内容），用来比较「条目总和」是否不变。"""
+    clean = {k: v for k, v in entry.items() if k != "id"}
+    return (kind, json.dumps(clean, ensure_ascii=False, sort_keys=True))
+
+
+def content_signature(db: Session, project_id: int, extra_block_ids=()) -> Counter:
+    """项目里「在线」模块的规则 / 验收条件 / API 条目的总和（多重集合）。
+    在线 = 已发布且未归档，或 extra_block_ids 里的（本 Commit 刚新建、尚未发布的模块）。"""
+    sig: Counter = Counter()
+    blocks = (
+        db.query(Block)
+        .join(Capability, Capability.id == Block.capability_id)
+        .join(Business, Business.id == Capability.business_id)
+        .filter(Business.project_id == project_id)
+        .all()
+    )
+    for b in blocks:
+        if b.status != "published" and b.id not in extra_block_ids:
+            continue
+        for kind, raw in (("rule", b.draft_rules_json), ("ac", b.draft_acceptance_json),
+                          ("api", b.draft_apis_json)):
+            entries = json.loads(raw or "[]")
+            if kind == "api":  # 先规范化，避免默认值 / 字段顺序造成假差异
+                try:
+                    entries = diffing.validate_apis(entries, require_desc=False)
+                except diffing.ApisValidationError:
+                    pass
+            for entry in entries:
+                sig[_entry_key(kind, entry)] += 1
+    return sig
+
+
+def _describe(key: tuple) -> str:
+    kind, blob = key
+    entry = json.loads(blob)
+    label = {"rule": "规则", "ac": "验收条件", "api": "API"}[kind]
+    return f"{label}「{entry.get('name') or entry.get('api') or ''}」"
+
+
+def check_internal_unchanged(before: Counter, after: Counter) -> None:
+    """内部整理的机械兜底：规则 / 验收条件 / API 的条目总和必须和之前一模一样
+    （搬动、拆分、合并、改名都不影响总和；只要有一条被改、增、删就拒绝）。"""
+    added = after - before
+    removed = before - after
+    if not added and not removed:
+        return
+    def sample(c: Counter) -> list[str]:
+        return [_describe(k) for k in list(c)[:3]]
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error": "这个审核单声明是「内部整理」，但这批改动改变了业务内容"
+            "（规则 / 验收条件 / API 的条目总和变了）。请改开「业务变更」审核单让人批准",
+            "added_or_changed": sample(added),
+            "removed_or_changed": sample(removed),
+        },
+    )
+
+
 def apply_commit(
     db: Session,
     cr: ChangeRequest,
@@ -518,12 +602,16 @@ def apply_commit(
     try:
         db.flush()
         ctx = _Ctx(db, cr, commit, actor)
+        before = content_signature(db, cr.project_id) if cr.kind == "internal" else None
         for i, op in enumerate(ops, 1):
             try:
                 HANDLERS[op["op"]](ctx, op)
             except HTTPException as exc:
                 raise _wrap(i, op, exc) from exc
         db.flush()
+        if before is not None:
+            created = {bid for bid, info in ctx.touched.items() if info["created"]}
+            check_internal_unchanged(before, content_signature(db, cr.project_id, created))
 
         blocks_out = []
         cap_levels: dict[int, list[str]] = {}
@@ -558,6 +646,13 @@ def apply_commit(
                     "delta": result.delta.model_dump(),
                 }
             )
+        for old_cap_id, block in ctx.moved.values():
+            for cap_id in (old_cap_id, block.capability_id):
+                cap_levels.setdefault(cap_id, []).append("minor")
+                cap_trigger.setdefault(cap_id, block)
+            audit(db, actor, "move", f"block:{block.id}",
+                  {"from_capability": old_cap_id, "to_capability": block.capability_id,
+                   "cr_id": cr.id, "commit_id": commit.id})
         for block in [*ctx.archived.values(), *ctx.restored.values()]:
             cap_levels.setdefault(block.capability_id, []).append("minor")
             cap_trigger.setdefault(block.capability_id, block)
@@ -572,7 +667,8 @@ def apply_commit(
             level = max(levels, key=lambda lv: LEVEL_RANK[lv])
             first = db.get(Capability, cap_id).current_version is None
             version = derive_capability_version(
-                db, cap_trigger[cap_id], level, actor, note, cr_id=cr.id, commit_id=commit.id
+                db, cap_trigger[cap_id], level, actor, note, cr_id=cr.id, commit_id=commit.id,
+                capability_id=cap_id,
             )
             # 小业务级别只有 initial（首个版本）/ major / minor / patch
             reported = "initial" if first else ("minor" if level == "initial" else level)
@@ -583,6 +679,7 @@ def apply_commit(
             "blocks": blocks_out,
             "archived_blocks": sorted(ctx.archived),
             "restored_blocks": sorted(ctx.restored),
+            "moved_blocks": sorted(ctx.moved),
             "capability_versions": cap_versions,
         }
         commit.result_json = json.dumps(outcome, ensure_ascii=False)

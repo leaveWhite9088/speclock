@@ -45,6 +45,7 @@ const VIA_TEXT = {
   cli: '命令行',
   natural_language: '对话中明确表态',
   api: '接口',
+  agent_declared: 'Agent 自行判定（内部整理，未经人批准）',
 }
 
 const covered = computed(() => new Set(cr.value?.coverage?.covered || []))
@@ -84,6 +85,9 @@ function capRows(c) {
         <h1 class="page-title">{{ cr.title }}</h1>
         <span class="mono muted">#{{ cr.id }}</span>
         <CRStatusBadge :status="cr.status" />
+        <span v-if="cr.kind === 'internal'" class="kind-tag" title="由 Agent 自行判定不改变业务内容，提交即生效">
+          内部整理
+        </span>
       </div>
       <p class="muted meta">
         {{ keyName(cr.created_by) }} 创建于 {{ fmtTime(cr.created_at) }}
@@ -96,6 +100,13 @@ function capRows(c) {
         看完下面的内容后，直接告诉 Agent “同意”或“驳回，因为……”即可。
         <span class="muted">内容哈希（Agent 批准时会带上）：</span>
         <code class="mono">{{ cr.content_hash.slice(0, 12) }}…</code>
+      </div>
+
+      <div v-if="cr.kind === 'internal'" class="card notice">
+        <strong>这是一张「内部整理」单：</strong>
+        由 Agent 自行判定不改变业务内容，提交即生效，没有经过你批准。系统会在落地时检查
+        规则、验收条件、API 的条目总和是否一字未变，变了会拒绝。
+        <template v-if="cr.kind_reason">Agent 的理由：<em>{{ cr.kind_reason }}</em></template>
       </div>
 
       <p v-if="cr.supersedes_id" class="muted">
@@ -160,7 +171,7 @@ function capRows(c) {
       </section>
 
       <section v-if="decided || cr.status === 'rejected'" class="card sec">
-        <h2 class="sec-title">{{ cr.status === 'rejected' ? '驳回记录' : '批准记录' }}</h2>
+        <h2 class="sec-title">{{ cr.status === 'rejected' ? '驳回记录' : cr.kind === 'internal' ? '生效记录' : '批准记录' }}</h2>
         <p class="meta-line">
           {{ keyName(cr.decided_by) }} · {{ fmtTime(cr.decided_at) }} · 方式：{{ VIA_TEXT[cr.decision_via] || cr.decision_via }}
         </p>
@@ -348,5 +359,14 @@ function capRows(c) {
   background: var(--paper);
   border-radius: var(--radius);
   font-size: var(--text-xs, 12px);
+}
+.kind-tag {
+  font-size: var(--text-xs);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 7%, var(--card));
+  white-space: nowrap;
 }
 </style>

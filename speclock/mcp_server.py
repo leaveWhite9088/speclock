@@ -340,7 +340,16 @@ def get_change_request(cr_id: int) -> str:
     "human about what this affects). WRITING STYLE: the human reads all of these — write "
     "natural, fluent Chinese like explaining to a colleague, no spec-speak. project_id is "
     "optional when your key is bound to a project. supersedes_id replaces an earlier "
-    "APPROVED-but-unfinished request when this one is approved. Requires cr.write."
+    "APPROVED-but-unfinished request when this one is approved. kind: 'business' "
+    "(default — a human must approve it) or 'internal' (a pure reorganisation that does "
+    "NOT change business content: rename, move a module to another capability, split or "
+    "merge modules while every rule / acceptance item / API entry stays word for word). "
+    "YOU judge which one it is; for 'internal' kind_reason must say why it is not a "
+    "business change, and it needs the cr.internal permission. An internal request takes "
+    "effect the moment you submit it (no human approval, but it is audited and shown to "
+    "the human as 'decided by the agent'), and the server rejects its Commit if the "
+    "total set of rules / acceptance items / APIs changed in any way — then open a "
+    "business request instead. When in doubt choose 'business'. Requires cr.write."
 ))
 def create_change_request(
     title: str,
@@ -351,8 +360,12 @@ def create_change_request(
     impact_note: str = "",
     project_id: int | None = None,
     supersedes_id: int | None = None,
+    kind: str = "business",
+    kind_reason: str = "",
 ) -> str:
     body: dict = {
+        "kind": kind,
+        "kind_reason": kind_reason,
         "title": title,
         "intent": intent,
         "expected_outcome": expected_outcome,
@@ -382,8 +395,11 @@ def update_change_request(
     obsolete: list[str] | None = None,
     impact_note: str | None = None,
     supersedes_id: int | None = None,
+    kind: str | None = None,
+    kind_reason: str | None = None,
 ) -> str:
     body = {k: v for k, v in {
+        "kind": kind, "kind_reason": kind_reason,
         "title": title, "intent": intent, "expected_outcome": expected_outcome,
         "acceptance": acceptance, "obsolete": obsolete, "impact_note": impact_note,
         "supersedes_id": supersedes_id,
@@ -392,7 +408,9 @@ def update_change_request(
 
 
 @mcp.tool(description=(
-    "Submit a draft Change Request for human review (draft → pending_review). Its content "
+    "Submit a draft Change Request (draft → pending_review; only the key that created it, "
+    "or an admin, may edit / submit / withdraw a draft). An 'internal' request skips the "
+    "human and becomes approved immediately (see create_change_request). Its content "
     "is frozen and hashed; the human then approves or rejects it themselves — you cannot "
     "approve it on your own: show the human the content, wait for their explicit decision, "
     "then use approve_change_request / reject_change_request with their words. "
@@ -448,7 +466,9 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "acceptance item, every API with desc); update_block {id, title?, summary?, "
     "content_md?, and per list EITHER a full replacement (rules / apis / acceptance) OR "
     "incremental ops (rule_ops / api_ops / acceptance_ops)}; archive_block {id}; "
-    "restore_block {id}. Objects created earlier in the same commit can be referenced "
+    "restore_block {id}; move_block {id, capability} moves a published module under "
+    "another capability of the same project, keeping its identity, history and work "
+    "records. Objects created earlier in the same commit can be referenced "
     "wherever an id is expected: give the creating op a 'ref' name, then write that "
     "name WITH a '$' prefix as a plain string, e.g. create_business {name:'运营', "
     "ref:'biz'} then create_capability {business:'$biz', title:'日报', ref:'cap'} then "

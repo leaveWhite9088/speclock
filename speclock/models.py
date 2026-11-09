@@ -162,6 +162,10 @@ class ChangeRequest(Base):
     obsolete_json: Mapped[str] = mapped_column(Text, default="[]")  # 不再成立的旧认知 [str]
     acceptance_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, detail}]，AC-n
     impact_note: Mapped[str] = mapped_column(Text, default="")  # 需求 Agent 写给人看的影响说明
+    # 类型：business（业务变更，须人批准）| internal（内部整理，不改变业务内容，由需求 Agent
+    # 自行判定、提交即生效；Core 在 Commit 时机械检查规则 / 验收条件 / API 的条目总和不变）
+    kind: Mapped[str] = mapped_column(default="business")
+    kind_reason: Mapped[str] = mapped_column(Text, default="")  # internal 必填：为什么不算业务变更
     status: Mapped[str] = mapped_column(default="draft")
     content_hash: Mapped[str] = mapped_column(default="")  # 提交时冻结内容的哈希；批准须带上
     supersedes_id: Mapped[int | None] = mapped_column(
@@ -174,7 +178,7 @@ class ChangeRequest(Base):
     # 人的决定（批准 / 驳回）：谁、经由什么渠道、凭什么（自然语言批准留原话）
     decided_by: Mapped[str] = mapped_column(default="")
     decided_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    decision_via: Mapped[str] = mapped_column(default="")  # button|cli|natural_language|api
+    decision_via: Mapped[str] = mapped_column(default="")  # button|cli|natural_language|api|agent_declared
     decision_evidence: Mapped[str] = mapped_column(Text, default="")
     decision_note: Mapped[str] = mapped_column(Text, default="")  # 驳回理由 / 批准备注
     applied_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -280,6 +284,15 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     role: Mapped[Role | None] = relationship()
+
+
+class MigrationMark(Base):
+    """一次性数据迁移的完成标记（如给预置角色补新权限），保证每项只做一次。"""
+
+    __tablename__ = "migration_marks"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    done_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class AuditLog(Base):

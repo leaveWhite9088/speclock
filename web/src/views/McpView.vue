@@ -26,7 +26,7 @@ const TOOLS = [
   ['use_api_key', '在当前会话切换使用的 key（如刚创建的那把），不用重启客户端；传空切回配置里的'],
   ['list_change_requests', '列出审核单，可按状态过滤'],
   ['get_change_request', '读取审核单：状态、验收条件覆盖情况、人的决定、全部 Commit'],
-  ['create_change_request', '创建审核单草稿：只写业务意图（为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明）'],
+  ['create_change_request', '创建审核单草稿：只写业务意图（为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明）；kind=internal 表示不改业务内容的内部整理，Agent 自行判定、提交即生效，须写理由'],
   ['update_change_request', '编辑草稿审核单'],
   ['submit_change_request', '提交审核单给人确认（内容冻结并生成内容哈希）'],
   ['withdraw_change_request', '把待审核的审核单撤回成草稿'],

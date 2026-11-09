@@ -91,8 +91,9 @@ def test_role_permissions_are_editable_even_for_presets(env):
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
     scanner = make_key(env, "scanner-agent")
-    assert c.get("/api/v1/change-requests", headers=scanner).status_code == 403
     rid = _roles(env)["scanner-agent"]["id"]
+    c.put(f"/api/v1/roles/{rid}", headers=h, json={"permissions": ["spec.read"]})
+    assert c.get("/api/v1/change-requests", headers=scanner).status_code == 403
     r = c.put(f"/api/v1/roles/{rid}", headers=h, json={"permissions": ["spec.read", "cr.read"]})
     assert r.status_code == 200
     assert c.get("/api/v1/change-requests", headers=scanner).status_code == 200  # 立即生效

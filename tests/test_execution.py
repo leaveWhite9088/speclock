@@ -86,8 +86,8 @@ def test_unpublished_block_has_no_work(env):
 
 def test_work_requires_exec_read(env):
     publish_v1(env["client"], env["human"], env["block_id"])
-    scanner = make_key(env, "scanner-agent")
-    assert env["client"].get("/api/v1/work", headers=scanner).status_code == 403
+    reviewer = make_key(env, "reviewer")  # 审核人没有 exec.read
+    assert env["client"].get("/api/v1/work", headers=reviewer).status_code == 403
     assert env["client"].get("/api/v1/work").status_code == 401
 
 
@@ -391,11 +391,12 @@ def test_backfill_creates_missing_records_idempotently(env):
 
 
 def test_old_preset_role_gets_exec_permissions_on_upgrade(env):
-    from speclock.models import Role
+    from speclock.models import MigrationMark, Role
     from speclock.permissions import seed_roles
 
     db = SessionLocal()
     try:
+        db.query(MigrationMark).delete()  # 模拟还没做过这次迁移的老库
         role = db.query(Role).filter(Role.name == "executor-agent").one()
         role.permissions_json = json.dumps(["ack.write", "cr.read", "spec.read"])  # 旧版预置
         db.commit()

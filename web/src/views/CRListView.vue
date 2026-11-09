@@ -106,6 +106,7 @@ function when(r) {
             <td class="mono muted">#{{ r.id }}</td>
             <td>
               <RouterLink :to="`/change-requests/${r.id}`" class="cr-title">{{ r.title }}</RouterLink>
+              <span v-if="r.kind === 'internal'" class="kind-tag" title="内部整理：Agent 自行判定，提交即生效">内部整理</span>
             </td>
             <td><CRStatusBadge :status="r.status" /></td>
             <td class="mono">{{ coverage(r) }}</td>
@@ -185,5 +186,14 @@ function when(r) {
 
 .cr-title {
   font-weight: 500;
+}
+.kind-tag {
+  margin-left: var(--sp-2);
+  font-size: var(--text-xs);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 </style>

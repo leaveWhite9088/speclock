@@ -29,6 +29,7 @@ PERMISSIONS: dict[str, tuple[str, bool]] = {
     "cr.read": ("查看审核单与其 Commit", False),
     "cr.write": ("创建、编辑、提交、撤回审核单", False),
     "cr.approve": ("批准或驳回审核单（人的授权）", True),
+    "cr.internal": ("开「内部整理」类审核单：不改变业务内容的重组，提交即生效、不经人批准（Core 机械检查）", False),
     "commit.write": ("在已批准的审核单下提交 Commit，改写规格库", False),
     "audit.read": ("查看审计日志与回执看板", False),
     "project.manage": ("创建、重命名、删除项目", True),
@@ -45,7 +46,7 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
         "requirements-agent",
         "agent",
         "需求 Agent：整理审核单，并在审核单获批后写规格库",
-        ["spec.read", "cr.read", "cr.write", "commit.write", "exec.read"],
+        ["spec.read", "cr.read", "cr.write", "cr.internal", "commit.write", "exec.read"],
     ),
     (
         "executor-agent",
@@ -59,7 +60,12 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
         "测试 Agent：独立验收执行 Agent 提交的实现结果",
         ["spec.read", "cr.read", "exec.read", "exec.verify"],
     ),
-    ("scanner-agent", "agent", "扫描 Agent：只读规格", ["spec.read"]),
+    (
+        "scanner-agent",
+        "agent",
+        "扫描 Agent：通读规格找问题，只能提建议（和需求 Agent 讨论或请人确认），不能开审核单、不能改规格",
+        ["spec.read", "cr.read", "exec.read"],
+    ),
 ]
 
 # 旧版预置角色升级时补上的权限（只在该角色完全没有 exec.* 权限时补一次）
@@ -80,6 +86,16 @@ def validate_role(kind: str, permissions: list[str]) -> list[str]:
         if forbidden:
             raise ValueError(f"agent 类角色不能拥有人类专属权限：{'、'.join(forbidden)}")
     return sorted(set(permissions))
+
+
+def _once(db: Session, name: str) -> bool:
+    """一次性迁移标记：第一次调用返回 True 并写入标记，之后返回 False。"""
+    from speclock.models import MigrationMark
+
+    if db.get(MigrationMark, name) is not None:
+        return False
+    db.add(MigrationMark(name=name))
+    return True
 
 
 def seed_roles(db: Session) -> None:
@@ -103,14 +119,21 @@ def seed_roles(db: Session) -> None:
         kept = [p for p in have if p in PERMISSIONS]
         if kept != have:
             role.permissions_json = json.dumps(sorted(kept))
-    # 升级旧库：预置角色若还没有任何 exec.* 权限，补上预置里对应的那几条
-    for name, _kind, _desc, perms in PRESET_ROLES:
-        role = existing[name]
-        have = set(json.loads(role.permissions_json or "[]"))
-        if role.builtin and not (have & set(EXEC_PERMISSIONS)):
-            add = {p for p in perms if p in EXEC_PERMISSIONS}
-            if add:
-                role.permissions_json = json.dumps(sorted(have | add))
+    # 升级旧库：每项一次性迁移，用迁移标记表保证只做一次（管理员之后可以放心收回权限）
+    if _once(db, "exec_permissions"):
+        for name, _kind, _desc, perms in PRESET_ROLES:
+            role = existing[name]
+            have = set(json.loads(role.permissions_json or "[]"))
+            if role.builtin and not (have & set(EXEC_PERMISSIONS)):
+                add = {p for p in perms if p in EXEC_PERMISSIONS}
+                if add:
+                    role.permissions_json = json.dumps(sorted(have | add))
+    if _once(db, "cr_internal_permission"):
+        for name in ("admin", "requirements-agent"):
+            role = existing.get(name)
+            if role is not None and role.builtin:
+                have = set(json.loads(role.permissions_json or "[]"))
+                role.permissions_json = json.dumps(sorted(have | {"cr.internal"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()

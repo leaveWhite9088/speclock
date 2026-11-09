@@ -119,10 +119,12 @@ def derive_capability_version(
     change_note: str,
     cr_id: int | None = None,
     commit_id: int | None = None,
+    capability_id: int | None = None,
 ) -> str:
-    """模块发布 / 归档 / 恢复后派生小业务版本：manifest = 该小业务全部已发布模块的
-    版本清单。block 只用来标记"由哪个模块触发"。"""
-    cap = db.get(Capability, block.capability_id)
+    """模块发布 / 归档 / 恢复 / 搬动后派生小业务版本：manifest = 该小业务全部已发布模块的
+    版本清单。block 只用来标记"由哪个模块触发"；默认派生它所在的小业务，搬动模块时
+    要给原小业务也派生一个，所以可以显式指定 capability_id。"""
+    cap = db.get(Capability, capability_id or block.capability_id)
     cap_version = diffing.derive_capability_version(cap.current_version, level)
     blocks = db.query(Block).filter(Block.capability_id == cap.id).all()
     manifest = {

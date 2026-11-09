@@ -138,4 +138,4 @@ def test_human_key_with_spec_read_can_read_but_scanner_cannot_claim(env):
     scanner = make_key(env, "scanner-agent")
     work_id = c.get("/api/v1/work", headers=env["human"]).json()[0]["id"]
     assert c.post(f"/api/v1/work/{work_id}/claim", headers=scanner).status_code == 403
-    assert c.get("/api/v1/work", headers=scanner).status_code == 403
+    assert c.get("/api/v1/work", headers=scanner).status_code == 200  # 能看进展，但不能动手

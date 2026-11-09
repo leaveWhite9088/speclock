@@ -55,7 +55,10 @@ def _request(c: httpx.Client, method: str, path: str, **kw):
 
 
 def _print_cr(cr: dict) -> None:
-    print(f"审核单 #{cr['id']}  [{cr['status']}]  {cr['title']}")
+    kind = "  【内部整理：Agent 自行判定，未经人批准】" if cr.get("kind") == "internal" else ""
+    print(f"审核单 #{cr['id']}  [{cr['status']}]  {cr['title']}{kind}")
+    if cr.get("kind_reason"):
+        print(f"  不算业务变更的理由：{cr['kind_reason']}")
     print(f"  为什么变：{cr['intent']}")
     print(f"  变成什么样：{cr['expected_outcome']}")
     if cr["obsolete"]:

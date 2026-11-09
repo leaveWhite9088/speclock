@@ -69,6 +69,10 @@ def _ensure_columns() -> None:
         "api_keys": {
             "role_id": "INTEGER REFERENCES roles(id)",
         },
+        "change_requests": {
+            "kind": "TEXT NOT NULL DEFAULT 'business'",
+            "kind_reason": "TEXT NOT NULL DEFAULT ''",
+        },
     }
     dropped = {
         "capabilities": ["doc_type"],
