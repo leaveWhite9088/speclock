@@ -32,7 +32,7 @@ views/        薄页面：取数据 + 拼组件
 
 - [x] 批准渠道只剩「对话里人的明确输入（natural_language）」「CLI」；去掉 `button`（接口校验、CLI、文案、测试、文档）。
 
-## 第 1 步：地基
+## 第 1 步：地基（已完成）
 
 - [x] 安装 vitest + @vue/test-utils，`npm test` 可用；给 `api/client.js`、`labels.js` 写第一批测试
 - [x] `api/resources.js`：把现有页面里散落的 `api.get(...)` 收进来
