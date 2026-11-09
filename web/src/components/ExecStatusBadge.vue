@@ -34,7 +34,13 @@ defineProps({ status: { type: String, default: '' } })
   background: color-mix(in srgb, var(--warning) 7%, var(--card));
 }
 
-.is-blocked,
+/* 被阻塞：在等人答复，黄色；失败：红色 */
+.is-blocked {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--card));
+}
+
 .is-failed {
   border-color: var(--danger);
   color: var(--danger);

@@ -88,20 +88,9 @@ defineProps({
   margin-top: var(--sp-2);
 }
 
-/* 需要你行动：左侧色条 + 浅色底 */
-.tone-alert.has-items {
-  border-color: var(--warning);
-  box-shadow: inset 3px 0 0 var(--warning);
-  background: color-mix(in srgb, var(--warning) 4%, var(--card));
-}
-
+/* 卡片保持白底，只用数量标签的颜色区分：需要你行动 = 黄色，事后过目 = 蓝色 */
 .tone-alert.has-items .att-count {
   background: var(--warning);
   color: #fff;
-}
-
-/* 事后过目：蓝色色条 */
-.tone-watch.has-items {
-  box-shadow: inset 3px 0 0 var(--contract);
 }
 </style>
