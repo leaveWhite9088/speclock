@@ -5,7 +5,8 @@
 可用工具：`get_index` / `get_block` / `get_capability` / `get_diff` / `get_block_history` /
 `get_capability_history`、`list_change_requests` / `get_change_request` / `create_change_request` /
 `update_change_request` / `submit_change_request` / `withdraw_change_request`、`submit_commit` /
-`complete_change_request`、`list_work` / `get_work`（看进展和被阻塞的项）。
+`complete_change_request`、`list_work` / `get_work`（看进展和被阻塞的项）、`list_projects`。
+找内容靠读规格的工具逐层定位：`get_index` 看大业务 / 小业务，再 `get_capability`，最后只精读相关的 `get_block`。
 
 不该做：领取任务、实现、验收（那是执行和测试的事）；自己批准审核单。
 
