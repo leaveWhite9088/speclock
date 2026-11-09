@@ -14,7 +14,7 @@ SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**
 
 约束是物理的（权限隔离），不是提示词约定。
 
-架构：**FastAPI 纯 JSON API + Vue 3 展示网页（`web/`，参考实现）**。后端只出 JSON；网页是**只读展示**（文档树、模块与版本、审核单、待办、归档、AI 接入说明），不提供任何修改操作，只调用公开 REST 接口，别人想自己做一个同样能接。构建产物（`web/dist/`）存在时由同一 FastAPI 进程顺带托管，不构建或不打开它都不影响 Core。所有修改都由 Agent 经 MCP 完成。
+架构：**FastAPI 纯 JSON API + Vue 3 展示网页（`web/`，参考实现）**。后端只出 JSON；网页是**人监控整个工具的唯一通道**，**只读展示**（总览、文档树、模块与版本、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明），不提供任何修改操作，只调用公开 REST 接口，别人想自己做一个同样能接。构建产物（`web/dist/`）存在时由同一 FastAPI 进程顺带托管，不构建或不打开它都不影响 Core。所有修改都由 Agent 经 MCP 完成。
 
 ## 目录
 
@@ -119,6 +119,23 @@ python3 -m venv .venv
 .venv/bin/python -m speclock.seed
 .venv/bin/python -m speclock.main
 ```
+
+### 网页的页面
+
+网页是人监控整个工具的唯一通道，只做展示，没有任何操作按钮（批准靠对话里人的明确输入，或 CLI）。顶栏有全局搜索（按 `/` 聚焦）和刷新状态指示：全站每 5 秒看一眼有没有新的变化，有就让当前页面静默刷新（保留你展开的内容和滚动位置）。
+
+| 页面 | 回答什么 |
+|---|---|
+| 总览 `/` | 现在有什么需要我关注的：等我确认的审核单、卡住的任务（被阻塞 / 失败）、Agent 自行判定的内部整理、等验收、进行中，以及数字概览和最近活动 |
+| 文档树 `/tree` | 大业务 → 小业务 → 模块；小业务显示「已验收 / 总数」，可按执行状态筛选 |
+| 审核单 `/change-requests` | 全部审核单；详情里有「落地明细」：Commit → 受影响的模块 / 小业务（版本怎么变的）→ 现在的执行状态 |
+| 待办 `/work` | 每个模块版本的执行记录与事件历史 |
+| 活动 `/activity` | 谁在什么时候做了什么，按天分组，可按类别 / 谁 / 时间 / 对象筛选（条件写在地址栏） |
+| Agent `/agents` | 有哪些密钥、各是什么角色、手里有什么权力、最近有没有在用；角色 × 权限矩阵（需要 `key.manage`） |
+| 搜索 `/search` | 在已发布模块的当前版本和审核单里找关键词，命中词高亮，规则 / 验收条件直达对应的行 |
+| 模块页 | 完整快照、版本历史（每个版本可展开「为什么改」与执行进展）、版本对比 |
+
+代码结构（`web/src/`）：`api/`（客户端 + 按资源封装的请求）、`composables/`（`useAsync` 取数、`usePolling`、`useChangeSignal` / `useAutoRefresh` 自动刷新）、`components/`（只收 props 的展示组件）、`views/`（薄页面）、`labels.js`（全站统一中文文案）、`errors.js`（请求错误翻成人话）；整理逻辑都是纯函数（`overview.js` / `activity.js` / `agents.js` / `search.js` / `trace.js` / `treeFilter.js`），都有单元测试。
 
 展示网页是 Vue 3 SPA（只读）。想从零开始（空库，只有一个空项目和一把 admin key），用 `python -m speclock.seed --empty`。构建后由后端顺带托管：
 
@@ -282,7 +299,9 @@ speclock/            # FastAPI 纯 JSON API
 ├── diffing.py     # 结构化 API/规则校验、字段级 delta、版本级别标签、OpenAPI 生成、两级 semver
 ├── mcp_server.py  # stdio MCP，27 工具，经 HTTP 调本系统 REST
 └── seed.py        # demo 数据 + 打印两个开发 key
-web/               # Vue 3 + Vite 只读展示网页（文档树 / 模块 / 版本 diff / 审核单 / 待办 / 归档 / AI 接入）；npm run build 产出 dist/，已 gitignore
+web/               # Vue 3 + Vite 只读展示网页（总览 / 文档树 / 模块 / 版本 diff / 审核单 / 待办 / 活动 / Agent / 搜索 / 归档 / AI 接入）；npm test 跑前端测试，npm run build 产出 dist/，已 gitignore
+tools/demo_scenario.py  # 往空库灌一套有代表性的场景（待确认 / 内部整理 / 卡住的任务等），用来在网页上看各页面
+WEB_PLAN.md        # 网页完善计划与每一步的实际做法
 tests/             # pytest：auth / 发布 / diff / 归档 / 执行记录 / 项目隔离 / 环境配置 / SPA 托管等
 inject_ops.py      # 真实业务数据注入脚本（.inject_data/*.json → DB，先清空再注入，幂等）
 ```
@@ -293,6 +312,8 @@ inject_ops.py      # 真实业务数据注入脚本（.inject_data/*.json → DB
 .venv/Scripts/python.exe -m pytest -v          # 跑测试
 cd web && npm install && npm run dev           # 前端热更新开发（vite 代理 /api → 127.0.0.1:8000）
 cd web && npm run build                        # 构建 SPA 到 web/dist/，后端启动后即整站可用
+cd web && npm test                             # 前端单元测试（vitest）
+.venv/Scripts/python.exe tools/demo_scenario.py http://127.0.0.1:8000   # 往空库灌一套演示场景（先 seed --empty 并启动服务）
 SPECLOCK_DB_URL=sqlite:///test.db .venv/Scripts/python.exe -m speclock.seed   # 用临时库 seed
 .venv/Scripts/python.exe inject_ops.py         # 注入真实业务文档数据（清空后重建，幂等）
 ```

@@ -133,6 +133,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 ```bash
 .venv/Scripts/python.exe -m pytest -q          # 后端测试
 cd web && npm run build                        # 前端构建（产物 web/dist/，后端同进程托管）
+cd web && npm test                             # 前端单元测试（vitest）
 .venv/Scripts/python.exe -m speclock.main      # 启动服务，默认 http://127.0.0.1:8000
 ```
 
@@ -149,4 +150,6 @@ cd web && npm run build                        # 前端构建（产物 web/dist/
 - `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
 - `speclock/mcp_server.py`：stdio MCP，27 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
-- `web/`：Vue 3 **只读展示**网页（参考实现，已适配 0.6.0）：文档树、模块 / 版本 / diff（带到审核单的溯源与执行状态）、审核单列表与详情、待办（执行记录与事件）、归档、AI 接入说明。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。
+- `web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**（计划与每步的实际做法见 `WEB_PLAN.md`）：总览（需要人关注的事）、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明；每页自动刷新。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。结构：`api/`（客户端 + `resources.js`）、`composables/`、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；整理逻辑是纯函数并有测试（`npm test`）。
+- `speclock/api_search.py`：搜索（已发布模块的当前版本 + 审核单，内存里子串匹配，项目隔离）。`/activity` 支持按谁 / 动作 / 对象 / 时间筛选与游标翻页；`/keys` 带活动统计。
+- `tools/demo_scenario.py`：开发辅助，往空库灌一套有代表性的场景，用来在网页上验收各页面。
