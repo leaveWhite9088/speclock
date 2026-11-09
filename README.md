@@ -43,7 +43,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 ## 核心特性
 
 - **角色与权限** — key 绑定角色，角色是权限集合（权限目录由代码定义，角色与映射可自定义，预置 admin / reviewer / requirements-agent / executor-agent / tester-agent / scanner-agent；scanner 只能读和提建议，不能开单）；接口按权限放行。人类专属权限（批准 / 驳回审核单、管理项目与密钥）不能挂在 agent 类角色上，约束是物理的
-- **审核单 + Commit 是唯一写入通道** — 没有任何直接建 / 改 / 发布模块的接口。审核单只含业务意图（为什么变、变成什么样、不再成立的旧认知、验收条件、影响说明），提交即冻结并带内容哈希，批准后不可改；批准渠道（按钮 / CLI / 自然语言）与原话留痕；Commit 是已批准审核单下的原子写入，整体成功或整体回滚
+- **审核单 + Commit 是唯一写入通道** — 没有任何直接建 / 改 / 发布模块的接口。审核单只含业务意图（为什么变、变成什么样、不再成立的旧认知、验收条件、影响说明），提交即冻结并带内容哈希，批准后不可改；批准渠道（自然语言 / CLI）与原话留痕；Commit 是已批准审核单下的原子写入，整体成功或整体回滚
 - **项目级文档隔离** — 项目是文档隔离单元，每个项目有独立的一套 大业务→小业务→模块；key 可绑定到单个项目，绑定后跨项目的模块 / 文档 / 待办 / 审核单访问一律 404；不绑定的 key 保持全局可见
 - **结构化文档模型** — 模块内容不是一整段散文，而是：业务背景（叙述）+ 业务规则清单 + 验收条件（均为结构化，每条带稳定 id，逐条可 diff）+ API 列表（结构化，每条带端点语义）；发布时强制结构完备性校验（见[文档模型](#文档模型)）
 - **结构化 API 文档** — API 区是递归字段模型（`object`/`array` 可无限嵌套 `children`），编辑与 diff 的真相源是结构化数据；发布时自动生成 OpenAPI 3.x YAML 供下游消费，全程不需要面对 YAML
@@ -73,7 +73,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 ─────────────                 ─────────────────────────────              ────────────────────────────────
                               创建审核单（draft）
                               提交（pending_review，内容冻结 + 哈希）
-批准 / 驳回（按钮 / CLI / 自然语言）──►
+批准 / 驳回（对话中的明确输入 / CLI）──►
                               approved ──► 提交 Commit（原子写入并发布）──► 已发布版本 ◄── get_index / get_block（只读，可 pin）
                               complete（覆盖检查通过）──► applied
                               发布 ──► 自动产生执行记录（pending）──► 领取 ──► 实现 ──► 独立验收（verified）
@@ -180,7 +180,7 @@ H="http://127.0.0.1:8000/api/v1"
 # 1. 需求 Agent 建单（草稿），只写业务意图；验收条件的 id（AC-n）由服务端分配
 curl -X POST -H "X-API-Key: $REQ" -H "Content-Type: application/json" $H/change-requests -d '{"title":"日报口径调整","intent":"财务要求销售额含退款","expected_outcome":"日报销售额含退款","obsolete":["销售额不含退款"],"acceptance":[{"name":"口径一致","detail":"日报销售额与财务报表一致"}],"project_id":1}'
 curl -X POST -H "X-API-Key: $REQ" $H/change-requests/1/submit           # 提交：内容冻结 + 内容哈希
-# 2. 人批准（审核页按钮 / CLI / 自然语言，都必须出示人类 key，且带上看过的内容哈希）
+# 2. 人批准（对话中的明确输入 / CLI，都必须出示人类 key，且带上看过的内容哈希）；网页只做展示，没有按钮
 speclock-cli cr approve 1                                              # 或 --hash <哈希前缀>
 # 3. 需求 Agent 在已批准的审核单下提交 Commit：一组 ops，原子写入并发布，covers 声明满足的验收条件
 curl -X POST -H "X-API-Key: $REQ" -H "Content-Type: application/json" $H/change-requests/1/commits -d '{"covers":["AC-1"],"ops":[{"op":"update_block","id":1,"rule_ops":[{"op":"upsert","id":"R-1","entry":{"name":"销售额口径","detail":"支付成功订单金额合计（含退款）"}}]}]}'

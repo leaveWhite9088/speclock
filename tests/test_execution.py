@@ -427,7 +427,7 @@ def test_agent_created_key_needs_human_words_as_evidence(env):
     finally:
         db.close()
     # 网页 / CLI 直接创建（人自己点的）不需要原话
-    assert c.post("/api/v1/keys", json={"role": "scanner-agent", "via": "button"}, headers=h).status_code == 201
+    assert c.post("/api/v1/keys", json={"role": "scanner-agent", "via": "api"}, headers=h).status_code == 201
 
 
 def test_mcp_tools_cover_the_execution_protocol_and_ack_is_gone():

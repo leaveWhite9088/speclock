@@ -57,8 +57,8 @@ class KeyCreate(BaseModel):
     label: str = ""
     # 项目隔离：绑定项目后该 key 只能访问该项目的内容；None = 全局。
     project_id: int | None = None
-    # 创建来源与依据：网页按钮 = button；Agent 代人创建须 via=natural_language 并附人的原话
-    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    # 创建来源与依据：Agent 代人创建须 via=natural_language 并附人的原话
+    via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""
 
 
@@ -109,14 +109,14 @@ class CRUpdate(BaseModel):
 
 class CRApprove(BaseModel):
     content_hash: str  # 批准的就是人看到的那一版：必须与审核单当前内容哈希一致
-    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""  # via=natural_language 时必填：人的原话
     note: str = ""
 
 
 class CRReject(BaseModel):
     reason: str  # 驳回理由（必填）：需求 Agent 据此另开新审核单
-    via: str = Field(default="api", pattern="^(button|cli|natural_language|api)$")
+    via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""
 
 

@@ -1,7 +1,7 @@
 """SpecLock 命令行：人用人类 key 查看并批准 / 驳回审核单（Change Request），管理密钥。
 
 批准是人的授权动作，只能用 ``cr.approve`` 权限的人类 key 完成；agent 类 key 一律 403。
-这是审核页按钮之外的另一个渠道，两者在 Core 看来等价（Core 只认"出示了人类 key"），
+这是对话（自然语言）批准之外的另一个渠道，两者在 Core 看来等价（Core 只认"出示了人类 key"），
 批准记录里会留下渠道（via=cli）。
 
 环境变量：
@@ -159,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = cr.add_parser("approve", help="批准")
     ap.add_argument("id", type=int)
     ap.add_argument("--hash", help="你看过的内容哈希（前缀即可）；给了就不再交互确认")
-    ap.add_argument("--via", default="cli", choices=["cli", "natural_language", "button", "api"])
+    ap.add_argument("--via", default="cli", choices=["cli", "natural_language", "api"])
     ap.add_argument("--evidence", help="via=natural_language 时必填：人的原话")
     ap.add_argument("--note", help="批准备注")
     ap.set_defaults(fn=cmd_approve)
@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     rj = cr.add_parser("reject", help="驳回（必须写理由）")
     rj.add_argument("id", type=int)
     rj.add_argument("--reason", required=True)
-    rj.add_argument("--via", default="cli", choices=["cli", "natural_language", "button", "api"])
+    rj.add_argument("--via", default="cli", choices=["cli", "natural_language", "api"])
     rj.add_argument("--evidence")
     rj.set_defaults(fn=cmd_reject)
 

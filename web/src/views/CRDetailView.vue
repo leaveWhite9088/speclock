@@ -41,7 +41,6 @@ async function load() {
 watch(crId, load, { immediate: true })
 
 const VIA_TEXT = {
-  button: '页面按钮',
   cli: '命令行',
   natural_language: '对话中明确表态',
   api: '接口',

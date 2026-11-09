@@ -232,7 +232,7 @@ def approve_cr(env, cr_id, headers=None, **over):
     c = env["client"]
     headers = headers or env["human"]
     cr = c.get(f"/api/v1/change-requests/{cr_id}", headers=headers).json()
-    body = {"content_hash": cr["content_hash"], "via": "button"}
+    body = {"content_hash": cr["content_hash"], "via": "api"}
     body.update(over)
     r = c.post(f"/api/v1/change-requests/{cr_id}/approve", json=body, headers=headers)
     assert r.status_code == 200, r.text

@@ -166,7 +166,7 @@ def test_reject_requires_reason_and_is_terminal(env):
     r = c.post(f"{URL}/{cr_id}/reject", json={"reason": "  "}, headers=env["human"])
     assert r.status_code == 422
     r = c.post(f"{URL}/{cr_id}/reject", headers=env["human"],
-               json={"reason": "验收条件没写清楚", "via": "button"})
+               json={"reason": "验收条件没写清楚", "via": "api"})
     assert r.status_code == 200 and r.json()["status"] == "rejected"
     # 需求 Agent 读得到驳回理由，据此另开新单
     seen = _get(env, cr_id, req_key(env))

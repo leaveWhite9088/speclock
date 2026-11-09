@@ -178,7 +178,7 @@ class ChangeRequest(Base):
     # 人的决定（批准 / 驳回）：谁、经由什么渠道、凭什么（自然语言批准留原话）
     decided_by: Mapped[str] = mapped_column(default="")
     decided_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    decision_via: Mapped[str] = mapped_column(default="")  # button|cli|natural_language|api|agent_declared
+    decision_via: Mapped[str] = mapped_column(default="")  # cli|natural_language|api|agent_declared
     decision_evidence: Mapped[str] = mapped_column(Text, default="")
     decision_note: Mapped[str] = mapped_column(Text, default="")  # 驳回理由 / 批准备注
     applied_at: Mapped[datetime | None] = mapped_column(nullable=True)

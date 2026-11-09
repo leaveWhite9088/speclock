@@ -455,7 +455,7 @@ def create_key(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
-    """创建密钥（明文只返回这一次）。网页按钮直接创建（via=button）；Agent 代人创建
+    """创建密钥（明文只返回这一次）。人用 CLI 创建（via=cli）；Agent 代人创建
     必须 via=natural_language 并附人同意创建的原话，来源与依据写进审计。"""
     role = perms.get_role(db, body.role)
     if body.project_id is not None and db.get(Project, body.project_id) is None:

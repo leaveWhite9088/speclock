@@ -64,7 +64,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - **状态**：`draft → pending_review → approved → applied`；`pending_review → rejected`；`approved → superseded`。
 - **批准后不可修改**：想改就新开 CR 并取代旧的（`superseded`），保证每个 Commit 对应的授权内容不会被悄悄改变。
 - **接入方式**：SpecLock **不做 Agent**，而是作为服务提供接口（REST / MCP），供外部 Agent（需求 Agent、执行 Agent 等）接入；需求 Agent 用自己的 agent 类 key 调 CR / Commit 接口。
-- **批准方式**：批准只落在"人能点的地方"：一个只读审核页上的批准 / 驳回按钮（不能编辑内容），以及 CLI / 签名命令（人类 key）。**只有人类 key 能把 CR 置为 `approved`**，需求 Agent 的 key 一律 403——Agent 本来就不持有人类 key，所以这是物理约束；"提交后提示人去批准、不要诱导或代替"另外靠需求 Agent 的提示词约束。
+- **批准方式**：**没有页面按钮**，网页只做展示；批准靠人在对话里的明确输入（Agent 经 MCP 代人调用并附原话），或 CLI（人类 key）。**只有出示人类 key 才能把 CR 置为 `approved`**，需求 Agent 的 key 一律 403——Agent 本来就不持有人类 key，所以这是物理约束；"提交后提示人去批准、不要诱导或代替"另外靠需求 Agent 的提示词约束。
 - **Commit**：一个 CR 对应多个 Commit，一个 Commit 可涉及多个 Block、跨多个 Capability，是 ops（按稳定 id 的 upsert / delete，沿用提案 ops 的校验与应用逻辑）的原子批次，应用后发布。写入必须带 `approved` 的 CR id，且 key 是需求 Agent 类型、Project 一致。
 - **溯源**：`BlockVersion` 记录 `cr_id` + `commit_id`；任何一个版本都能追溯到"哪个 Commit、哪个 CR、为什么改"，反向也能查 CR → Commit → 受影响 Block 版本。
 - **覆盖检查（机械，不含 LLM）**：Core 判断不了语义是否吻合，但能检查结构——Commit 须声明自己满足 CR 的哪些 `AC-n`（`covers`），CR 要进入 `applied`，其全部验收条件必须被至少一个 Commit 覆盖。`covers` 声明是否属实，由后续验证环节负责，不由 Core 判断。已确认要做。
@@ -72,7 +72,7 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 - **驳回**：`rejected` 是终态，必须填驳回理由，Agent 读到后新开 CR，不在原单上改。
 - **角色与权限**：key 绑定**角色**，角色是**权限集合**；角色和权限映射都可自定义，系统预置几个角色（管理员、审核人、需求 Agent、执行 Agent、扫描 Agent）。权限目录由代码定义（接口按权限放行，而不是按 key 前缀）；角色有 `kind`（human / agent），**人类专属权限**（如批准 CR）不允许挂在 agent 类角色上——"Agent 不能替人批准"仍是物理约束。
 - **Commit 可新建结构**：新建 Business / Capability / Block、下线 Block 都只能通过带 CR 的 Commit 完成，不再有直接的人工建 / 改 / 发布接口。Commit 原子应用，任何一条 op 失败整体回滚；应用成功即发布，不经过草稿。
-- **批准的渠道**（都必须以人类 key 调用 Core，模型本身不持有人类 key）：审核页按钮、CLI / 签名命令、官方 SpecLock-Scaffold 里的按钮或人的明确自然语言批准（由 Scaffold 的代码识别并代人调用，不由模型自己调）。Core 只认"出示了人类 key"，不区分渠道。
+- **批准的渠道**（已定：不做按钮）：人在对话里的明确输入（自然语言，由 Agent 经 MCP 代人调用，必须带内容哈希和人的原话）、CLI（人类 key）。Core 只认"出示了人类 key"，不区分渠道，渠道（`cli` / `natural_language` / `api`）与原话留痕。
 
 ### 内部整理（已实施，0.6.0）：纯重组不用人批准
 

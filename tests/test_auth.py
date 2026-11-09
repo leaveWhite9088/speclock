@@ -125,7 +125,7 @@ def approve_cr_as(env, cr_id, headers):
     c = env["client"]
     cr = c.get(f"/api/v1/change-requests/{cr_id}", headers=headers).json()
     r = c.post(f"/api/v1/change-requests/{cr_id}/approve",
-               json={"content_hash": cr["content_hash"], "via": "button"}, headers=headers)
+               json={"content_hash": cr["content_hash"], "via": "api"}, headers=headers)
     assert r.status_code == 200, r.text
 
 
