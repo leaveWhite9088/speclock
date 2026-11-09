@@ -9,9 +9,10 @@ import { useRoute } from 'vue-router'
 import { resources } from '../api/resources.js'
 import { useAsync } from '../composables/useAsync.js'
 import { DECISION_VIA, label } from '../labels.js'
+import { buildTrace, loadTraceData } from '../trace.js'
 import { fmtTime } from '../time.js'
 import CRStatusBadge from '../components/CRStatusBadge.vue'
-import VersionChip from '../components/VersionChip.vue'
+import TraceChain from '../components/TraceChain.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import KeyChip from '../components/KeyChip.vue'
@@ -22,7 +23,13 @@ const crId = computed(() => Number(route.params.id))
 const { data: cr, loading, error, reload: load } = useAsync(() => resources.crs.get(crId.value), {
   watch: [crId],
 })
-const showOps = ref({})
+
+// 落地明细：Commit → 受影响的模块 / 小业务（版本怎么变的）→ 现在的执行状态；
+// 审核单取到之后再取这些关联数据，取不到不影响上面的主要内容
+const traceQ = useAsync(
+  async () => buildTrace({ cr: cr.value, ...(await loadTraceData(cr.value)) }),
+  { watch: [cr], immediate: false },
+)
 
 const VIA_TEXT = DECISION_VIA
 
@@ -34,17 +41,6 @@ function coveredBy(acId) {
 
 const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded'].includes(cr.value?.status) && cr.value?.decided_by)
 
-function toggleOps(id) {
-  showOps.value = { ...showOps.value, [id]: !showOps.value[id] }
-}
-
-function blockRows(c) {
-  return c.result?.blocks || []
-}
-
-function capRows(c) {
-  return c.result?.capability_versions || []
-}
 </script>
 
 <template>
@@ -156,35 +152,16 @@ function capRows(c) {
       </section>
 
       <section v-if="cr.commits.length" class="card sec">
-        <h2 class="sec-title">落地明细（{{ cr.commits.length }} 个 Commit）<span class="muted tech">技术细节，供 Agent 与追溯使用</span></h2>
-        <article v-for="c in cr.commits" :key="c.id" class="commit">
-          <header class="commit-head">
-            <strong>Commit #{{ c.seq }}</strong>
-            <span class="muted">{{ c.change_note }}</span>
-            <span class="muted mono">{{ fmtTime(c.created_at) }} · {{ keyName(c.created_by) }}</span>
-          </header>
-          <p class="muted">覆盖验收条件：{{ (c.covers || []).join('、') || '无' }}</p>
-          <ul v-if="blockRows(c).length" class="plain-list">
-            <li v-for="b in blockRows(c)" :key="b.block_id">
-              <RouterLink :to="`/blocks/${b.block_id}`">{{ b.title }}</RouterLink>
-              <VersionChip :version="b.version" />
-              <span class="muted">{{ b.created ? '新建' : '更新' }} · 级别 {{ b.level }}</span>
-            </li>
-          </ul>
-          <p v-if="capRows(c).length" class="muted">
-            小业务版本：
-            <template v-for="cv in capRows(c)" :key="cv.capability_id">
-              <RouterLink :to="`/capabilities/${cv.capability_id}`">#{{ cv.capability_id }}</RouterLink>
-              <VersionChip :version="cv.version" />{{ ' ' }}
-            </template>
-          </p>
-          <p v-if="(c.result.archived_blocks || []).length" class="muted">归档模块：{{ c.result.archived_blocks.join('、') }}</p>
-          <p v-if="(c.result.restored_blocks || []).length" class="muted">恢复模块：{{ c.result.restored_blocks.join('、') }}</p>
-          <button type="button" class="btn btn-mini" @click="toggleOps(c.id)">
-            {{ showOps[c.id] ? '收起 ops' : '查看 ops' }}
-          </button>
-          <pre v-if="showOps[c.id]" class="ops-pre mono">{{ JSON.stringify(c.ops, null, 2) }}</pre>
-        </article>
+        <h2 class="sec-title">
+          落地明细（{{ cr.commits.length }} 个 Commit）
+          <span class="muted tech">改了哪些模块、版本怎么变的、现在做到哪了</span>
+        </h2>
+        <p v-if="cr.kind === 'internal'" class="muted tech-note">
+          这是内部整理单：系统在落地时检查了规则、验收条件、API 的条目总和一字未变。
+        </p>
+        <p v-if="traceQ.loading.value" class="muted tech-note">正在整理…</p>
+        <p v-else-if="traceQ.error.value" class="error-text tech-note">{{ traceQ.error.value }}</p>
+        <TraceChain v-else-if="traceQ.data.value" :commits="traceQ.data.value" />
       </section>
     </template>
   </div>

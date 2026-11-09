@@ -33,7 +33,9 @@ const versions = ref([])
 const snap = ref(null) // 当前查看的版本快照
 const selected = ref('')
 const opError = ref('')
-const openEvents = ref({}) // 版本号 -> 是否展开执行历史
+const openDetail = ref({}) // 版本号 -> 是否展开「为什么改 + 执行进展」
+const crCache = ref({}) // 审核单 id -> 审核单（懒加载，用来显示「为什么改」）
+const crError = ref({})
 
 function sorted(list) {
   return [...list].sort((a, b) =>
@@ -143,8 +145,16 @@ function prevVersion(v) {
   return i > 0 ? versions.value[i - 1].version : null
 }
 
-function toggleEvents(v) {
-  openEvents.value = { ...openEvents.value, [v]: !openEvents.value[v] }
+async function toggleDetail(v) {
+  openDetail.value = { ...openDetail.value, [v.version]: !openDetail.value[v.version] }
+  const id = v.cr_id
+  if (openDetail.value[v.version] && id && !crCache.value[id]) {
+    try {
+      crCache.value = { ...crCache.value, [id]: await resources.crs.get(id) }
+    } catch (e) {
+      crError.value = { ...crError.value, [id]: errText(e) }
+    }
+  }
 }
 </script>
 
@@ -310,11 +320,11 @@ function toggleEvents(v) {
                   <td class="ver-acks">
                     <ExecStatusBadge :status="v.execution_status" />
                     <a
-                      v-if="v.events && v.events.length"
+                      v-if="v.cr_id || (v.events && v.events.length)"
                       href="#"
                       class="ack-link"
-                      @click.prevent="toggleEvents(v.version)"
-                      >{{ openEvents[v.version] ? '收起' : '历史' }}</a
+                      @click.prevent="toggleDetail(v)"
+                      >{{ openDetail[v.version] ? '收起' : '详情' }}</a
                     >
                   </td>
                   <td class="ver-ops">
@@ -328,8 +338,22 @@ function toggleEvents(v) {
                     </template>
                   </td>
                 </tr>
-                <tr v-if="openEvents[v.version]" class="events-row">
+                <tr v-if="openDetail[v.version]" class="events-row">
                   <td colspan="6">
+                    <div v-if="v.cr_id" class="why">
+                      <p class="why-title">为什么改
+                        <RouterLink :to="`/change-requests/${v.cr_id}`">审核单 #{{ v.cr_id }}</RouterLink>
+                        <span v-if="crCache[v.cr_id]?.kind === 'internal'" class="kind-tag">内部整理</span>
+                      </p>
+                      <p v-if="crCache[v.cr_id]" class="why-body">{{ crCache[v.cr_id].intent }}</p>
+                      <p v-if="crCache[v.cr_id]?.expected_outcome" class="why-body muted">
+                        变成：{{ crCache[v.cr_id].expected_outcome }}
+                      </p>
+                      <p v-else-if="crError[v.cr_id]" class="error-text">{{ crError[v.cr_id] }}</p>
+                      <p v-else-if="!crCache[v.cr_id]" class="muted">加载中…</p>
+                    </div>
+                    <p v-else class="muted">这个版本不是经审核单产生的（灌入的示例数据）。</p>
+                    <p v-if="v.events && v.events.length" class="why-title">执行进展</p>
                     <ol class="events">
                       <li v-for="(e, i) in v.events" :key="i">
                         <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
@@ -566,6 +590,30 @@ function toggleEvents(v) {
   display: inline-flex;
   gap: var(--sp-2);
 }
+.why {
+  margin-bottom: var(--sp-3);
+}
+
+.why-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.why-body {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.kind-tag {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  font-size: var(--text-xs);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+}
+
 .events {
   margin: 0;
   padding-left: var(--sp-4);
