@@ -257,6 +257,20 @@ pre,
   opacity: 0;
 }
 
+/* 从搜索结果跳到某一行时，让那一行闪一下 */
+@keyframes flash-row {
+  from {
+    background: color-mix(in srgb, var(--warning) 25%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.flash {
+  animation: flash-row 2s var(--ease);
+}
+
 /* ---------- 窄屏适配（质量底线：能读、能用，不追求精致） ---------- */
 
 @media (max-width: 900px) {

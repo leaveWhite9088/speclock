@@ -43,6 +43,7 @@ describe('resources', () => {
       [() => resources.keys(), '/api/v1/keys'],
       [() => resources.roles(), '/api/v1/roles'],
       [() => resources.permissions(), '/api/v1/permissions'],
+      [() => resources.search({ q: '退款' }), '/api/v1/search?q=%E9%80%80%E6%AC%BE'],
     ]
     for (const [call, url] of cases) {
       await call()

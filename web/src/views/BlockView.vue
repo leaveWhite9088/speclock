@@ -4,7 +4,7 @@
  * 执行状态展示、「查看 diff」入口、版本溯源到审核单。
  * 本页纯展示，不提供任何修改操作（所有写入都由 Agent 经审核单 + Commit 完成）。
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { resources } from '../api/resources.js'
 import { errText } from '../errors.js'
@@ -65,8 +65,8 @@ async function load() {
       typeof route.query.version === 'string' && route.query.version
         ? route.query.version
         : ''
-    // 依次尝试：URL pin → 当前发布版 → 列表末版；pin 的版本可能已作废（404），
-    // 此时回落到最新未作废版本而非整页报错
+    // 依次尝试：URL pin → 当前发布版 → 列表末版；pin 的版本不存在（404）时
+    // 回落到最新版本而非整页报错
     const candidates = [
       ...new Set(
         [pinned, d.current_published_version, versions.value.at(-1)?.version].filter(
@@ -82,12 +82,12 @@ async function load() {
         loaded = true
         break
       } catch {
-        /* 该版本不可查看（可能已作废），尝试下一个 */
+        /* 该版本不可查看，尝试下一个 */
       }
     }
     if (pinned && selected.value !== pinned) {
       opError.value = loaded
-        ? `版本 v${pinned} 不可查看（可能已作废），已为你显示最新可用版本。`
+        ? `没有找到版本 v${pinned}，已为你显示最新版本。`
         : ''
     }
   } catch (e) {
@@ -95,6 +95,19 @@ async function load() {
   } finally {
     loading.value = false
   }
+  scrollToHash()
+}
+
+// 地址里带 #item-R-2 时（例如从搜索结果跳来），滚动到那一行并闪一下
+async function scrollToHash() {
+  const id = route.hash ? decodeURIComponent(route.hash.slice(1)) : ''
+  if (!id) return
+  await nextTick()
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ block: 'center' })
+  el.classList.add('flash')
+  setTimeout(() => el.classList.remove('flash'), 2000)
 }
 
 onMounted(load)
@@ -222,7 +235,7 @@ function toggleEvents(v) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(r, i) in rules" :key="i">
+              <tr v-for="(r, i) in rules" :id="r.id ? `item-${r.id}` : undefined" :key="i">
                 <td class="muted mono">{{ r.id || i + 1 }}</td>
                 <td>{{ r.name }}</td>
                 <td>{{ r.detail }}</td>
@@ -258,7 +271,7 @@ function toggleEvents(v) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(r, i) in acceptance" :key="i">
+              <tr v-for="(r, i) in acceptance" :id="r.id ? `item-${r.id}` : undefined" :key="i">
                 <td class="muted mono">{{ r.id || i + 1 }}</td>
                 <td>{{ r.name }}</td>
                 <td>{{ r.detail }}</td>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearKey, keyHint } from './api/client.js'
 import { useKeyNames } from './api/keyNames.js'
@@ -23,6 +23,36 @@ const mainNav = [
 ]
 
 const bottomNav = [{ to: '/mcp', label: 'AI 接入' }]
+
+// ---------- 全局搜索：回车跳到 /search，「/」键聚焦 ----------
+const searchText = ref('')
+const searchInput = ref(null)
+
+watch(
+  () => route.query.q,
+  (q) => {
+    if (route.name === 'search') searchText.value = typeof q === 'string' ? q : ''
+  },
+  { immediate: true },
+)
+
+function goSearch() {
+  const q = searchText.value.trim()
+  if (q) router.push({ name: 'search', query: { q } })
+}
+
+function onKeydown(e) {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
+  const el = e.target
+  const typing = el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))
+  if (typing || isPublic.value) return
+  e.preventDefault()
+  searchInput.value?.focus()
+  searchInput.value?.select()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 function logout() {
   clearKey()
@@ -67,6 +97,16 @@ function logout() {
           <span class="brand-name">SpecLock</span>
           <VersionChip version="0.6.0" />
         </div>
+        <form class="search" role="search" @submit.prevent="goSearch">
+          <input
+            ref="searchInput"
+            v-model="searchText"
+            class="input search-input"
+            type="search"
+            placeholder="搜索规格与审核单（按 / 聚焦）"
+            aria-label="搜索规格与审核单"
+          />
+        </form>
         <div class="topbar-right">
           <span class="key-hint mono" :title="hint">{{ keyName(hint) }}</span>
           <button type="button" class="btn" @click="logout">退出登录</button>
@@ -171,6 +211,16 @@ function logout() {
   font-size: var(--text-md);
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.search {
+  flex: 1;
+  max-width: 420px;
+  margin: 0 var(--sp-4);
+}
+
+.search-input {
+  padding: 5px var(--sp-3);
 }
 
 .topbar-right {

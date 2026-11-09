@@ -42,4 +42,6 @@ export const resources = {
   keys: () => api.get('/keys'),
   roles: () => api.get('/roles'),
   permissions: () => api.get('/permissions'),
+  /** 搜索：关键词，可选 project_id / limit */
+  search: (params) => api.get(`/search${qs(params)}`),
 }

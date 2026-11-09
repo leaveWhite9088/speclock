@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from speclock import api_admin, api_agent, api_cr, api_exec
+from speclock import api_admin, api_agent, api_cr, api_exec, api_search
 from speclock.db import init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(api_cr.router)
     app.include_router(api_agent.router)
     app.include_router(api_exec.router)
+    app.include_router(api_search.router)
 
     if DIST_DIR.is_dir():
         index_html = DIST_DIR / "index.html"
