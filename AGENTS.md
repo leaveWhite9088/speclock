@@ -96,8 +96,10 @@ Project（项目）            文档隔离单元，agent key 可绑定；"业�
 ### 密钥与身份（已定，覆盖「编码阶段的简化」里单把 key 的部分）
 
 - **同一目录下多个 Agent 协作，key 在 Core 之外互相看得见**，所以不靠 key 保密来隔离角色：key 的作用是**角色权限 + 项目隔离**；Agent 的身份靠各目录（根目录 / `web/` / `backend/` …）的 `AGENTS.md` 里的身份提示词：先弄清自己的职位，看自己的 `AGENTS.md` 里有没有已领取的 key，有就用，**不要重复领取**；没有则问人，人同意后再创建，并把 key 写进自己的 `AGENTS.md`。这部分是**靠自觉**，Core 不强制（只强制验证者 ≠ 实现者按 key 判定）。
-- **不预置多把 key**：seed 只发一把 admin key；其余 key 由持有 admin key 的 Agent 经 MCP `create_api_key` 创建，**必须先问人，`evidence` 附人同意的原话**（不带原话 422，来源与原话写进审计）；`speclock-cli key create` 是兜底。网页不提供创建 key 的操作。
-- 已知限制：只有带 `key.manage`（人类专属权限）的 key 能创建 key，所以受限角色的 Agent 自己领不到 key，得由持有 admin key 的 Agent 或人代为创建后写进它的 `AGENTS.md`。
+- **不预置多把 key**：seed 只发一把 admin key；其余 key 由持有 admin key 的 Agent 经 MCP `create_api_key` 创建。**这是危险操作**（新 key 就是新权力）：只有 admin 能做（`key.manage` 是人类专属权限，受限角色 403）；Agent 绝不能自作主张——必须先告诉人要创建哪个角色、为什么，等到明确同意后才调用，`evidence` 附人同意的原话（不带原话 422，来源与原话写进审计）；`speclock-cli key create` 是兜底。网页不提供创建 key 的操作。
+- **新建的 key 立即可用**：服务端创建即生效；MCP 里用 `use_api_key` 在当前会话切换，不用重启客户端（无效的 key 保持原身份）。长期使用则把 key 记进使用它的 Agent 的 `AGENTS.md` / MCP 配置。key 明文不要在对话里复述。
+- 注意：能随时切换 key 之后，「验证者 ≠ 实现者」只是按 key 判定的机械规则，同一个 Agent 有意切换就能绕过；真正的独立性靠不同的 Agent 实例和提示词约定（与上面「靠自觉」一致）。
+- 已知限制：只有带 `key.manage`（人类专属权限）的 key 能创建 key，所以受限角色的 Agent 自己领不到 key，得由持有 admin key 的 Agent 或人代为创建。
 
 ## 6.1 后续路线（未开始）
 
@@ -130,6 +132,6 @@ cd web && npm run build                        # 前端构建（产物 web/dist/
 - `speclock/cli.py`：`speclock-cli`，人用人类 key 查看 / 批准 / 驳回审核单。
 - `speclock/diffing.py`：结构化 API / 规则校验、字段级 delta、版本级别标签、OpenAPI 生成、版本号计算。
 - `speclock/api_exec.py` + `speclock/executions.py`：执行接口与执行记录状态机（待办 / 领取 / 阻塞 / 失败 / 提交实现 / 独立验收）。
-- `speclock/mcp_server.py`：stdio MCP，24 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话），经 HTTP 调用本系统 REST。
+- `speclock/mcp_server.py`：stdio MCP，25 个工具（含代人批准 / 驳回，必须带哈希与人的原话；执行协议；`create_api_key` 必须带人的原话；`use_api_key` 会话内切换 key），经 HTTP 调用本系统 REST。
 - `speclock/models.py`、`schemas.py`、`db.py`（含迁移）。
 - `web/`：Vue 3 **只读展示**网页（参考实现，已适配 0.6.0）：文档树、模块 / 版本 / diff（带到审核单的溯源与执行状态）、审核单列表与详情、待办（执行记录与事件）、归档、AI 接入说明。**不提供任何修改操作**，新增页面也不要加；只调用公开 REST 接口，不依赖 Core 内部实现。

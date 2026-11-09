@@ -17,7 +17,9 @@ Tools:
   behalf: it MUST pass the human's own words as ``evidence`` (and the content hash of the
   version the human saw), which the server records in the audit trail. Never approve
   without an explicit instruction from the human in the conversation.
-- keys (``key.manage``): create_api_key — only after the human agreed in the conversation.
+- keys: create_api_key (``key.manage``, admin only) is a DANGEROUS operation — only after the
+  human explicitly agreed in the conversation. use_api_key switches the key this session
+  uses (no client restart needed), e.g. to a key you just created.
 
 Configure with:
   SPECLOCK_URL        default http://127.0.0.1:8000 (legacy name SPECLOCK_BASE_URL also accepted)
@@ -37,7 +39,8 @@ from mcp.server.mcpserver import MCPServer
 BASE_URL = os.environ.get("SPECLOCK_URL") or os.environ.get(
     "SPECLOCK_BASE_URL", "http://127.0.0.1:8000"
 )
-AGENT_KEY = os.environ.get("SPECLOCK_KEY") or os.environ.get("SPECLOCK_AGENT_KEY", "")
+CONFIGURED_KEY = os.environ.get("SPECLOCK_KEY") or os.environ.get("SPECLOCK_AGENT_KEY", "")
+AGENT_KEY = CONFIGURED_KEY  # use_api_key 可在本进程内切换
 
 mcp = MCPServer("speclock")
 
@@ -240,22 +243,46 @@ def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
 
 
 @mcp.tool(description=(
-    "Create an API key for an agent role (presets: requirements-agent, executor-agent, "
-    "tester-agent, scanner-agent). ONLY after the human has agreed in this conversation "
-    "to creating it — ask first, and pass THEIR words (approval of creating this key, "
-    "not test evidence) as 'evidence'. First check whether your own AGENTS.md or "
-    ".mcp.json already holds a key for your role — never create a duplicate. The "
-    "plaintext key is returned ONCE: record it in the AGENTS.md / MCP config of the "
-    "agent that will use it, and tell the human. A new MCP entry (e.g. a "
-    "'speclock-qa' server in .mcp.json) is only loaded after the client restarts, "
-    "so say that to the human. project_id binds the key to one project. "
-    "Requires key.manage."
+    "DANGEROUS — creates an API key (admin only; roles are granted permissions, so a new "
+    "key is new power). Presets: requirements-agent, executor-agent, tester-agent, "
+    "scanner-agent. NEVER do this on your own initiative: tell the human which role and "
+    "why, wait for their explicit yes in this conversation, and pass THEIR words (the "
+    "approval of creating this key, not test evidence) as 'evidence'. First check whether "
+    "your own AGENTS.md or .mcp.json already holds a key for the role — never create a "
+    "duplicate. The plaintext key is returned ONCE and works immediately: call "
+    "use_api_key to act with it now, and record it in the AGENTS.md / MCP config of the "
+    "agent that will use it long-term. Do not repeat the key in chat. project_id binds "
+    "the key to one project. Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
     if project_id is not None:
         body["project_id"] = project_id
     return _call("POST", "/api/v1/keys", json=body)
+
+
+@mcp.tool(description=(
+    "Switch which API key this MCP session uses from now on — no client restart needed. "
+    "Typical use: after create_api_key, use the new key right away (e.g. act as the "
+    "tester). The key is checked with /me first; if it is not valid nothing changes. "
+    "Pass an empty key to go back to the key this server was configured with. Returns "
+    "the new identity (role and permissions). Only switch to a key you were given or "
+    "created with the human's approval; remember that the verifier of a task must not "
+    "be the key that implemented it."
+))
+def use_api_key(key: str = "") -> str:
+    global AGENT_KEY
+    candidate = key.strip() or CONFIGURED_KEY
+    if not candidate:
+        return json.dumps({"error": "SPECLOCK_KEY is not set and no key was given"},
+                          ensure_ascii=False)
+    previous, AGENT_KEY = AGENT_KEY, candidate
+    result = json.loads(_call("GET", "/api/v1/me"))
+    if result.get("status") != 200:
+        AGENT_KEY = previous
+        return json.dumps({"error": "该密钥无效，已保持原来的身份不变", "detail": result},
+                          ensure_ascii=False)
+    return json.dumps({"switched": True, "identity": result["body"]}, ensure_ascii=False)
 
 
 # ---------- Change Requests (cr.read / cr.write / commit.write) ----------

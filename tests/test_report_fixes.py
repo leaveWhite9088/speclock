@@ -119,3 +119,46 @@ def test_ref_errors_explain_the_dollar_prefix_convention(env):
     assert r.status_code == 422 and "你是不是想写 '$biz'" in r.json()["detail"]
     ops[1]["business"] = "$biz"  # 正确写法
     assert commit(env, cr, ops, covers=["AC-1"]).status_code == 200
+
+
+# ---------- 新建的 key 在 MCP 里可以直接使用，不用重启 ----------
+
+
+def test_use_api_key_switches_identity_without_restart(env, monkeypatch):
+    import json as _json
+
+    from speclock import mcp_server
+
+    c = env["client"]
+    admin_key = env["human"]["X-API-Key"]
+
+    def fake_request(method, url, headers=None, timeout=None, **kw):
+        return c.request(method, url.removeprefix(mcp_server.BASE_URL), headers=headers, **kw)
+
+    monkeypatch.setattr(mcp_server.httpx, "request", fake_request)
+    monkeypatch.setattr(mcp_server, "CONFIGURED_KEY", admin_key)
+    monkeypatch.setattr(mcp_server, "AGENT_KEY", admin_key)
+
+    def call(raw):
+        return _json.loads(raw)
+
+    assert call(mcp_server.whoami())["body"]["role"] == "admin"
+
+    # 管理员先创建 key（必须带人的原话），拿到明文后立刻切换，不用重启
+    made = call(mcp_server.create_api_key("tester-agent", "qa", evidence="同意，建一把测试用的"))
+    new_key = made["body"]["key"]
+    switched = call(mcp_server.use_api_key(new_key))
+    assert switched["switched"] is True and switched["identity"]["role"] == "tester-agent"
+    assert call(mcp_server.whoami())["body"]["role"] == "tester-agent"
+    # 测试 Agent 没有创建 key 的权限
+    denied = call(mcp_server.create_api_key("executor-agent", "x", evidence="x"))
+    assert denied["status"] == 403
+
+    # 无效的 key：保持原身份不变
+    bad = call(mcp_server.use_api_key("agent-not-a-real-key"))
+    assert "error" in bad
+    assert call(mcp_server.whoami())["body"]["role"] == "tester-agent"
+
+    # 传空 = 回到配置的那把
+    back = call(mcp_server.use_api_key(""))
+    assert back["identity"]["role"] == "admin"

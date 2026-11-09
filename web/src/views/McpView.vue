@@ -20,7 +20,8 @@ const TOOLS = [
   ['report_failed', '没做成：写明原因，之后可重新领取'],
   ['submit_implementation', '提交实现结果：逐条验收条件给 pass + 证据，全部通过才能提交'],
   ['verify_work', '独立验收（测试 Agent）：逐条验收条件给结果；验证者不能是实现者'],
-  ['create_api_key', '为 Agent 角色创建 key：必须先问人，附人同意的原话；明文只返回一次'],
+  ['create_api_key', '危险操作（仅 admin）：为 Agent 角色创建 key，必须先问人并等到明确同意，附人的原话；明文只返回一次，创建后立即可用'],
+  ['use_api_key', '在当前会话切换使用的 key（如刚创建的那把），不用重启客户端；传空切回配置里的'],
   ['list_change_requests', '列出审核单，可按状态过滤'],
   ['get_change_request', '读取审核单：状态、验收条件覆盖情况、人的决定、全部 Commit'],
   ['create_change_request', '创建审核单草稿：只写业务意图（为什么变 / 变成什么样 / 不再成立的旧认知 / 验收条件 / 影响说明）'],
@@ -42,7 +43,7 @@ const RULES = [
   '提交 Commit 前可先 dry_run 预览版本号和级别标签；任何一条 op 失败整个 Commit 回滚。',
   '执行 Agent：list_work 找到待领取项 → claim_work（拿到锁定版本的规格）→ 实现 → submit_implementation，逐条验收条件附证据。业务上卡住用 report_blocked，别猜。',
   '测试 Agent：list_work(status=implemented) → get_work 看实现方的证据 → 自己测 → verify_work 逐条给结果；不能验收自己实现的。',
-  '启动时先 whoami 弄清自己的角色，并检查自己目录的 AGENTS.md 是否已有 key，不要重复创建；需要新 key 时先问人，同意后再 create_api_key。',
+  '启动时先 whoami 弄清自己的角色，并检查自己目录的 AGENTS.md 是否已有 key，不要重复创建；创建 key 是危险操作，只有 admin 能做：先告诉人要建哪个角色、为什么，等到明确同意再 create_api_key，建好后用 use_api_key 直接切换使用。',
   '只能读到已发布版本；归档内容不可见。',
 ]
 

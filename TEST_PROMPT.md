@@ -16,6 +16,8 @@
   它会告诉你，你重启后回到那个对话说一声「已重启」即可。
 - 想边测边看：`cd web; npm run build`，浏览器打开 `http://127.0.0.1:8000`，登录页粘贴 key（网页是只读展示）。
 - 测试过程中，对方会在需要「人的确认」时停下来问你；你在那个对话里回答即可（同意 / 驳回 / 提修改意见）。
+- **库里已有内容时，对方会自动只做第 E 部分**（执行协议）；要从头全测就先清库：停服务，删 `speclock.db`，执行 `.venv\Scripts\python.exe -m speclock.seed --empty`，再启动服务。
+- 第 E 部分会让对方为「测试 Agent」创建一把 key（危险操作）：它会先问你是否同意，你明确回答即可；创建后它用 `use_api_key` 直接切换身份，**不需要重启客户端**。
 
 ---
 
@@ -63,13 +65,21 @@ SpecLock 服务已经在本机 `http://127.0.0.1:8000` 运行。你需要自己�
 4. 自检失败时（工具不存在、报连接错误、返回 401 等），**不要继续测试**：把你看到的原始报错告诉用户，
    并说明你判断的原因（配置没生效 / 服务没起 / key 不对）。除了写 `.mcp.json`，不要尝试别的办法去启动或修复服务。
 
+### 测试范围：先判断库里有没有数据
+
+第 0 步通过后，先调用 `get_index` 和 `list_change_requests` 看库的状态，再决定做哪些：
+
+- **库是空的**：从 A 做到 E，全部步骤。
+- **库里已经有内容**（说明 A–D 之前有人跑过了）：**只做第 E 部分**。不要重新建“社区小店”，直接用库里已有的模块和审核单；E 里需要“再发布一个新版本”的步骤，就按 B/C 的流程新开审核单来改（每次仍然要停下来问用户）。报告里注明“A–D 本次未重测，沿用库里已有数据”。
+- 无论哪种情况，都先把这一步的判断和依据（看到了什么）告诉用户。
+
 ### 测试步骤
 
 请**按顺序**做，每一步记录你调用了什么、返回了什么（关键字段即可）。
 
 **A. 基础**
 1. `whoami` 已在第 0 步完成；这里记录其返回即可。
-2. `get_index`、`list_change_requests`：确认当前是空库。
+2. `get_index`、`list_change_requests`：记录当前库的状态（空库，还是已有内容——见上面的“测试范围”）。
 
 **B. 正常流程**
 3. `create_change_request`：为“社区小店订单管理”建单（至少 2 条验收条件，填 `obsolete` 和 `impact_note`）。记下返回的验收条件 id（AC-n 是服务端分配的）。
@@ -104,9 +114,9 @@ SpecLock 服务已经在本机 `http://127.0.0.1:8000` 运行。你需要自己�
 23. 用**同一把 key** 调 `verify_work` → 应被拒绝（验证者不能是实现者）。
 24. 再领一条，`report_blocked` 写一个业务问题（如"退款是否含运费？规格没写"）→ 状态 `blocked`，`list_work(status=blocked)` 能看到原因。
 25. 回到需求 Agent 的身份：为这个问题开审核单（走 B 的完整流程，**每次都停下来问用户**）并发布修改了该模块的新版本 → 确认：被阻塞的旧记录变成 `superseded`，新版本出现一条新的 `pending`；对旧记录再 `claim_work` / `submit_implementation` → 应被拒绝并指向最新版本。
-26. **创建测试 Agent 的 key**：先检查你项目里的 `AGENTS.md` / `.mcp.json` 是否已经有 tester 角色的 key（有就不要重复创建）。没有的话，**停下来问用户**"可以为测试 Agent 创建一把 key 吗"，用户同意后调 `create_api_key`（role=`tester-agent`，`evidence` 填用户原话）。key 明文只返回一次，**不要在对话里复述**：把它写进 `.mcp.json` 里一个新的 MCP 条目 `speclock-qa`（和 `speclock` 条目一样，只是 `SPECLOCK_KEY` 换成这把），再告诉用户重启客户端并等"已重启"。
-27. 重启后用 `speclock-qa` 的工具：`whoami`（角色应是 `tester-agent`，没有 `exec.write`）；`claim_work` → 应被拒绝（403）；`list_work(status=implemented)` → `get_work` 看到实现方的证据；`verify_work` 先漏一条验收条件（应被拒绝），再逐条 `pass` → `verified`。
-28. 再让一条走"验收不通过"：实现、提交后，用 `speclock-qa` 对其中一条给 `fail` + 证据 → 记录变 `failed`，原因里有你写的证据；用 `speclock` 的 `claim_work` 重新领取 → 回到 `in_progress`，旧结果清空；重新实现后再验收通过。
+26. **创建测试 Agent 的 key**：这是**危险操作**（新 key 就是新权力），只有 admin 能做，必须先经用户确认。先检查你项目里的 `AGENTS.md` / `.mcp.json` 是否已经有 tester 角色的 key（有就不要重复创建）。没有的话，**停下来告诉用户**要创建哪个角色、为什么，问"可以为测试 Agent 创建一把 key 吗"，用户明确同意后才调 `create_api_key`（role=`tester-agent`，`evidence` 填用户原话）。key 明文只返回一次，**不要在对话里复述**；新 key **立即可用，不需要重启客户端**：调 `use_api_key` 切换到它即可。
+27. 切换后（身份现在是测试 Agent）：`whoami`（角色应是 `tester-agent`，没有 `exec.write`）；`claim_work` → 应被拒绝（403）；`list_work(status=implemented)` → `get_work` 看到实现方的证据；`verify_work` 先漏一条验收条件（应被拒绝），再逐条 `pass` → `verified`。
+28. 再让一条走"验收不通过"：实现、提交后，切到测试 Agent 的 key（`use_api_key`）对其中一条给 `fail` + 证据 → 记录变 `failed`，原因里有你写的证据；调 `use_api_key`（传空）切回 admin，再 `claim_work` 重新领取 → 回到 `in_progress`，旧结果清空；重新实现后再验收通过。
 29. `get_work` 看事件历史：确认每次转换都有记录（谁、从什么状态到什么状态、备注）。
 
 ### 你要交付的报告
