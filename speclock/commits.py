@@ -531,7 +531,15 @@ def apply_commit(
         raise HTTPException(
             status_code=409, detail=f"审核单是 {cr.status}，只有已批准（approved）的才能提交 Commit"
         )
-    ops = validate_ops_shape(ops)
+    if isinstance(ops, list) and not ops:
+        # 「只补覆盖」的 Commit：之前的 Commit 漏写了 covers，事后补一条声明。不改规格，
+        # 但必须声明要补哪些验收条件，并写明为什么（声明是否属实仍由验证环节负责）
+        if not covers:
+            raise _422("ops 为空时，必须在 covers 里写明要补覆盖的验收条件（AC-n）")
+        if not change_note.strip():
+            raise _422("只补覆盖、不改规格的 Commit 必须在 change_note 里写明原因")
+    else:
+        ops = validate_ops_shape(ops)
     covers = validate_covers(cr, covers)
     note = change_note.strip() or f"审核单 #{cr.id}「{cr.title}」"
     seq = max((c.seq for c in cr.commits), default=0) + 1

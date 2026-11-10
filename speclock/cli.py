@@ -250,7 +250,7 @@ def cmd_key_show(args) -> None:
 
 def cmd_key_delete(args) -> None:
     c, _ = _client(args)
-    out = _request(c, "DELETE", f"/api/v1/keys/{args.id}")
+    out = _request(c, "DELETE", f"/api/v1/keys/{args.id}", params={"via": "cli"})
     print(f"已删除 #{out['id']}")
 
 
@@ -259,6 +259,13 @@ def cmd_init(args) -> None:
 
     from speclock.home import NotInitialised, init_home
 
+    if not args.glob:
+        from speclock.home import locate_home
+
+        existing, how = locate_home()
+        if existing is not None and existing != Path.cwd() / ".speclock" and not (Path.cwd() / ".speclock").exists():
+            print(f"提示：{how}已经有一份数据（{existing}）。这里会新建一个独立的 .speclock/，"
+                  "之后在这个目录里运行的命令都会用新建的这一份。")
     try:
         cfg, key = init_home(Path.cwd(), glob=args.glob, project_name=args.project, port=args.port,
                               new_admin=args.new_admin)
@@ -268,6 +275,31 @@ def cmd_init(args) -> None:
     print(f"服务地址：{cfg.url}（speclock serve 启动；网页同一个地址）")
     if key is None:
         print("这里已经初始化过，库里已有密钥（明文无法找回；admin key 丢了就运行 speclock init --new-admin 再发一把）。")
+        return
+    if args.new_admin:
+        revoked = 0
+        if args.revoke_old:
+            from speclock import db as dbmod
+            from speclock.auth import hash_key
+            from speclock.models import ApiKey
+
+            session = dbmod.SessionLocal()
+            try:
+                for old in session.query(ApiKey).all():
+                    if old.role is not None and old.role.name == "admin" and old.key != hash_key(key):
+                        session.delete(old)
+                        revoked += 1
+                session.commit()
+            finally:
+                session.close()
+        print()
+        print(f"新的 admin key（只显示这一次，请自己保管）：{key}")
+        if args.revoke_old:
+            print(f"已吊销旧的 admin key：{revoked} 把。")
+        else:
+            print("旧的 admin key **仍然有效**。如果它是泄露了，请吊销：")
+            print("  speclock init --new-admin --revoke-old        # 再发一把并吊销所有旧的 admin key")
+            print("  或 speclock key list / speclock key delete <id>  # 只删指定的")
         return
     print()
     print(f"admin key（拥有全部权限，只显示这一次，请自己保管）：{key}")
@@ -311,6 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     ini.add_argument("--project", help="项目名（默认取当前目录名）")
     ini.add_argument("--port", type=int, help="端口（默认：项目级随机空闲端口，电脑级 47821）")
     ini.add_argument("--new-admin", action="store_true", help="admin key 丢了：再发一把新的（旧的不受影响，可用 key delete 吊销）")
+    ini.add_argument("--revoke-old", action="store_true", help="配合 --new-admin：同时吊销所有旧的 admin key（admin key 泄露时用）")
     ini.set_defaults(fn=cmd_init)
     sub.add_parser("serve", help="启动服务和网页").set_defaults(fn=cmd_serve)
     mc = sub.add_parser("mcp", help="启动 MCP 服务（给 Agent 用，stdio）")

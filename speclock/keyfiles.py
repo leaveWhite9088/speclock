@@ -81,8 +81,24 @@ def delete_key_file(home: Path | None, name: str) -> None:
         path.unlink()
 
 
-def read_key(ref: str, home: Path | None = None) -> str:
-    """读 key 文件：ref 可以是 keys/ 里的文件名（带不带 .key 都行），也可以是一个文件路径。"""
+def read_key(ref: str, home: Path | None = None, strict: bool = False) -> str:
+    """读 key 文件：ref 可以是 keys/ 里的文件名（带不带 .key 都行），也可以是一个文件路径。
+
+    ``strict=True``（会话里由 Agent 传进来的名字用这个）：只认 keys/ 目录里的**文件名**，
+    带路径分隔符、``..`` 或绝对路径一律拒绝，防止借 ``../web.key`` 之类读到别处的文件。"""
+    if strict:
+        if home is None:
+            raise FileNotFoundError("找不到 .speclock/，没法定位 keys/ 目录")
+        if not ref or ref != Path(ref).name or ref in (".", ".."):
+            raise ValueError("key_file 只能是 .speclock/keys/ 里的文件名，不能带路径")
+        d = keys_dir(home)
+        for cand in (d / ref, d / f"{ref}{KEY_SUFFIX}"):
+            if cand.is_file() and cand.resolve().parent == d.resolve():
+                key = cand.read_text(encoding="utf-8").strip()
+                if not key:
+                    raise ValueError(f"key 文件是空的：{cand.name}")
+                return key
+        raise FileNotFoundError(f"keys/ 里没有 {ref}")
     p = Path(ref)
     if not p.is_file() and home is not None:
         for cand in (keys_dir(home) / ref, keys_dir(home) / f"{ref}{KEY_SUFFIX}"):

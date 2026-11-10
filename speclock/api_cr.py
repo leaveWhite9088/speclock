@@ -195,9 +195,10 @@ def create_cr(
     project_id = body.project_id if body.project_id is not None else key.project_id
     if project_id is None:
         raise HTTPException(status_code=422, detail="project_id 必填（全局 key 必须指明项目）")
-    if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    _check_project(key, project_id)
+    if db.get(Project, project_id) is None or (key.project_id is not None and key.project_id != project_id):
+        # 不存在和无权访问用同一个 404（不泄露别的项目存不存在），但说清楚这把 key 的范围
+        scope = f"这把 key 绑定在项目 {key.project_id}，只能在它里面开审核单" if key.project_id is not None else "请先 list_projects 确认项目 id"
+        raise HTTPException(status_code=404, detail=f"没有项目 {project_id}，或这把 key 无权访问它（{scope}）")
     if not body.title.strip():
         raise HTTPException(status_code=422, detail="title 不能为空")
     _check_supersedes(db, project_id, body.supersedes_id, None)

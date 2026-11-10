@@ -72,16 +72,22 @@ def _is_home(p: Path) -> bool:
     return (p / CONFIG_NAME).is_file()
 
 
-def find_home(start: Path | None = None) -> Path | None:
+def locate_home(start: Path | None = None) -> tuple[Path | None, str]:
+    """找 .speclock/，同时说明是怎么找到的（启动时打印出来，免得悄悄用了上层目录的数据）。"""
     env = os.environ.get("SPECLOCK_HOME")
     if env:
-        return Path(env)
+        return Path(env), "环境变量 SPECLOCK_HOME"
     here = (start or Path.cwd()).resolve()
     for d in (here, *here.parents):
         if _is_home(d / HOME_DIRNAME):
-            return d / HOME_DIRNAME
+            how = "当前目录" if d == here else f"上层目录 {d}"
+            return d / HOME_DIRNAME, how
     g = global_home()
-    return g if _is_home(g) else None
+    return (g, "电脑级的 ~/.speclock") if _is_home(g) else (None, "")
+
+
+def find_home(start: Path | None = None) -> Path | None:
+    return locate_home(start)[0]
 
 
 def read_config(home: Path) -> Config:

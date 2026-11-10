@@ -46,29 +46,34 @@ from speclock.home import default_url
 BASE_URL = default_url()
 
 
-def _read_key_file(ref: str) -> str:
+def _read_key_file(ref: str, strict: bool = False) -> str:
     from speclock import keyfiles
     from speclock.home import find_home
 
-    return keyfiles.read_key(ref, find_home())
+    return keyfiles.read_key(ref, find_home(), strict=strict)
 
 
-def _configured_key() -> str:
-    """这个 MCP 进程配置的 key：SPECLOCK_KEY，或 SPECLOCK_KEY_FILE 指向的 key 文件
-    （speclock mcp --key-file ...）。文件读不到时返回空，调用时会提示没有 key。"""
-    key = os.environ.get("SPECLOCK_KEY", "")
-    if key:
-        return key
+def _configured() -> tuple[str, str]:
+    """这个 MCP 进程配置的 (key, 来源)。
+
+    **key 文件优先于 SPECLOCK_KEY 环境变量**：配置里明明白白写了 ``--key-file``，就不该被 shell 里
+    随手 export 的环境变量（比如人为了跑 CLI 设的 admin key）悄悄顶掉。文件读不到时返回空，
+    调用时会提示没有 key，而不是退回环境变量里的另一把 key。"""
     ref = os.environ.get("SPECLOCK_KEY_FILE", "")
     if ref:
         try:
-            return _read_key_file(ref)
+            return _read_key_file(ref), f"key 文件 {ref}"
         except (OSError, ValueError):
-            return ""
-    return ""
+            return "", f"key 文件 {ref}（读取失败）"
+    key = os.environ.get("SPECLOCK_KEY", "")
+    return (key, "环境变量 SPECLOCK_KEY") if key else ("", "未配置")
 
 
-CONFIGURED_KEY = _configured_key()
+def _configured_key() -> str:
+    return _configured()[0]
+
+
+CONFIGURED_KEY, KEY_SOURCE = _configured()
 AGENT_KEY = CONFIGURED_KEY  # use_api_key 可在本进程内切换
 
 mcp = MCPServer("speclock")
@@ -126,7 +131,15 @@ def _call(method: str, path: str, **kwargs) -> str:
     "Call it first to know which of the other tools you may use."
 ))
 def whoami() -> str:
-    return _call("GET", "/api/v1/me")
+    raw = _call("GET", "/api/v1/me")
+    try:
+        data = json.loads(raw)
+        if isinstance(data.get("body"), dict):
+            data["body"]["key_source"] = KEY_SOURCE  # 这把 key 是从哪来的，一眼看出身份有没有被顶替
+            return json.dumps(data, ensure_ascii=False)
+    except ValueError:
+        pass
+    return raw
 
 
 # ---------- read the spec (spec.read) ----------
@@ -420,24 +433,28 @@ def revoke_api_key(key_id: int, evidence: str) -> str:
 
 @mcp.tool(description=(
     "Switch which API key this MCP session uses from now on, no restart needed. Pass "
-    "key_file (a file name in .speclock/keys/, e.g. the one create_api_key returned, or a path) "
-    "to use a saved key without ever seeing it; or pass the key itself. The key is checked "
+    "key_file (a FILE NAME in .speclock/keys/, e.g. the one create_api_key returned; paths are "
+    "refused) to use a saved key without ever seeing it; or pass the key itself. The key is checked "
     "first; if invalid nothing changes. With neither, it goes back to the configured key. "
     "Read only YOUR OWN key file. Returns the new identity (role, permissions)."
 ))
 def use_api_key(key: str = "", key_file: str = "") -> str:
-    global AGENT_KEY
+    global AGENT_KEY, KEY_SOURCE
+    source = "use_api_key(key)"
     if key_file.strip():
         try:
-            key = _read_key_file(key_file.strip())
+            key = _read_key_file(key_file.strip(), strict=True)
         except (OSError, ValueError) as exc:
             return json.dumps({"error": f"读不到 key 文件，已保持原来的身份不变：{exc}"},
                               ensure_ascii=False)
-    candidate = key.strip() or CONFIGURED_KEY or _configured_key()
+        source = f"use_api_key(key_file={key_file.strip()})"
+    candidate = key.strip()
+    if not candidate:
+        candidate, source = CONFIGURED_KEY or _configured_key(), "启动时配置的 key"
     if not candidate:
         return json.dumps({"error": "SPECLOCK_KEY is not set and no key was given"},
                           ensure_ascii=False)
-    previous, AGENT_KEY = AGENT_KEY, candidate
+    previous, previous_source, AGENT_KEY = AGENT_KEY, KEY_SOURCE, candidate
     switched = False
     try:
         result = json.loads(_call("GET", "/api/v1/me"))
@@ -447,6 +464,8 @@ def use_api_key(key: str = "", key_file: str = "") -> str:
     finally:
         if not switched:
             AGENT_KEY = previous  # 无论是无效密钥还是调用过程中出了任何异常，都保持原来的身份
+        else:
+            KEY_SOURCE = source
     if not switched:
         return json.dumps({"error": "该密钥无效，已保持原来的身份不变", "detail": result},
                           ensure_ascii=False)
@@ -485,8 +504,9 @@ def get_change_request(cr_id: int) -> str:
     "natural, fluent Chinese like explaining to a colleague, no spec-speak. project_id is "
     "optional when your key is bound to a project. supersedes_id replaces an earlier "
     "APPROVED-but-unfinished request when this one is approved. kind: 'business' "
-    "(default; a human approves it) or 'internal' (a reorganisation the caller itself "
-    "judges not to change business meaning: rename, move or split modules, fix a typo; "
+    "(default; a human approves it) or 'internal' (ONLY renaming businesses / capabilities / "
+    "module titles & summaries, or move_block — anything that changes a module's background, "
+    "rules, acceptance items or APIs, even a typo, is a business change; "
     "needs kind_reason and the cr.internal permission; it takes effect on submit, with no "
     "human approval, and is audited as 'declared by the agent'). SpecLock does not check "
     "the content — the choice is yours; when unsure use 'business'. "
@@ -654,7 +674,28 @@ def complete_change_request(cr_id: int) -> str:
     return _call("POST", f"/api/v1/change-requests/{cr_id}/complete")
 
 
+def _forbid_unknown_args() -> None:
+    """工具参数拼错（比如把 acceptance 写成 acceptence）时直接报错，而不是悄悄丢掉——和 REST 一致。"""
+    for tool in mcp._tool_manager.list_tools():
+        model = tool.fn_metadata.arg_model
+        model.model_config["extra"] = "forbid"
+        model.model_rebuild(force=True)
+
+
+_forbid_unknown_args()
+
+
 def main() -> None:
+    import sys
+
+    from speclock.home import locate_home
+
+    found, how = locate_home()
+    # stdout 是 MCP 协议通道，说明只能写 stderr
+    print(f"[speclock mcp] 服务 {BASE_URL}；数据目录 {found}（{how}）；身份来源 {KEY_SOURCE}", file=sys.stderr)
+    if os.environ.get("SPECLOCK_KEY") and os.environ.get("SPECLOCK_KEY_FILE"):
+        print("[speclock mcp] 同时设置了 SPECLOCK_KEY 和 --key-file：以 key 文件为准，忽略环境变量里的 key。",
+              file=sys.stderr)
     mcp.run()  # stdio transport (default)
 
 

@@ -168,6 +168,16 @@ try:
     ).stdout.split()
     ok("MCP started from another directory finds the service and its key file", probe == [url, "True"], str(probe))
 
+    # 环境变量里有 admin key（人在 shell 里为跑 CLI 设的）时，配了 key 文件的 MCP 仍然是自己的身份
+    probe = subprocess.run(
+        [sys.executable, "-c", "import speclock.mcp_server as m; print(m.KEY_SOURCE); print(m.CONFIGURED_KEY == " + repr(admin) + ")"],
+        cwd=elsewhere, capture_output=True, text=True, encoding="utf-8",
+        env={**env, "SPECLOCK_HOME": str(home_dir), "SPECLOCK_KEY_FILE": files["exec"], "SPECLOCK_KEY": admin},
+    ).stdout.splitlines()
+    ok("a leaked SPECLOCK_KEY does not override --key-file", files["exec"] in probe[0] and probe[1] == "False", str(probe))
+    # use_api_key 不能借路径读到 keys/ 之外的文件
+    r = J(m.use_api_key(key_file="../web.key")); ok("use_api_key refuses paths outside keys/", "error" in r and "switched" not in r)
+
     # 导出与备份（本机命令）
     exp = work / "exported"
     r = subprocess.run([*EXE, "export", "--out", str(exp)], cwd=work, env=env, capture_output=True, text=True, encoding="utf-8")

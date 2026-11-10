@@ -13,7 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 
 from speclock import __version__, home, api_admin, api_agent, api_cr, api_exec, api_search, api_web
@@ -43,6 +45,16 @@ def create_app() -> FastAPI:
         ),
     )
     init_db()
+
+    @app.exception_handler(StarletteHTTPException)
+    async def friendlier_http_errors(request, exc):
+        # FastAPI 对「请求体不是合法 JSON」只说 error parsing the body，没说是编码问题（Windows 下 curl 常见）
+        if exc.status_code == 400 and exc.detail == "There was an error parsing the body":
+            return JSONResponse(
+                {"detail": "请求体不是有效的 UTF-8 JSON；含中文时请用 UTF-8 编码"
+                           "（curl 用 --data-binary @文件.json，不要在命令行里直接写中文）"},
+                status_code=400)
+        return await http_exception_handler(request, exc)
 
     frame_ancestors = "frame-ancestors 'self' " + " ".join(home.embed_origins())
 
@@ -101,6 +113,13 @@ def run() -> None:
     from speclock.db import get_engine, init_db
     from speclock.webkey import ensure_web_key
 
+    from speclock.home import locate_home
+
+    found, how = locate_home()
+    if found is not None:
+        print(f"SpecLock 数据目录：{found}（{how}）")
+        if how.startswith("上层目录"):
+            print("注意：用的是上层目录的数据，不是当前目录的。想在这里用独立的一份，先运行 speclock init。")
     get_engine()
     init_db()
     ensure_web_key()  # 网页用的只读 key，缺了就补
