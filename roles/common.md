@@ -30,6 +30,8 @@ SpecLock 是业务规格的唯一信源：保存业务事实（大业务 → 小
 - **只读你自己的那一个文件。不要打开、列出、复制、使用 `keys/` 里别的文件**——那是别的 Agent 的身份，不是你的职责。
   不要把 key 的内容写进对话、日志、代码或提交里。
 - 找不到自己的 key 文件，或者 key 失效了：停下来告诉用户，不要去用别的 key。
+- **不要用 `use_api_key(key_file=…)` 去试别的文件名**，也不要在会话里换成别的角色的 key 来做你角色之外的事（比如换成测试 Agent 的 key 去验收自己的实现）：系统拦不住，但这是越权。
+- `whoami` 会告诉你这把 key 的来源（`key_source`）。如果来源不是你配置里写的那个 key 文件，说明身份被顶替了：停下来告诉用户。
 - **admin key 不属于任何 Agent 的目录**：如果你在项目文件里（`.mcp.json`、AGENTS.md、环境文件）发现了 admin key，**不要用它**，告诉用户把它移走。
   你的身份是你自己的角色 key；需要管理员做的事（批准、创建 key、建项目）告诉用户，由用户或他授权的管理员会话来做。
 
@@ -56,4 +58,4 @@ SpecLock 是业务规格的唯一信源：保存业务事实（大业务 → 小
 
 - 角色：`<requirements-agent | executor-agent | tester-agent | scanner-agent>`
 - key 文件：`<.speclock/keys/ 里你自己的那个文件名，如 tester-agent--qa.key；这里只写文件名，不要写 key 本身>`
-- 项目：`<project_id，没有绑定就写「全局」>`
+- 项目：`<project_id，没有绑定就写「全局」>`（全局 key 开审核单要传 `project_id`，先 `list_projects`）
