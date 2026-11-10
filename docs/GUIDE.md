@@ -93,7 +93,7 @@ speclock key create --role scanner-agent      --label 扫描
 
 创建其他角色的 key 也是危险操作：只有 admin 能做，Agent 必须先问你、拿到你的明确同意，原话会写进审计。
 
-只是改名、搬模块这类**内部整理**，需求 Agent 可以自己声明 `kind=internal` 并写明理由，不用你批准；网页上会标注「由 Agent 自行判定」。
+只有**改名和搬模块**这两类**内部整理**（不改任何模块的内容，不产生新的模块版本），需求 Agent 可以自己声明 `kind=internal` 并写明理由，不用你批准；网页上会标注「由 Agent 自行判定」。
 
 ## 6. 网页
 
@@ -133,4 +133,9 @@ speclock cr list|show|approve|reject         # 审核单
 speclock key list|create|show|delete         # 密钥
 ```
 
+`init` / `serve` / `mcp` 启动时都会打印它用的数据目录和是怎么找到的（当前目录 / 上层目录 / 环境变量 / 电脑级）；如果用的是上层目录的数据，会特别提醒。
+`speclock init --new-admin` 只是再发一把，**旧的 admin key 仍然有效**；key 是泄露了就加 `--revoke-old` 一并吊销。
+
 需要 key 的命令（`cr`、`key`、`project`）按这个顺序找 key：`--key` 参数 → 环境变量 `SPECLOCK_KEY` → 在终端里提示输入。
+
+> `SPECLOCK_KEY` 是给**你自己的命令**用的，别在启动 Agent 的 shell 里 export 它。Agent 的 MCP 配了 `--key-file` 时以 key 文件为准，但 Agent 若是用 `SPECLOCK_KEY` 启动的（没配 key 文件），它就会拿到这把 key。

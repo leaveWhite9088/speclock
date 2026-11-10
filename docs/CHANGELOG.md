@@ -2,6 +2,19 @@
 
 版本号的源头是 `speclock/__init__.py` 的 `__version__`。
 
+## 0.2.6 — 联调 v3 修复
+
+- **MCP 身份不再被环境变量顶替**：配了 `--key-file` 就以文件为准（之前 `SPECLOCK_KEY` 会静默覆盖，人为跑 CLI 设的 admin key 让需求 Agent 变成了管理员）；
+  `whoami` 返回 `key_source`；启动时在 stderr 打印服务、数据目录和身份来源。
+- **`use_api_key(key_file=…)` 只认 `keys/` 里的文件名**，`../web.key` 之类的路径一律拒绝（之前能借此读到别处的 key 文件）。
+- **启动时说明数据目录**：`serve` / `mcp` 打印用的是哪个 `.speclock/`、怎么找到的，用了上层目录会提醒；在嵌套目录里 `init` 会提示上层已有一份。
+- **`init --new-admin`**：说明旧 key 仍有效，新增 `--revoke-old` 一并吊销；不再重复"下一步"。
+- **只补覆盖的 Commit**：`ops: []` + `covers` + `change_note`，不用为补覆盖随便改个字段。
+- **网页不再说"系统检查了内部整理"**：系统不检查内容。内部整理单的详情页会指出落地后升了级（大改 / 小改）的模块，提醒人看一眼。
+- MCP 工具参数拼错会报错；绑定项目的 key 在别的项目开单给出明确提示；请求体编码错误提示 UTF-8；CLI 删除 key 的审计来源记为 `cli`。
+- **内部整理的边界划清**：只有改名（标题与简述）和 `move_block`；改了模块的背景、规则、验收条件或 API 的任何一个字（含错别字）、以及新建 / 拆分 / 合并 / 归档模块，都是业务变更。网页对内部整理单落地后出现的模块新版本给出提醒。
+- 提示词：内部整理先用 `dry_run` 核对（`blocks` 等为空才算）、全局 key 先 `list_projects`、漏了 covers 怎么补、不要试别人的 key 文件；扫描 Agent 重点标出升了级的内部整理单。
+
 ## 0.2.5 — 备份导出，收紧 admin key
 
 - **备份与导出**（本机命令，不走 HTTP）：`speclock backup`（SQLite 在线备份，完整）、`speclock restore`（先检查、服务在跑就拒绝、原库改名留着）、
@@ -9,7 +22,7 @@
 - **admin key 不再放进 Agent 读得到的地方**：`init` 不再打印含 admin key 的 `.mcp.json` 片段，改为提示"别写进项目文件"并给出下一步；
   人用的 CLI 没有 key 时在终端提示输入（不用存文件）；`roles/common.md` 写明发现项目文件里有 admin key 时不要用、告诉用户。
 - **MCP 不依赖启动时的工作目录**：`speclock key create` 和 `create_api_key` 现在返回现成的 `.mcp.json`（`mcp_config`：key 文件名 + 写死的 `SPECLOCK_HOME` + Python 绝对路径），
-  跟项目走、跟电脑走一样；端到端脚本两种用法各跑一遍（48 项检查）。
+  跟项目走、跟电脑走一样；端到端脚本两种用法各跑一遍（50 项检查）。
 - 内部整理的审核单不再强求写验收条件（改名、搬模块本来就没有）。
 - 文档重做：README 改为简洁的项目主页（logo、工作方式与架构两张示意图、原则、快速开始），实用内容挪到新的 `docs/GUIDE.md`（使用指南）。
 

@@ -47,7 +47,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **两级版本** — 模块独立递增 semver，级别标签由代码按结构化 diff 机械算出（有任何删除或修改 → MAJOR，只有新增 → MINOR，其余 PATCH），只是给外部 Agent 的参考，Core 不规定它们据此该做什么；任一模块发布时所属小业务自动派生小业务版本（manifest = 全部模块当前版本清单）
 - **字段级 diff 与版本标签** — 基于递归 flatten 的点号路径（如 `response:GET /x:data.items.id`）；API 侧任何删除（含可选字段）或类型 / 必填标志变更都算 MAJOR 级变更；规则与验收条件按稳定 id 匹配，详述变了算修改，只改名称算 renamed（PATCH）
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→小业务→模块 三层概要树（小业务节点带可选的一句话简述）（模块节点带一句话摘要与当前版本的执行状态），选中后再按需精读，上下文占用最小
-- **内部整理（由 Agent 声明，Core 不判断）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（由需求 Agent 声明并写明理由，提交即生效，需要 `cr.internal` 权限）。「是不是业务变更」只能由 Agent 判断，规矩写在 [`roles/requirements-agent.md`](roles/requirements-agent.md) 的提示词里；Core 不比较内容，只留痕（声明者、理由、版本 diff、审计），网页上标注「由 Agent 自行判定」。新操作 `move_block`
+- **内部整理（由 Agent 声明，Core 不判断）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（由需求 Agent 声明并写明理由，提交即生效，需要 `cr.internal` 权限）。内部整理只有改名和搬模块两类（不产生新的模块版本），改了模块内容的任何一个字都是业务变更；「是不是业务变更」只能由 Agent 判断，规矩写在 [`roles/requirements-agent.md`](roles/requirements-agent.md) 的提示词里；Core 不比较内容，只留痕（声明者、理由、版本 diff、审计），网页上标注「由 Agent 自行判定」。新操作 `move_block`
 - **溯源与覆盖检查** — 每个模块版本 / 小业务版本记录产生它的 `cr_id` + `commit_id`，从版本能追到「为什么改」，从审核单能追到全部 Commit 与受影响版本；Commit 声明满足审核单的哪些验收条件（`covers`），审核单要进入 `applied`，全部验收条件必须被覆盖（Core 只做这个机械检查，不判断语义）
 - **执行记录（规格状态与执行状态分开）** — 每个已发布的模块版本自动产生一条执行记录：`pending → in_progress → implemented → verified`，另有 `blocked` / `failed`（可重新领取）和 `superseded`（模块发布新版本后，旧版本上没做完的记录被取代）。执行 Agent 领取任务时拿到**锁定到该版本**的完整规格；提交实现结果必须逐条验收条件给 pass + 证据；**测试 Agent 独立验收**，验证者不能是实现者（同一把 key 403）。每次转换写只追加的事件历史。待办看板 `/work` 与模块页版本历史展示状态与事件
 - **全链路审计** — 审核单流转 / Commit / 发布 / 拉取 / 执行记录转换 / 密钥与角色变更全部落 `AuditLog`
@@ -105,7 +105,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 | 页面 | 回答什么 |
 |---|---|
-| 总览 `/` | 现在有什么需要我关注的：等我确认的审核单、卡住的任务（被阻塞 / 失败）、Agent 自行判定的内部整理、待复核的小改动、等验收、进行中，以及数字概览和最近活动 |
+| 总览 `/` | 现在有什么需要我关注的：等我确认的审核单、卡住的任务（被阻塞 / 失败）、Agent 自行判定的内部整理、等验收、进行中，以及数字概览和最近活动 |
 | 文档树 `/tree` | 大业务 → 小业务 → 模块；小业务显示「已验收 / 总数」，可按执行状态筛选 |
 | 审核单 `/change-requests` | 全部审核单；详情里有「落地明细」：Commit → 受影响的模块 / 小业务（版本怎么变的）→ 现在的执行状态 |
 | 待办 `/work` | 每个模块版本的执行记录与事件历史 |
@@ -208,6 +208,7 @@ curl -X POST -H "X-API-Key: $QA" -H "Content-Type: application/json" http://127.
 ### 人批准：CLI
 
 ```bash
+# 注意：SPECLOCK_KEY 只给你自己的命令用；MCP 配了 --key-file 时以 key 文件为准，不会被它顶替
 # 不设 SPECLOCK_KEY 也行：在终端里运行时会提示输入 admin / reviewer key（输入不显示），不用把它存进任何文件
 export SPECLOCK_KEY=<人类 key>   # 或者设环境变量 / 传 --key；服务地址默认取自 .speclock/config.toml
 speclock cr list --status pending_review
@@ -236,6 +237,8 @@ speclock key show 3                                                  # 查看已
 
 要点：里面只有 key 的**文件名**，没有 key 本身；`SPECLOCK_HOME` 写死，MCP 据此找到服务地址和 `keys/`，所以**不管客户端从哪个目录启动都能用**，
 跟项目走（`<项目>/.speclock`）和跟电脑走（`~/.speclock`）两种用法完全一样。
+
+MCP 启动时会在 stderr 打印服务地址、数据目录（以及它是怎么找到的）和身份来源；`whoami` 返回里有 `key_source`。**配了 `--key-file` 就以 key 文件为准**，忽略环境变量 `SPECLOCK_KEY`（免得你在 shell 里为跑命令设的 admin key 顶替了 Agent 的身份）。`use_api_key(key_file=…)` 只认 `keys/` 里的**文件名**，带路径一律拒绝。工具参数拼错（多出不认识的参数）会直接报错。
 
 **admin key 不要写进项目里的 `.mcp.json`**（同目录的 Agent 读得到）。需要让客户端以管理员身份代你操作时，配在用户级的 MCP 配置里（如 `claude mcp add --scope user`），
 并且只在你自己跟它对话的那个会话里用。

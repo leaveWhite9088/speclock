@@ -63,6 +63,7 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 一个 Commit 可新建大业务 / 小业务 / 模块（用 `ref` 与 `"$名字"` 互相引用）、更新、归档 / 恢复、`move_block`，可跨多个模块和小业务；
 任何一条 op 失败整体回滚，成功即发布。`dry_run` 完整执行后回滚，用于预览版本号、级别和 delta。
 
+- **只补覆盖的 Commit**：`ops` 可以为空，但必须写 `covers` 和 `change_note`；用于事后补上漏写的覆盖声明，不改规格。
 - **覆盖检查（机械）**：Commit 声明自己满足审核单的哪些 `AC-n`（`covers`）；审核单要 `complete`，全部验收条件必须被至少一个 Commit 覆盖。
   声明是否属实由后续验证环节负责，Core 不判断。
 - **溯源**：每个 `BlockVersion` 记录 `cr_id` + `commit_id`，可从版本追溯到"哪个 Commit、哪个审核单、为什么改"，也可反查。
@@ -73,7 +74,9 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 **由需求 Agent 自己声明**，选 `internal` 必须写 `kind_reason` 并需要 `cr.internal` 权限；提交即生效（`decision_via=agent_declared`），
 不能取代其他审核单。Core **不比较内容**，只做三件机械的事：检查权限、要求写理由、留痕（网页标注"由 Agent 自行判定"）。
 卡在 `approved` 且没有任何 Commit 落地的内部整理单，创建它的 key（或 admin）可以撤回。
-"什么算业务变更"的规矩在 [`roles/requirements-agent.md`](../roles/requirements-agent.md)。
+边界划在 SpecLock 管辖的内容上：**改了模块的背景、规则、验收条件或 API 里的任何一个字，都是业务变更**；
+内部整理只有两类——改名（业务 / 小业务 / 模块的标题与简述）和 `move_block`，共同点是不产生新的模块版本（机械可核对：`dry_run` 的 `blocks`、`archived_blocks`、`restored_blocks` 都为空）。
+具体规矩在 [`roles/requirements-agent.md`](../roles/requirements-agent.md)。
 
 ## 5. 角色、权限与密钥
 
@@ -94,6 +97,7 @@ Project（项目）            隔离单元，key 可绑定到一个项目
   同目录的 Agent 互相看得见文件，"只读自己的"是约定，Core 强制不了；把人类 key 排除在外，是为了让越界读取最多拿到低权限。
 - **admin key 不进 Agent 读得到的文件**：`init` 只打印一次，不再生成含 admin key 的 `.mcp.json` 片段；人用的 CLI 没有 key 时在终端里提示输入（`getpass`）；
   创建 Agent key 时返回现成的 `mcp_config`（`home.mcp_config`：key 文件名 + 写死的 `SPECLOCK_HOME` + Python 绝对路径），所以 MCP 不依赖启动时的工作目录，两种用法一致。
+- **身份不能被环境悄悄顶替**：MCP 里 key 文件优先于 `SPECLOCK_KEY`；`whoami` 带 `key_source`；`use_api_key(key_file=)` 是严格模式，只认 `keys/` 里的文件名（`keyfiles.read_key(strict=True)`）；工具参数多余时报错（与 REST 的 `StrictModel` 一致）。
 - 新建的 Agent key 立即可用；`use_api_key` 在会话内切换，不用重启客户端（无效的 key 保持原身份）。
 - **身份靠提示词**：同一目录下多个 Agent 彼此看得见对方的文件，所以不靠 key 保密隔离角色；key 的作用是角色权限 + 项目隔离，
   Agent 的身份靠各目录 `AGENTS.md` 里的提示词（`roles/`）。
