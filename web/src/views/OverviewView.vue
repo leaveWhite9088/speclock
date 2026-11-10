@@ -147,7 +147,7 @@ const summary = computed(() => {
 
       <AttentionSection
         title="Agent 自行判定的内部整理"
-        hint="需求 Agent 认为这些只是改名、搬动、拆分合并，没有改变业务内容，所以没有经过你批准。系统已检查规则、验收条件、API 一字未变。最近 7 天："
+        hint="需求 Agent 自行判定这些没有改变业务内容，所以没有经过你批准。系统不检查内容，点进去看它实际改了什么；内部整理只该有改名和搬模块，出现模块新版本的就是越界。最近 7 天："
         tone="watch"
         :count="o.internal.length"
         :loading="crsQ.loading.value"

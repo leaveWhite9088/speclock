@@ -33,6 +33,17 @@ const traceQ = useAsync(
 )
 useAutoRefresh(load)
 
+// 内部整理单只该有改名和搬模块，不会产生任何新的模块版本。落地后哪些模块出现了新版本 / 被新建 / 归档 / 恢复，
+// 是机械记下的事实，不是 Core 的判断——有就说明模块内容变了，值得人看一眼
+const internalChanged = computed(() => {
+  if (cr.value?.kind !== 'internal') return []
+  return (traceQ.data.value || []).flatMap((c) => [
+    ...(c.blocks || []).map((b) => ({ title: b.title, what: `${b.created ? '新建' : '新版本'} ${b.version}` })),
+    ...(c.archived || []).map((m) => ({ title: m.title, what: '归档' })),
+    ...(c.restored || []).map((m) => ({ title: m.title, what: '恢复' })),
+  ])
+})
+
 const VIA_TEXT = DECISION_VIA
 
 const covered = computed(() => new Set(cr.value?.coverage?.covered || []))
@@ -76,9 +87,14 @@ const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded']
 
       <div v-if="cr.kind === 'internal'" class="card notice">
         <strong>这是一张「内部整理」单：</strong>
-        由 Agent 自行判定不改变业务内容，提交即生效，没有经过你批准。系统会在落地时检查
-        规则、验收条件、API 的条目总和是否一字未变，变了会拒绝。
+        由 Agent 自行判定不改变业务内容，提交即生效，没有经过你批准。<strong>系统不检查内容</strong>，
+        到底改了什么请看下面的落地明细。
         <template v-if="cr.kind_reason">Agent 的理由：<em>{{ cr.kind_reason }}</em></template>
+        <p v-if="internalChanged.length" class="warn-line">
+          注意：内部整理只该有改名和搬模块，不该产生任何新的模块版本，这张单却有
+          （{{ internalChanged.map((b) => `${b.title}：${b.what}`).join('、') }}）。
+          说明模块的内容变了（规则、验收条件、API 或背景），这应该是业务变更单，要经你批准。
+        </p>
       </div>
 
       <p v-if="cr.supersedes_id" class="muted">
@@ -159,7 +175,7 @@ const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded']
           <span class="muted tech">改了哪些模块、版本怎么变的、现在做到哪了</span>
         </h2>
         <p v-if="cr.kind === 'internal'" class="muted tech-note">
-          这是内部整理单：系统在落地时检查了规则、验收条件、API 的条目总和一字未变。
+          这是内部整理单，系统不检查内容。内部整理只该有改名和搬模块，下面如果出现了模块的新版本，说明模块内容变了。
         </p>
         <p v-if="traceQ.loading.value" class="muted tech-note">正在整理…</p>
         <p v-else-if="traceQ.error.value" class="error-text tech-note">{{ traceQ.error.value }}</p>
@@ -198,6 +214,12 @@ const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded']
   flex-direction: column;
   align-items: flex-start;
   gap: var(--sp-3);
+}
+
+.warn-line {
+  margin: var(--sp-2) 0 0;
+  color: #8a4b00;
+  font-weight: 500;
 }
 
 .notice {
