@@ -22,7 +22,7 @@
   speclock export [--out DIR]            # 导出可读的 Markdown 快照（可进 git）
   speclock project list|create|rename    # 项目
   speclock key list
-  speclock key create --role executor-agent --label "后端执行 Agent" [--project 1]
+  speclock key create --role executor-agent --label "后端执行 Agent" --project 1   # Agent 的 key 必须绑定项目
   speclock key show 3                    # 查看一把已保存的 Agent key
   speclock key delete 3
 """
@@ -312,8 +312,8 @@ def cmd_init(args) -> None:
     print()
     print("下一步：")
     print("  1. speclock serve                                  # 启动服务和网页")
-    print("  2. speclock key create --role requirements-agent --label 需求")
-    print("     为每个 Agent 创建它自己的 key，会打印可以直接贴进它的 .mcp.json 的配置。")
+    print("  2. speclock key create --role requirements-agent --label 需求 --project 1")
+    print("     Agent 的 key 必须绑定项目（--project <项目 id>，speclock project list 能看到）。为每个 Agent 创建它自己的 key，会打印可以直接贴进它的 .mcp.json 的配置。")
 
 
 def cmd_serve(args) -> None:
@@ -398,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
     kc = key.add_parser("create", help="创建密钥（Agent 类 key 存成文件；人类 key 明文只显示一次）")
     kc.add_argument("--role", required=True, help="角色名，如 executor-agent / tester-agent")
     kc.add_argument("--label", help="备注，如这把 key 给谁用")
-    kc.add_argument("--project", type=int, help="绑定到某个项目（不填 = 全局）")
+    kc.add_argument("--project", type=int, help="绑定到某个项目（Agent 角色和 project-admin 必填；只有超级管理员 admin 可以不填 = 全局）")
     kc.set_defaults(fn=cmd_key_create)
     ks = key.add_parser("show", help="查看一把已保存的 Agent key（读 .speclock/keys/ 里的文件）")
     ks.add_argument("id", type=int)

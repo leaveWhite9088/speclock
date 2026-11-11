@@ -403,9 +403,12 @@ def get_activity(
     "agent role is saved by the server into .speclock/keys/ and only the FILE NAME is "
     "returned (the plaintext never passes through the conversation): give that file name to "
     "the agent that will use it, or switch to it yourself with use_api_key(key_file=...). A "
-    "human-role key (admin, reviewer) is returned in plaintext ONCE instead. Check "
+    "human-role key (admin, reviewer, project-admin) is returned in plaintext ONCE instead. Check "
     "list_api_keys first so you do not create a duplicate. project_id binds the key to one "
-    "project. Requires key.manage."
+    "project and is REQUIRED for every agent role and for project-admin (422 project_required); "
+    "only the super admin role 'admin' may be global. A project-admin key can only create keys "
+    "inside its own project (project_id defaults to it) and cannot create admin keys or roles. "
+    "Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
@@ -507,7 +510,9 @@ def get_change_request(cr_id: int) -> str:
     "ids AC-1, AC-2 ... — at least one is required to submit); impact_note (a note for the "
     "human about what this affects). WRITING STYLE: the human reads all of these — write "
     "natural, fluent Chinese like explaining to a colleague, no spec-speak. project_id is "
-    "optional when your key is bound to a project. supersedes_id replaces an earlier "
+    "normally NOT passed: a key bound to a project (every agent key is) always works in that "
+    "project and the server fills it in — passing another project is refused (404). Only a global "
+    "(super admin) key must pass it. supersedes_id replaces an earlier "
     "APPROVED-but-unfinished request when this one is approved. kind: 'business' "
     "(default; a human approves it) or 'internal' (ONLY renaming businesses / capabilities / "
     "module titles & summaries, or move_block — anything that changes a module's background, "

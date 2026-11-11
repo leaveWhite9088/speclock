@@ -18,7 +18,7 @@ def kh(env, tmp_path, monkeypatch):
 
 
 def _create(env, role, label="qa"):
-    return env["client"].post("/api/v1/keys", json={"role": role, "label": label, "via": "cli"},
+    return env["client"].post("/api/v1/keys", json={"role": role, "label": label, "via": "cli", "project_id": env["project_id"]},
                               headers=env["human"])
 
 
@@ -95,7 +95,7 @@ def test_mcp_can_switch_to_a_key_file_and_keeps_identity_on_a_bad_file(env, kh, 
     monkeypatch.setattr(mcp_server.httpx, "request", fake_request)
     monkeypatch.setattr(mcp_server, "CONFIGURED_KEY", admin)
     monkeypatch.setattr(mcp_server, "AGENT_KEY", admin)
-    made = json.loads(mcp_server.create_api_key("tester-agent", "qa", evidence="同意，建一把测试用的"))
+    made = json.loads(mcp_server.create_api_key("tester-agent", "qa", evidence="同意，建一把测试用的", project_id=env["project_id"]))
     assert "key" not in made["body"] and made["body"]["key_file"]
     out = json.loads(mcp_server.use_api_key(key_file=made["body"]["key_file"]))
     assert out["switched"] is True and out["identity"]["role"] == "tester-agent"

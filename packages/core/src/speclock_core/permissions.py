@@ -39,7 +39,14 @@ HUMAN_ONLY = frozenset(name for name, (_, human_only) in PERMISSIONS.items() if 
 
 # name, kind, description, permissions
 PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
-    ("admin", "human", "管理员：拥有全部权限", list(PERMISSIONS)),
+    ("admin", "human", "超级管理员：拥有全部权限，key 可以是全局的（跨项目）", list(PERMISSIONS)),
+    (
+        "project-admin",
+        "human",
+        "项目管理员（项目主管）：管理本项目的 key、批准 / 驳回本项目的审核单；key 必须绑定项目，"
+        "不能建项目、不能改角色、不能建超级管理员",
+        ["spec.read", "exec.read", "cr.read", "cr.approve", "key.read", "key.manage"],
+    ),
     ("reviewer", "human", "审核人：只能查看并批准 / 驳回审核单", ["spec.read", "cr.read", "cr.approve"]),
     (
         "viewer",
@@ -75,6 +82,15 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
 
 # 旧版预置角色升级时补上的权限（只在该角色完全没有 exec.* 权限时补一次）
 EXEC_PERMISSIONS = ("exec.read", "exec.write", "exec.verify")
+
+# 除 agent 类角色外，这些角色的 key 也必须绑定项目（只有超级管理员 admin 可以是全局的）
+PROJECT_SCOPED_ROLES = frozenset({"project-admin"})
+
+
+def requires_project(role: Role) -> bool:
+    """这个角色的 key 是否必须绑定项目：Agent 类角色（项目范围由 key 决定，不能靠它自己在调用里填）和项目管理员。"""
+    return role.kind == "agent" or role.name in PROJECT_SCOPED_ROLES
+
 
 LEGACY_DEFAULT_ROLE = {"human": "admin", "agent": "executor-agent"}
 

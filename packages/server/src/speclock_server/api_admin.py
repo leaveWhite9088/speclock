@@ -29,7 +29,7 @@ from speclock_server.responses import (
     DeletedOut, KeyCreatedOut, KeyListEntry, MeOut, PermissionOut, ProjectDeletedOut, ProjectOut,
     RoleOut, TreeProject,
 )
-from speclock_core import KeyCreate, ProjectCreate, RenameRequest, RoleCreate, RoleUpdate
+from speclock_core import ApiError, KeyCreate, ProjectCreate, RenameRequest, RoleCreate, RoleUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
@@ -293,7 +293,8 @@ def _count_admins(
     exclude_key_ids: set[int] = frozenset(),
     role_override: dict[int, set[str]] | None = None,
 ) -> int:
-    """假设做了某些变更后，还有多少把 human key 拥有 key.manage（防止把自己锁在门外）。"""
+    """假设做了某些变更后，还有多少把 human key 是超级管理员（key.manage + project.manage，防止把自己锁在门外；
+    只管本项目的项目管理员不算）。"""
     n = 0
     for k in db.query(ApiKey).filter(ApiKey.prefix == "human").all():
         if k.id in exclude_key_ids or k.role is None:
@@ -301,9 +302,24 @@ def _count_admins(
         have = (role_override or {}).get(k.role_id)
         if have is None:
             have = perms.role_permissions(k.role)
-        if "key.manage" in have:
+        if {"key.manage", "project.manage"} <= have:
             n += 1
     return n
+
+
+def _is_super(key: ApiKey) -> bool:
+    """超级管理员：能管项目（project.manage）。其余有 key.manage 的是项目管理员，只能管自己项目的 key。"""
+    return "project.manage" in perms.role_permissions(key.role)
+
+
+def _require_super(key: ApiKey) -> None:
+    if not _is_super(key):
+        raise ApiError("super_admin_required", "这个操作只有超级管理员（admin）能做；项目管理员只管本项目的 key")
+
+
+def _key_in_scope(key: ApiKey, k: ApiKey) -> bool:
+    """项目管理员（绑定了项目、又不是超级管理员）只看得到、管得了本项目的 key。"""
+    return _is_super(key) or key.project_id is None or k.project_id == key.project_id
 
 
 @router.delete("/projects/{project_id}", response_model=ProjectDeletedOut)
@@ -504,7 +520,8 @@ def list_keys(
     """密钥列表（不含明文 / 哈希），每把带上活动统计，供网页的 Agent 视图使用。"""
     stats = _key_activity(db)
     empty = {"last_active_at": None, "actions_7d": 0, "reads_7d": 0}
-    return [{**_key_out(k), **stats.get(k.hint, empty)} for k in db.query(ApiKey).order_by(ApiKey.id).all()]
+    return [{**_key_out(k), **stats.get(k.hint, empty)}
+            for k in db.query(ApiKey).order_by(ApiKey.id).all() if _key_in_scope(key, k)]
 
 
 @router.post("/keys", status_code=201, response_model=KeyCreatedOut, response_model_exclude_unset=True)
@@ -516,8 +533,26 @@ def create_key(
     """创建密钥（明文只返回这一次）。人用 CLI 创建（via=cli）；Agent 代人创建
     必须 via=natural_language 并附人同意创建的原话，来源与依据写进审计。"""
     role = perms.get_role(db, body.role)
-    if body.project_id is not None and db.get(Project, body.project_id) is None:
+    project_id = body.project_id
+    if not _is_super(key):
+        # 项目管理员：只能在自己的项目里建 key，且建不出带人类专属权限的角色（超级管理员的 project.manage 等）
+        if key.project_id is None:
+            raise ApiError("super_admin_required", "只有超级管理员能创建 key")
+        if project_id is None:
+            project_id = key.project_id
+        if project_id != key.project_id:
+            raise HTTPException(status_code=404, detail="project not found")
+        if (perms.role_permissions(role) & perms.HUMAN_ONLY) - perms.role_permissions(key.role):
+            raise ApiError("super_admin_required", f"角色 {role.name} 带有你没有的人类专属权限，只有超级管理员能创建这样的 key")
+    if project_id is not None and db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
+    if perms.requires_project(role) and project_id is None:
+        # 项目范围由 key 决定，不能靠 Agent 自己在调用里填：全局的 Agent key 能在任何项目里写；
+        # 只有超级管理员（admin）可以是全局的
+        raise ApiError(
+            "project_required",
+            f"角色 {role.name} 的 key 必须绑定项目（project_id）：先 list_projects 选一个项目；只有超级管理员 admin 的 key 可以是全局的",
+        )
     if body.via == "natural_language" and not body.evidence.strip():
         raise HTTPException(
             status_code=422,
@@ -525,7 +560,7 @@ def create_key(
         )
     plaintext = new_key(role.kind)
     k = ApiKey(key=hash_key(plaintext), hint=key_hint(plaintext), prefix=role.kind,
-               role_id=role.id, project_id=body.project_id, label=body.label)
+               role_id=role.id, project_id=project_id, label=body.label)
     db.add(k)
     db.flush()
     home = find_home()
@@ -562,13 +597,13 @@ def delete_key(
             detail="Agent 代人删除密钥必须附 evidence：人同意删除它的原话（先问人，不要自己决定）",
         )
     k = db.get(ApiKey, key_id)
-    if k is None:
+    if k is None or not _key_in_scope(key, k):
         raise HTTPException(status_code=404, detail="key not found")
-    if k.prefix == "human" and "key.manage" in perms.role_permissions(k.role):
+    if k.prefix == "human" and {"key.manage", "project.manage"} <= perms.role_permissions(k.role):
         if _count_admins(db, {k.id}) < 1:
             raise HTTPException(
                 status_code=409,
-                detail="这是最后一把管理员 key（拥有 key.manage），删除后无人能管理系统，已拒绝",
+                detail="这是最后一把超级管理员 key，删除后无人能管理系统，已拒绝",
             )
     audit(db, key.hint, "key_delete", f"apikey:{k.hint}",
           {"label": k.label, "via": via, "evidence": evidence})
@@ -617,6 +652,7 @@ def create_role(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
+    _require_super(key)
     if not ROLE_NAME_RE.match(body.name):
         raise HTTPException(status_code=422, detail="角色名须字母开头，仅含字母 / 数字 / _ / -，最长 40")
     if db.query(Role).filter(Role.name == body.name).first() is not None:
@@ -642,6 +678,7 @@ def update_role(
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
     """改角色的说明 / 权限映射（预置角色也可以改）。不允许改到「没有任何管理员」。"""
+    _require_super(key)
     r = db.get(Role, role_id)
     if r is None:
         raise HTTPException(status_code=404, detail="role not found")
@@ -655,7 +692,7 @@ def update_role(
         if _count_admins(db, role_override={r.id: set(granted)}) < 1:
             raise HTTPException(
                 status_code=409,
-                detail="这样改会让系统里没有任何拥有 key.manage 的 human key，已拒绝",
+                detail="这样改会让系统里没有任何超级管理员（key.manage + project.manage 的 human key），已拒绝",
             )
         r.permissions_json = json.dumps(granted)
     audit(db, key.hint, "role_update", f"role:{r.name}",
@@ -671,6 +708,7 @@ def delete_role(
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("key.manage")),
 ):
+    _require_super(key)
     r = db.get(Role, role_id)
     if r is None:
         raise HTTPException(status_code=404, detail="role not found")

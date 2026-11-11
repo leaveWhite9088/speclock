@@ -44,7 +44,7 @@ def test_whoami(env):
 def test_key_prefix_follows_role_kind(env):
     c = env["client"]
     for role, prefix in (("admin", "human-"), ("reviewer", "human-"), ("scanner-agent", "agent-")):
-        r = c.post("/api/v1/keys", json={"role": role}, headers=env["human"])
+        r = c.post("/api/v1/keys", json={"role": role, **({"project_id": env["project_id"]} if role.endswith("agent") else {})}, headers=env["human"])
         assert r.status_code == 201 and r.json()["key"].startswith(prefix)
         assert r.json()["role"] == role and r.json()["prefix"] == prefix[:-1]
     assert c.post("/api/v1/keys", json={"role": "nope"}, headers=env["human"]).status_code == 404
@@ -123,7 +123,7 @@ def test_delete_role_rules(env):
     assert c.delete(f"/api/v1/roles/{roles['admin']['id']}", headers=h).status_code == 409  # 预置不可删
     rid = c.post("/api/v1/roles", headers=h, json={
         "name": "tmp", "kind": "agent", "permissions": ["spec.read"]}).json()["id"]
-    key = c.post("/api/v1/keys", json={"role": "tmp"}, headers=h).json()
+    key = c.post("/api/v1/keys", json={"role": "tmp", "project_id": env["project_id"]}, headers=h).json()
     assert c.delete(f"/api/v1/roles/{rid}", headers=h).status_code == 409  # 仍有 key 在用
     c.delete(f"/api/v1/keys/{key['id']}", headers=h)
     assert c.delete(f"/api/v1/roles/{rid}", headers=h).status_code == 200
@@ -144,9 +144,9 @@ def test_cannot_strip_key_manage_from_the_last_admin_role(env):
     assert c.put(f"/api/v1/roles/{rid}", headers=h, json={"permissions": ["spec.read"]}).status_code == 409
     # （两把 key 都绑在 admin 角色上，去掉权限会让两把同时失效，仍然拒绝）
     custom = c.post("/api/v1/roles", headers=h, json={
-        "name": "ops", "kind": "human", "permissions": ["key.manage"]}).json()
+        "name": "ops", "kind": "human", "permissions": ["key.manage", "project.manage"]}).json()
     c.post("/api/v1/keys", json={"role": "ops"}, headers=h)
-    assert custom["permissions"] == ["key.manage"]
+    assert custom["permissions"] == ["key.manage", "project.manage"]
     assert c.put(f"/api/v1/roles/{rid}", headers=h, json={"permissions": ["spec.read"]}).status_code == 200
 
 

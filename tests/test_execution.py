@@ -412,7 +412,7 @@ def test_old_preset_role_gets_exec_permissions_on_upgrade(env):
 
 def test_agent_created_key_needs_human_words_as_evidence(env):
     c, h = env["client"], env["human"]
-    body = {"role": "tester-agent", "label": "qa", "via": "natural_language"}
+    body = {"role": "tester-agent", "label": "qa", "via": "natural_language", "project_id": env["project_id"]}
     r = c.post("/api/v1/keys", json=body, headers=h)
     assert r.status_code == 422 and "evidence" in r.json()["detail"]
     r = c.post("/api/v1/keys", json={**body, "evidence": "好，给测试 Agent 建一把"}, headers=h)
@@ -427,7 +427,7 @@ def test_agent_created_key_needs_human_words_as_evidence(env):
     finally:
         db.close()
     # 网页 / CLI 直接创建（人自己点的）不需要原话
-    assert c.post("/api/v1/keys", json={"role": "scanner-agent", "via": "api"}, headers=h).status_code == 201
+    assert c.post("/api/v1/keys", json={"role": "scanner-agent", "via": "api", "project_id": env["project_id"]}, headers=h).status_code == 201
 
 
 def test_mcp_tools_cover_the_execution_protocol_and_ack_is_gone():

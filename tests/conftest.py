@@ -175,7 +175,21 @@ def create_module(client, human, capability_id, title, apis=None):
 
 
 def make_key(env, role, project_bound=True, label=""):
-    """用 admin 创建一把指定角色的 key，返回请求头。"""
+    """用 admin 创建一把指定角色的 key，返回请求头。
+
+    project_bound=False 造一把**全局的 Agent key**：接口已不允许新建（Agent key 必须绑定项目），
+    这里直接写库，模拟升级前就存在的老 key。"""
+    if not project_bound:
+        db = SessionLocal()
+        try:
+            r = get_role(db, role)
+            plaintext = new_key(r.kind)
+            db.add(ApiKey(key=hash_key(plaintext), hint=key_hint(plaintext), prefix=r.kind,
+                          role_id=r.id, project_id=None, label=label or role))
+            db.commit()
+        finally:
+            db.close()
+        return {"X-API-Key": plaintext}
     body = {"role": role, "label": label or role}
     if project_bound:
         body["project_id"] = env["project_id"]

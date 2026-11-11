@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def test_create_list_delete_key(env):
     c, h = env["client"], env["human"]
-    r = c.post("/api/v1/keys", json={"role": "executor-agent", "label": "claude"}, headers=h)
+    r = c.post("/api/v1/keys", json={"role": "executor-agent", "label": "claude", "project_id": env["project_id"]}, headers=h)
     assert r.status_code == 201
     new = r.json()
     assert new["key"].startswith("agent-") and new["label"] == "claude"

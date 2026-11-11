@@ -113,7 +113,7 @@ def test_keys_list_carries_activity_stats(env):
     c.get("/api/v1/index", headers=env["agent"])  # 读取
     work = c.get("/api/v1/work", headers=env["agent"]).json()[0]["id"]
     c.post(f"/api/v1/work/{work}/claim", headers=env["agent"])  # 一个动作
-    qa = c.post("/api/v1/keys", json={"role": "tester-agent", "label": "没用过的"}, headers=h).json()
+    qa = c.post("/api/v1/keys", json={"role": "tester-agent", "label": "没用过的", "project_id": env["project_id"]}, headers=h).json()
 
     rows = {k["hint"]: k for k in c.get("/api/v1/keys", headers=h).json()}
     agent = rows[key_hint(env["agent"]["X-API-Key"])]

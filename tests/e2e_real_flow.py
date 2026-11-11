@@ -60,10 +60,12 @@ try:
 
     files = {}
     for role, label in [("requirements-agent", "req"), ("executor-agent", "exec"), ("tester-agent", "qa"), ("scanner-agent", "scan")]:
-        s, b = call(m.create_api_key(role, label, evidence="同意，建这把"))
+        s, b = call(m.create_api_key(role, label, evidence="同意，建这把", project_id=pid))
         ok(f"create_api_key {role} -> file, no plaintext", s == 201 and b.get("key_file") and "key" not in b)
         files[label] = b["key_file"]
-    s, b = call(m.create_api_key("tester-agent", "cfg", evidence="同意"))
+    s, b = call(m.create_api_key("tester-agent", "no-project", evidence="同意"))
+    ok("agent key without a project is refused (project_required)", s == 422 and b["code"] == "project_required")
+    s, b = call(m.create_api_key("tester-agent", "cfg", evidence="同意", project_id=pid))
     cfgj = b["mcp_config"]["mcpServers"]["speclock"]
     ok("create_api_key returns a ready .mcp.json using the file name and SPECLOCK_HOME", cfgj["env"]["SPECLOCK_HOME"] == str(home_dir) and "--key-file" in cfgj["args"] and "key" not in b)
     call(m.revoke_api_key(b["id"], evidence="同意"))

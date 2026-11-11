@@ -131,9 +131,7 @@ def test_global_agent_key_sees_all_projects(env):
     publish_v1(c, h, env["block_id"])
     _make_project_with_published_block(env, "项目B", "B项目模块")
 
-    r = c.post("/api/v1/keys", json={"role": "executor-agent", "label": "global"}, headers=h)
-    assert r.status_code == 201 and r.json()["project_id"] is None
-    glob = {"X-API-Key": r.json()["key"]}
+    glob = make_key(env, "executor-agent", project_bound=False, label="global")  # 升级前就有的全局 Agent key
 
     index = c.get("/api/v1/index", headers=glob).json()
     titles = {b["title"] for d in index for doc in d["capabilities"] for b in doc["blocks"]}
