@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from speclock.auth import key_hint
+from speclock_core import key_hint
 from tests.conftest import open_cr, publish_v1, req_key
 
 

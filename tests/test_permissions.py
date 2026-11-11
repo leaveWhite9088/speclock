@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from speclock import permissions as perms
+from speclock_core import permissions as perms
 from tests.conftest import make_key, open_cr, publish_v1, req_key
 
 

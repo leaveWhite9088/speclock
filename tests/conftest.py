@@ -18,12 +18,12 @@ os.chdir(_TMP)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from speclock.auth import hash_key, key_hint, new_key  # noqa: E402
-from speclock.db import SessionLocal, configure, init_db  # noqa: E402
-from speclock.main import app  # noqa: E402
-from speclock.engine import publish_block  # noqa: E402
-from speclock.models import ApiKey, Block, Capability, Business, Project  # noqa: E402
-from speclock.permissions import get_role  # noqa: E402
+from speclock_core import hash_key, key_hint, new_key  # noqa: E402
+from speclock_core import SessionLocal, configure, init_db  # noqa: E402
+from speclock_server.main import app  # noqa: E402
+from speclock_core import publish_block  # noqa: E402
+from speclock_core import ApiKey, Block, Capability, Business, Project  # noqa: E402
+from speclock_core import get_role  # noqa: E402
 
 APIS_V1 = [
     {
@@ -78,7 +78,7 @@ def env():
     （模块只有草稿，未发布；用 publish_v1 发布）。需求 Agent / 审核人 key 按需用
     req_key(env) / reviewer_key(env) 创建。"""
     configure(os.environ["SPECLOCK_DB_URL"])
-    from speclock.db import Base, get_engine
+    from speclock_core import Base, get_engine
 
     Base.metadata.drop_all(get_engine())
     init_db()

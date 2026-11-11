@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speclock"
+version = "0.2.6"
+description = "SpecLock — single source of truth for business docs, read-only to coding agents"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "speclock-config",
+    "speclock-core",
+    "speclock-server",
+    "speclock-mcp",
+    "speclock-cli",
+]
+
+[project.scripts]
+speclock = "speclock_cli:main"
+speclock-mcp = "speclock_mcp:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+speclock-config = { workspace = true }
+speclock-core = { workspace = true }
+speclock-server = { workspace = true }
+speclock-mcp = { workspace = true }
+speclock-cli = { workspace = true }

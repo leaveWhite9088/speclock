@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from speclock.permissions import get_role  # noqa: F401  (确保角色已就位)
+from speclock_core import get_role  # noqa: F401  (确保角色已就位)
 from tests.conftest import (
     APIS_V1,
     change_block,

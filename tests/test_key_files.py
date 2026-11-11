@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from speclock import home, keyfiles
+from speclock_config import home, keyfiles
 
 
 @pytest.fixture()
@@ -84,7 +84,7 @@ def test_read_key_accepts_names_and_paths(kh):
 
 
 def test_mcp_can_switch_to_a_key_file_and_keeps_identity_on_a_bad_file(env, kh, monkeypatch):
-    from speclock import mcp_server
+    from speclock_mcp import server as mcp_server
 
     c = env["client"]
 
@@ -105,7 +105,7 @@ def test_mcp_can_switch_to_a_key_file_and_keeps_identity_on_a_bad_file(env, kh, 
 
 
 def test_mcp_configured_key_can_come_from_a_key_file(kh, monkeypatch):
-    from speclock import mcp_server
+    from speclock_mcp import server as mcp_server
 
     keyfiles.ensure_keys_dir(kh)
     (kh / "keys" / "a--b.key").write_text("agent-from-file\n", encoding="utf-8")

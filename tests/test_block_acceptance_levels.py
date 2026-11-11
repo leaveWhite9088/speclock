@@ -7,7 +7,7 @@ import copy
 
 import pytest
 
-from speclock import diffing
+from speclock_core import diffing
 from tests.conftest import (
     ACCEPTANCE_V1,
     APIS_V1,

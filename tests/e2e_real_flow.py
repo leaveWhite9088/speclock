@@ -46,7 +46,7 @@ try:
     os.environ["SPECLOCK_KEY"] = admin
     os.chdir(work)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from speclock import mcp_server as m
+    from speclock_mcp import server as m
 
     J = json.loads
     def call(raw):
@@ -162,7 +162,7 @@ try:
     # MCP 从任意目录启动也能找到 key 文件和服务地址（SPECLOCK_HOME 写死在配置里）
     elsewhere = tempfile.mkdtemp(prefix="elsewhere-")
     probe = subprocess.run(
-        [sys.executable, "-c", "import speclock.mcp_server as m; print(m.BASE_URL, bool(m.CONFIGURED_KEY))"],
+        [sys.executable, "-c", "import speclock_mcp.server as m; print(m.BASE_URL, bool(m.CONFIGURED_KEY))"],
         cwd=elsewhere, capture_output=True, text=True, encoding="utf-8",
         env={**env, "SPECLOCK_HOME": str(home_dir), "SPECLOCK_KEY_FILE": files["exec"]},
     ).stdout.split()
@@ -170,7 +170,7 @@ try:
 
     # 环境变量里有 admin key（人在 shell 里为跑 CLI 设的）时，配了 key 文件的 MCP 仍然是自己的身份
     probe = subprocess.run(
-        [sys.executable, "-c", "import speclock.mcp_server as m; print(m.KEY_SOURCE); print(m.CONFIGURED_KEY == " + repr(admin) + ")"],
+        [sys.executable, "-c", "import speclock_mcp.server as m; print(m.KEY_SOURCE); print(m.CONFIGURED_KEY == " + repr(admin) + ")"],
         cwd=elsewhere, capture_output=True, text=True, encoding="utf-8",
         env={**env, "SPECLOCK_HOME": str(home_dir), "SPECLOCK_KEY_FILE": files["exec"], "SPECLOCK_KEY": admin},
     ).stdout.splitlines()

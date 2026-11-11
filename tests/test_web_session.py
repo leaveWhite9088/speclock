@@ -6,10 +6,11 @@ import json
 
 import pytest
 
-from speclock import home
-from speclock.db import SessionLocal
-from speclock.models import ApiKey, Role
-from speclock.webkey import WEB_KEY_FILE, ensure_web_key, read_web_key
+from speclock_config import home
+from speclock_core import SessionLocal
+from speclock_core import ApiKey, Role
+from speclock_config import WEB_KEY_FILE, read_web_key
+from speclock_core import ensure_web_key
 
 LOCAL = {"host": "127.0.0.1:8000"}
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from speclock import home, main
+from speclock_config import home
+from speclock_server import main
 
 
 def test_every_response_says_who_may_embed_the_page(env):

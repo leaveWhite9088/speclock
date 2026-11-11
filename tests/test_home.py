@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from speclock import db as dbmod
-from speclock import home
+from speclock_core import db as dbmod
+from speclock_core import init_home
+from speclock_config import home
 
 
 @pytest.fixture()
@@ -43,12 +44,12 @@ def test_env_overrides_and_missing_is_a_clear_error(tmp_path, clean_env, monkeyp
 
 
 def test_init_project_creates_random_admin_key_once(tmp_path, clean_env):
-    from speclock.auth import hash_key
-    from speclock.models import ApiKey, Project
+    from speclock_core import hash_key
+    from speclock_core import ApiKey, Project
 
     proj = tmp_path / "shop"
     proj.mkdir()
-    cfg, key = home.init_home(proj)
+    cfg, key = init_home(proj)
     assert cfg.home == proj / ".speclock" and key and key.startswith("human-")
     assert (cfg.home / ".gitignore").read_text(encoding="utf-8").splitlines()[1] == "*.db"
     assert cfg.db_path.is_file() and not (proj / "speclock.db").exists()
@@ -60,19 +61,19 @@ def test_init_project_creates_random_admin_key_once(tmp_path, clean_env):
     finally:
         db.close()
     # 再 init 一次：不会换 key，也不会再给明文
-    cfg2, again = home.init_home(proj)
+    cfg2, again = init_home(proj)
     assert again is None and cfg2.port == cfg.port
 
 
 def test_init_global_uses_the_fixed_cold_port(tmp_path, clean_env):
-    cfg, key = home.init_home(tmp_path, glob=True)
+    cfg, key = init_home(tmp_path, glob=True)
     assert cfg.home == home.global_home() and cfg.port == home.GLOBAL_PORT and key
     assert cfg.port not in (8000, 8080, 3000, 5000)
 
 
 def test_project_init_picks_a_free_port(tmp_path, clean_env):
     (tmp_path / "a").mkdir()
-    cfg, _ = home.init_home(tmp_path / "a")
+    cfg, _ = init_home(tmp_path / "a")
     assert 1024 < cfg.port < 65536
 
 
@@ -87,13 +88,13 @@ def test_default_url_follows_the_discovered_home(tmp_path, clean_env, monkeypatc
 
 
 def test_new_admin_issues_another_admin_key_when_the_first_is_lost(tmp_path, clean_env):
-    from speclock.auth import hash_key
-    from speclock.models import ApiKey
+    from speclock_core import hash_key
+    from speclock_core import ApiKey
 
     proj = tmp_path / "lost"
     proj.mkdir()
-    _, first = home.init_home(proj)
-    _, second = home.init_home(proj, new_admin=True)
+    _, first = init_home(proj)
+    _, second = init_home(proj, new_admin=True)
     assert second and second != first
     db = dbmod.SessionLocal()
     try:

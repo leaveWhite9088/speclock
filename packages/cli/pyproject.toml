@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speclock-cli"
+version = "0.2.6"
+description = "SpecLock 命令行：init / serve / key / export / backup"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "speclock-config",
+    "speclock-core",
+    "speclock-server",
+    "speclock-mcp",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+speclock-config = { workspace = true }
+speclock-core = { workspace = true }
+speclock-server = { workspace = true }
+speclock-mcp = { workspace = true }

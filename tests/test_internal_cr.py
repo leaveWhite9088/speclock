@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import json
 
-from speclock.db import SessionLocal
-from speclock.models import AuditLog, BlockVersion, ExecutionRecord
+from speclock_core import SessionLocal
+from speclock_core import AuditLog, BlockVersion, ExecutionRecord
 from tests.conftest import (
     ACCEPTANCE_V1,
     APIS_V1,

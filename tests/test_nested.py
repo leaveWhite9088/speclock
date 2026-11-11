@@ -116,7 +116,7 @@ def test_nested_type_change_is_major(env):
 def test_nested_openapi_generation(env):
     import yaml
 
-    from speclock.diffing import apis_to_openapi
+    from speclock_core.diffing import apis_to_openapi
 
     doc = apis_to_openapi(NESTED_V1)
     schema = doc["paths"]["/api/daily-report/anomaly-rules"]["post"]["requestBody"][
@@ -132,7 +132,7 @@ def test_nested_openapi_generation(env):
 
 
 def test_nested_array_children_generate_items_schema(env):
-    from speclock.diffing import apis_to_openapi
+    from speclock_core.diffing import apis_to_openapi
 
     apis = [{
         "name": "查历史", "api": "GET /api/x/history", "desc": "查历史快照；只读", "request": [],

@@ -13,8 +13,8 @@ import tempfile
 
 from sqlalchemy import text
 
-from speclock.db import SessionLocal, configure, get_engine, init_db
-from speclock.models import Block, Business, Capability, Project
+from speclock_core import SessionLocal, configure, get_engine, init_db
+from speclock_core import Block, Business, Capability, Project
 
 
 def _make_legacy_db(path: str) -> None:

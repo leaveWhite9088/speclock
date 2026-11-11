@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import json
 
-from speclock import executions
-from speclock.db import SessionLocal
-from speclock.models import ExecutionRecord
+from speclock_core import executions
+from speclock_core import SessionLocal
+from speclock_core import ExecutionRecord
 from tests.conftest import (
     ACCEPTANCE_V1,
     change_block,
@@ -391,8 +391,8 @@ def test_backfill_creates_missing_records_idempotently(env):
 
 
 def test_old_preset_role_gets_exec_permissions_on_upgrade(env):
-    from speclock.models import MigrationMark, Role
-    from speclock.permissions import seed_roles
+    from speclock_core import MigrationMark, Role
+    from speclock_core import seed_roles
 
     db = SessionLocal()
     try:
@@ -417,7 +417,7 @@ def test_agent_created_key_needs_human_words_as_evidence(env):
     assert r.status_code == 422 and "evidence" in r.json()["detail"]
     r = c.post("/api/v1/keys", json={**body, "evidence": "好，给测试 Agent 建一把"}, headers=h)
     assert r.status_code == 201 and r.json()["role"] == "tester-agent"
-    from speclock.models import AuditLog
+    from speclock_core import AuditLog
 
     db = SessionLocal()
     try:
@@ -433,7 +433,7 @@ def test_agent_created_key_needs_human_words_as_evidence(env):
 def test_mcp_tools_cover_the_execution_protocol_and_ack_is_gone():
     import inspect
 
-    from speclock import mcp_server
+    from speclock_mcp import server as mcp_server
 
     names = {n for n, _ in inspect.getmembers(mcp_server, inspect.isfunction)}
     assert {"list_work", "get_work", "claim_work", "release_work", "report_blocked",

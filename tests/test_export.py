@@ -7,8 +7,9 @@ import sqlite3
 
 import pytest
 
-from speclock import exporter, home
-from speclock.db import SessionLocal
+from speclock_cli import exporter
+from speclock_config import home
+from speclock_core import SessionLocal
 from tests.conftest import publish_v1
 
 

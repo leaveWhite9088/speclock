@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from speclock.db import SessionLocal
-from speclock.models import Business, Capability
+from speclock_core import SessionLocal
+from speclock_core import Business, Capability
 
 from .conftest import commit, create_module, make_key, open_cr, publish_v1
 

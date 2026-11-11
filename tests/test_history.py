@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 
-from speclock.db import SessionLocal
-from speclock.models import Role
-from speclock.permissions import seed_roles
+from speclock_core import SessionLocal
+from speclock_core import Role
+from speclock_core import seed_roles
 from tests.conftest import (
     APIS_V2_MINOR,
     change_block,
@@ -104,7 +104,7 @@ def test_history_pulls_are_audited(env):
 def test_mcp_exposes_history_tools():
     import inspect
 
-    from speclock import mcp_server
+    from speclock_mcp import server as mcp_server
 
     assert list(inspect.signature(mcp_server.get_block_history).parameters) == ["block_id"]
     assert list(inspect.signature(mcp_server.get_capability_history).parameters) == ["capability_id"]

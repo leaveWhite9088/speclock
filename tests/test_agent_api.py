@@ -62,8 +62,8 @@ def test_pulls_are_audited(env):
     publish_v1(c, h, bid)
     c.get(f"/api/v1/blocks/{bid}", headers=a)
     c.get(f"/api/v1/capabilities/{env['capability_id']}", headers=a)
-    from speclock.db import SessionLocal
-    from speclock.models import AuditLog
+    from speclock_core import SessionLocal
+    from speclock_core import AuditLog
 
     db = SessionLocal()
     actions = [log.action for log in db.query(AuditLog).all()]

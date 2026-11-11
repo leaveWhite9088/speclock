@@ -1,4 +1,4 @@
-"""SPA 托管：web/dist 存在时 / 与前端路由 fallback 到 index.html；
+"""SPA 托管：apps/web/dist 存在时 / 与前端路由 fallback 到 index.html；
 /api/ 下未注册的路径仍返回 JSON 404，不会被 fallback 吃掉。"""
 
 from __future__ import annotations
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+DIST = Path(__file__).resolve().parent.parent / "apps" / "web" / "dist"
 
-needs_dist = pytest.mark.skipif(not DIST.is_dir(), reason="web/dist 未构建")
-needs_no_dist = pytest.mark.skipif(DIST.is_dir(), reason="web/dist 已构建，fallback 生效")
+needs_dist = pytest.mark.skipif(not DIST.is_dir(), reason="apps/web/dist 未构建")
+needs_no_dist = pytest.mark.skipif(DIST.is_dir(), reason="apps/web/dist 已构建，fallback 生效")
 
 
 @needs_dist

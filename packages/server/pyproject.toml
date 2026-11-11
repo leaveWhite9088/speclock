@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speclock-server"
+version = "0.2.6"
+description = "SpecLock HTTP 服务（FastAPI 路由 + 网页托管）"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "speclock-config",
+    "speclock-core",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sqlalchemy>=2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+speclock_server = ["static/*.js"]
+
+[tool.uv.sources]
+speclock-config = { workspace = true }
+speclock-core = { workspace = true }

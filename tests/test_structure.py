@@ -29,8 +29,8 @@ def test_api_without_desc_cannot_be_written(env):
 
 def test_api_without_desc_cannot_publish(env):
     """脏数据绕过写入校验（直接落库）时，发布关口依然拦下并指明是哪条 API。"""
-    from speclock.db import SessionLocal
-    from speclock.models import Block
+    from speclock_core import SessionLocal
+    from speclock_core import Block
 
     publish_v1(env["client"], env["human"], env["block_id"])
     db = SessionLocal()
@@ -171,8 +171,8 @@ def test_init_db_migrates_legacy_db_idempotently(tmp_path):
     import os
     import sqlite3
 
-    from speclock.db import SessionLocal, configure, init_db
-    from speclock.models import ApiKey, Block, Role
+    from speclock_core import SessionLocal, configure, init_db
+    from speclock_core import ApiKey, Block, Role
 
     url = f"sqlite:///{tmp_path}/legacy.db"
     conn = sqlite3.connect(tmp_path / "legacy.db")

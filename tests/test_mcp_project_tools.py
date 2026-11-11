@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from speclock import mcp_server
+from speclock_mcp import server as mcp_server
 from tests.conftest import publish_v1
 
 
@@ -60,7 +60,7 @@ def test_activity_needs_audit_read(env, mcp):
 
 
 def test_cli_project_commands(env, monkeypatch, capsys):
-    from speclock import cli
+    from speclock_cli import cli
 
     c = env["client"]
     import httpx
