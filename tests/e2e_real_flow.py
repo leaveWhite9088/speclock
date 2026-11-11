@@ -161,8 +161,8 @@ try:
     seen = httpx.get(url + "/api/v1/projects", headers={"X-API-Key": web}).json(); ok("web key sees only its own project", [p["id"] for p in seen] == [pid])
     r = httpx.post(url + "/api/v1/projects", json={"name": "x"}, headers={"X-API-Key": web}); ok("viewer cannot write (403)", r.status_code == 403)
     ok("web served at /", httpx.get(url + "/").status_code == 200)
-    s, b = call(m.delete_project(p2, evidence="好，把第二个项目删了")); ok("delete_project (empty second project)", s == 200 and b["deleted"])
-    s, b = call(m.delete_block(1, evidence="好")); ok("delete_block refuses a published module (409 published_blocks_exist)", s == 409 and b["code"] == "published_blocks_exist")
+    s, b = call(m.delete_project(p2, cr_id=cr2)); ok("delete_project needs an approved request of that project (409 delete_needs_approval)", s == 409 and b["code"] == "delete_needs_approval")
+    s, b = call(m.delete_block(1, cr_id=cr2)); ok("delete_block needs a request that names it (409 delete_needs_approval)", s == 409 and b["code"] == "delete_needs_approval")
     ok("embed.js served", "SpecLock" in httpx.get(url + "/embed.js").text)
     h = httpx.get(url + "/api/v1/health")  # 接口契约：健康检查不要 key；错误带稳定的 code；after_id 取新事件
     ok("health needs no key and reports the version", h.status_code == 200 and h.json()["status"] == "ok" and h.json()["version"])

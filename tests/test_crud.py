@@ -60,10 +60,11 @@ def test_project_delete_blocked_by_published_module_until_archived(env):
     assert other
     publish_v1(c, h, env["block_id"])
     keep = c.post("/api/v1/keys", json={"role": "admin"}, headers=h).json()  # 全局管理员兜底
-    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers={"X-API-Key": keep["key"]})
+    cr = open_cr(env, title="删除 测试项目", intent="项目作废")
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers={"X-API-Key": keep["key"]})
     assert r.status_code == 409 and r.json()["detail"]["published_blocks"]
     _ok(env, [{"op": "archive_block", "id": env["block_id"]}])
-    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers={"X-API-Key": keep["key"]})
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers={"X-API-Key": keep["key"]})
     assert r.status_code == 200
 
 

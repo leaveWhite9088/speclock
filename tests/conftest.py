@@ -198,6 +198,21 @@ def make_key(env, role, project_bound=True, label=""):
     return {"X-API-Key": r.json()["key"]}
 
 
+def deletion_cr(env, project_id, name):
+    """给「删除某个项目」授权用：在那个项目里开一张点名 name 的业务变更单，并让人批准（用全局 key，能碰任何项目）。"""
+    c = env["client"]
+    agent = make_key(env, "requirements-agent", project_bound=False)
+    root = make_key(env, "admin", project_bound=False)
+    r = c.post("/api/v1/change-requests", json=cr_body(project_id=project_id, title=f"删除 {name}", intent=f"{name} 作废"),
+               headers=agent)
+    assert r.status_code == 201, r.text
+    cr = r.json()["id"]
+    assert c.post(f"/api/v1/change-requests/{cr}/submit", headers=agent).status_code == 200
+    h = c.get(f"/api/v1/change-requests/{cr}", headers=root).json()["content_hash"]
+    assert c.post(f"/api/v1/change-requests/{cr}/approve", json={"content_hash": h}, headers=root).status_code == 200
+    return cr
+
+
 def req_key(env):
     """需求 Agent key（缓存）。"""
     if "_req" not in env:

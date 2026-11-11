@@ -5,7 +5,7 @@ from __future__ import annotations
 from speclock_core import SessionLocal
 from speclock_core import Business, Capability
 
-from .conftest import commit, create_module, make_key, open_cr, publish_v1
+from .conftest import commit, deletion_cr, create_module, make_key, open_cr, publish_v1
 
 
 def _make_project_with_published_block(env, project_name, block_title):
@@ -44,11 +44,12 @@ def test_project_crud(env):
     # 初始 human key 绑定在「测试项目」上：只看得到自己的项目
     assert [p["name"] for p in c.get("/api/v1/projects", headers=h).json()] == ["测试项目"]
 
-    r = c.delete(f"/api/v1/projects/{pid}", headers=h)
+    cr = deletion_cr(env, pid, "项目B2")
+    r = c.delete(f"/api/v1/projects/{pid}", params={"cr_id": cr}, headers=h)
     assert r.status_code == 200 and r.json()["deleted"] is True
 
     assert c.put("/api/v1/projects/9999", json={"name": "x"}, headers=h).status_code == 404
-    assert c.delete("/api/v1/projects/9999", headers=h).status_code == 404
+    assert c.delete("/api/v1/projects/9999", params={"cr_id": 1}, headers=h).status_code == 404
 
 
 def test_delete_project_with_published_block_rejected(env):
@@ -56,12 +57,13 @@ def test_delete_project_with_published_block_rejected(env):
     c, h = env["client"], env["human"]
     publish_v1(c, h, env["block_id"])
     boss = make_key(env, "admin", project_bound=False)  # 全局管理员兜底，不会被一并删掉
-    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers=boss)
+    cr = open_cr(env, title="删除 测试项目", intent="项目作废")
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers=boss)
     assert r.status_code == 409
 
     r = commit(env, open_cr(env), [{"op": "archive_block", "id": env["block_id"]}])
     assert r.status_code == 200
-    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers=boss)
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers=boss)
     assert r.status_code == 200 and r.json()["deleted_keys"] >= 2  # 初始 human + agent（+ 需求 Agent key）
     assert c.get("/api/v1/projects", headers=boss).json() == []
     # 项目的审核单也一并删了
@@ -71,11 +73,12 @@ def test_delete_project_with_published_block_rejected(env):
 def test_delete_project_guard_last_admin_key(env):
     """删除项目会连带删除绑定的最后一把管理员 key 时拒绝。"""
     c, h = env["client"], env["human"]
-    r = c.delete(f"/api/v1/projects/{env['project_id']}", headers=h)
+    cr = open_cr(env, title="删除 测试项目", intent="项目作废")
+    r = c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers=h)
     assert r.status_code == 409 and "管理员" in r.json()["detail"]
     # 建一把全局管理员 key 后，项目即可删除
     make_key(env, "admin", project_bound=False)
-    assert c.delete(f"/api/v1/projects/{env['project_id']}", headers=h).status_code == 200
+    assert c.delete(f"/api/v1/projects/{env['project_id']}", params={"cr_id": cr}, headers=h).status_code == 200
 
 
 def test_create_key_with_project(env):

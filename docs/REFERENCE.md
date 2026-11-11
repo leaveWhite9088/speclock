@@ -252,8 +252,8 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 | `get_index` / `get_block` / `get_capability` / `get_diff` | `spec.read` | 读规格：索引树、模块（带版本级别标签与 cr_id / commit_id）、小业务 manifest、版本 diff |
 | `list_projects` | `spec.read` | 看得到的项目（全局 key 开审核单、建 key 绑项目要用 id） |
 | `create_project` / `rename_project` | `project.manage` | 创建项目 / 项目改名（人类专属权限，只有 admin 能做；先问人） |
-| `delete_block` / `delete_capability` / `delete_business` | `spec.delete` | **危险操作，不可恢复**：删除模块 / 小业务 / 大业务（连同下面的模块、版本历史、执行记录）。已发布的模块要先通过审核单归档，否则 409 `published_blocks_exist`；须先问人并附原话 `evidence`；`spec.delete` 是人类专属权限（admin / project-admin） |
-| `delete_project` | `project.manage` | **危险操作，不可恢复**：删除整个项目（含全部内容、审核单和绑定它的 key）。里面还有已发布模块时拒绝；只有超级管理员 admin 能做；须先问人并附原话 |
+| `delete_block` / `delete_capability` / `delete_business` | `spec.delete` | **危险操作，不可恢复**：删除模块 / 小业务 / 大业务（连同下面的模块、版本历史、执行记录）。已发布的模块要先通过审核单归档，否则 409 `published_blocks_exist`；**必须有人批准的审核单授权**：先开一张业务变更单写明要删什么（点名它的名称）、等人批准，再把它的 `cr_id` 传进来；`spec.delete` 是人类专属权限（admin / project-admin） |
+| `delete_project` | `project.manage` | **危险操作，不可恢复**：删除整个项目（含全部内容、审核单和绑定它的 key）。里面还有已发布模块时拒绝；只有超级管理员 admin 能做；同样必须有该项目里人批准过、点名这个项目的审核单（`cr_id`） |
 | `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 往回翻页、`after_id` 取更新的事件 |
 | `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
 | `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
@@ -297,6 +297,7 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 | `local_only` | 403 | 接口只对本机地址开放 |
 | `project_required` | 422 | 除超级管理员 admin 外，所有角色的 key 都必须绑定项目（创建时传 `project_id`） |
 | `super_admin_required` | 403 | 只有超级管理员能做：改角色、建带人类专属权限的 key（项目管理员只管本项目的 key） |
+| `delete_needs_approval` | 409 | 删除必须由本项目里人批准过的业务变更单授权（`cr_id`），且单子里点名了要删的东西 |
 | `published_blocks_exist` | 409 | 删除时下面还有已发布的模块：先通过审核单归档（`detail.published_blocks` 列出哪些） |
 | `web_project_required` | 422 | `GET /api/v1/web/session`：库里有多个项目，要指明 `project_id` |
 

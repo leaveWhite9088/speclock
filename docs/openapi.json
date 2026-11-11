@@ -3804,7 +3804,7 @@
     },
     "/api/v1/blocks/{block_id}": {
       "delete": {
-        "description": "删除一个模块（连同它的全部版本和执行记录，不可恢复）。已发布的模块要先通过审核单归档。\nAgent 代人删除须 via=natural_language 并附人同意的原话（写进审计）。",
+        "description": "删除一个模块（连同它的全部版本和执行记录，不可恢复）。须有人批准过的业务变更单授权（``cr_id``，\n单子里点名这个模块）；已发布的模块要先通过审核单归档。",
         "operationId": "delete_block_api_v1_blocks__block_id__delete",
         "parameters": [
           {
@@ -3817,26 +3817,14 @@
             }
           },
           {
+            "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
             "in": "query",
-            "name": "via",
-            "required": false,
+            "name": "cr_id",
+            "required": true,
             "schema": {
-              "default": "api",
-              "pattern": "^(cli|natural_language|api)$",
-              "title": "Via",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Agent 代人删除时：人同意的原话",
-            "in": "query",
-            "name": "evidence",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Agent 代人删除时：人同意的原话",
-              "title": "Evidence",
-              "type": "string"
+              "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
+              "title": "Cr Id",
+              "type": "integer"
             }
           },
           {
@@ -4538,7 +4526,7 @@
     },
     "/api/v1/businesses/{business_id}": {
       "delete": {
-        "description": "删除一个大业务（连同它下面的小业务、模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。",
+        "description": "删除一个大业务（连同它下面的小业务、模块、版本历史，不可恢复）。须有人批准过的业务变更单授权（单子里点名这个大业务）；\n其下有已发布模块时拒绝（409）。",
         "operationId": "delete_business_api_v1_businesses__business_id__delete",
         "parameters": [
           {
@@ -4551,26 +4539,14 @@
             }
           },
           {
+            "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
             "in": "query",
-            "name": "via",
-            "required": false,
+            "name": "cr_id",
+            "required": true,
             "schema": {
-              "default": "api",
-              "pattern": "^(cli|natural_language|api)$",
-              "title": "Via",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Agent 代人删除时：人同意的原话",
-            "in": "query",
-            "name": "evidence",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Agent 代人删除时：人同意的原话",
-              "title": "Evidence",
-              "type": "string"
+              "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
+              "title": "Cr Id",
+              "type": "integer"
             }
           },
           {
@@ -4790,7 +4766,7 @@
     },
     "/api/v1/capabilities/{capability_id}": {
       "delete": {
-        "description": "删除一个小业务（连同它下面的模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。",
+        "description": "删除一个小业务（连同它下面的模块、版本历史，不可恢复）。须有人批准过的业务变更单授权（单子里点名这个小业务）；\n其下有已发布模块时拒绝（409）。",
         "operationId": "delete_capability_api_v1_capabilities__capability_id__delete",
         "parameters": [
           {
@@ -4803,26 +4779,14 @@
             }
           },
           {
+            "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
             "in": "query",
-            "name": "via",
-            "required": false,
+            "name": "cr_id",
+            "required": true,
             "schema": {
-              "default": "api",
-              "pattern": "^(cli|natural_language|api)$",
-              "title": "Via",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Agent 代人删除时：人同意的原话",
-            "in": "query",
-            "name": "evidence",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Agent 代人删除时：人同意的原话",
-              "title": "Evidence",
-              "type": "string"
+              "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
+              "title": "Cr Id",
+              "type": "integer"
             }
           },
           {
@@ -7321,7 +7285,7 @@
     },
     "/api/v1/projects/{project_id}": {
       "delete": {
-        "description": "项目删除：仅当其下无已发布模块时允许，否则 409 提示先归档模块。\n删除时级联硬删全部 大业务/小业务/模块/版本历史/审核单，并一并删除绑定到\n该项目的 API key（避免遗留 key 失效语义不清）。",
+        "description": "项目删除：须有该项目里人批准过的业务变更单授权（单子里点名这个项目），且其下无已发布模块（否则 409，先归档）。\n删除时级联硬删全部 大业务/小业务/模块/版本历史/审核单（授权它的那张也一并没了，审计里留着它的编号和标题），\n并一并删除绑定到该项目的 API key（避免遗留 key 失效语义不清）。",
         "operationId": "delete_project_api_v1_projects__project_id__delete",
         "parameters": [
           {
@@ -7334,26 +7298,14 @@
             }
           },
           {
+            "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
             "in": "query",
-            "name": "via",
-            "required": false,
+            "name": "cr_id",
+            "required": true,
             "schema": {
-              "default": "api",
-              "pattern": "^(cli|natural_language|api)$",
-              "title": "Via",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Agent 代人删除时：人同意的原话",
-            "in": "query",
-            "name": "evidence",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Agent 代人删除时：人同意的原话",
-              "title": "Evidence",
-              "type": "string"
+              "description": "授权这次删除的审核单：本项目里、人批准过的业务变更单，里面要点名要删的东西",
+              "title": "Cr Id",
+              "type": "integer"
             }
           },
           {

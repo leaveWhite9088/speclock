@@ -46,7 +46,7 @@ SpecLock 是业务规格的唯一信源：保存业务事实（大业务 → 小
 - 创建 Agent 类 key 时，服务端会把它直接存成 `.speclock/keys/` 里的文件，响应里只有**文件名**，没有明文。
   把这个文件名告诉用户，并写进要用它的 Agent 的「我的 SpecLock 身份」；你自己要临时用就 `use_api_key(key_file=...)`，
   用完 `use_api_key`（传空）切回自己的。
-- **删除**（`delete_block` / `delete_capability` / `delete_business` / `delete_project`）不可恢复：只在人明确说要删、并指明删什么之后才调，把**人的原话**放进 `evidence`；已发布的模块要先通过审核单归档。
+- **删除**（`delete_block` / `delete_capability` / `delete_business` / `delete_project`）不可恢复：只在人明确说要删、并指明删什么之后才调，**删除必须先有人批准的审核单**：用 `create_change_request` 开一张业务变更单，写明要删什么并**点名**（标题 / 名称原样写），等人批准，再把 `cr_id` 传给删除工具；已发布的模块要先通过审核单归档。
 - admin / reviewer 这类**人类 key** 不存文件，明文只在创建时出现一次，直接交给用户保管，不要写进任何文件。
 
 ### 人的确认

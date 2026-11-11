@@ -40,6 +40,7 @@ CODES: dict[str, tuple[int, str]] = {
     "work_verifier_is_implementer": (403, "验证者不能是实现者本人（同一把 key）"),
     # ---- 规格 / Commit ----
     "block_archived": (409, "模块已归档，不能在其上操作"),
+    "delete_needs_approval": (409, "删除必须由本项目里人批准过的业务变更单授权（cr_id），且单子里点名了要删的东西"),
     "published_blocks_exist": (409, "下面还有已发布的模块，不能删除：先通过审核单归档它们（detail.published_blocks 列出哪些）"),
     # ---- 密钥 ----
     "project_required": (422, "除超级管理员 admin 外，所有角色的 key 都必须绑定项目（创建时传 project_id）"),
