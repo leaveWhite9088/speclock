@@ -40,9 +40,9 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 ## 核心特性
 
-- **角色与权限** — key 绑定角色，角色是权限集合（权限目录由代码定义，角色与映射可自定义，预置 admin / reviewer / requirements-agent / executor-agent / tester-agent / scanner-agent，各角色推荐的提示词在 [`roles/`](roles/)；scanner 只能读，不能开单）；接口按权限放行。人类专属权限（批准 / 驳回审核单、管理项目与密钥）不能挂在 agent 类角色上，约束是物理的
+- **角色与权限** — key 绑定角色，角色是权限集合（权限目录由代码定义，角色与映射可自定义，预置 admin（超级管理员）/ project-admin（项目管理员）/ reviewer / requirements-agent / executor-agent / tester-agent / scanner-agent，各角色推荐的提示词在 [`roles/`](roles/)；scanner 只能读，不能开单）；接口按权限放行。人类专属权限（批准 / 驳回审核单、管理项目与密钥）不能挂在 agent 类角色上，约束是物理的
 - **审核单 + Commit 是唯一写入通道** — 没有任何直接建 / 改 / 发布模块的接口。审核单只含业务意图（为什么变、变成什么样、不再成立的旧认知、验收条件、影响说明），提交即冻结并带内容哈希，批准后不可改；批准渠道（自然语言 / CLI）与原话留痕；Commit 是已批准审核单下的原子写入，整体成功或整体回滚
-- **项目级文档隔离** — 项目是文档隔离单元，每个项目有独立的一套 大业务→小业务→模块；key 可绑定到单个项目，绑定后跨项目的模块 / 文档 / 待办 / 审核单访问一律 404；不绑定的 key 保持全局可见
+- **项目级文档隔离** — 项目是文档隔离单元，每个项目有独立的一套 大业务→小业务→模块；key 绑定到单个项目后，跨项目的模块 / 文档 / 待办 / 审核单访问一律 404；**Agent 类角色和项目管理员（project-admin）的 key 必须绑定项目**，只有超级管理员 admin 可以是全局的（可见全部项目）
 - **结构化文档模型** — 模块内容不是一整段散文，而是：业务背景（叙述）+ 业务规则清单 + 验收条件（均为结构化，每条带稳定 id，逐条可 diff）+ API 列表（结构化，每条带端点语义）；发布时强制结构完备性校验（见[文档模型](#文档模型)）
 - **结构化 API 文档** — API 区是递归字段模型（`object`/`array` 可无限嵌套 `children`），编辑与 diff 的真相源是结构化数据；发布时自动生成 OpenAPI 3.x YAML 供下游消费，全程不需要面对 YAML
 - **两级版本** — 模块独立递增 semver，级别标签由代码按结构化 diff 机械算出（有任何删除或修改 → MAJOR，只有新增 → MINOR，其余 PATCH），只是给外部 Agent 的参考，Core 不规定它们据此该做什么；任一模块发布时所属小业务自动派生小业务版本（manifest = 全部模块当前版本清单）
@@ -117,7 +117,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 代码结构（`apps/web/src/`）：`api/`（客户端 + 按资源封装的请求）、`composables/`（`useAsync` 取数、`usePolling`、`useChangeSignal` / `useAutoRefresh` 自动刷新）、`components/`（只收 props 的展示组件）、`views/`（薄页面）、`labels.js`（全站统一中文文案）、`errors.js`（请求错误翻成人话）；整理逻辑都是纯函数（`overview.js` / `activity.js` / `agents.js` / `search.js` / `trace.js` / `treeFilter.js`），都有单元测试。
 
-展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd apps/web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，`.speclock/web.key`），只对本机地址、同源请求开放。
+展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd apps/web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，**绑定一个项目**，`.speclock/web-keys/<项目 id>.key`），只对本机地址、同源请求开放。**网页一次只看一个项目**：地址带 `?project=<项目 id>` 指明；库里只有一个项目时自动选它；有多个又没指明时先显示项目选择页。别的项目的内容它拿不到（用的是绑定项目的 key，隔离由服务端保证）。
 
 **嵌入**：网页可以被一键嵌进别的前端（`/embed.js` + `?embed=1`），只读、高度自适应、有 `postMessage` 通信，只有 `embed_origins` 里允许的来源能嵌，详见 [EMBED.md](EMBED.md)。
 
@@ -166,10 +166,10 @@ cd apps/web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
   - **Agent 类 key**（需求 / 执行 / 测试 / 扫描）：创建时由服务端直接写成 `.speclock/keys/<角色>--<名称>.key`，**响应里只有文件名，没有明文**，明文不经过任何对话。`keys/` 下有 `README.md`（告诉 Agent 只读自己的那个文件）和 `.gitignore`（忽略 `*.key`）。吊销 key 时文件一并删除；`speclock key show <id>` 查看内容；网页的 Agent 页只显示文件名。
   - **人类 key**（admin / reviewer）：不存文件，明文只在创建时返回一次，请自己保管；丢了就新建一把。
   - 同一个项目目录里 Agent 互相看得见文件，所以"只读自己的 key 文件"靠 README 和提示词约束，Core 强制不了。
-- 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：`speclock init` 只发一把随机的 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock key create` 是兜底；吊销即生效（下次请求 401）；拥有 `key.manage` 的最后一把 human key 拒绝删除
-- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（全部）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读规格 / 审核单 / 待办，不能开单、不能提交 Commit）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有管理员
+- 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`；Agent 角色和 project-admin 必须带 `project_id`，否则 422 `project_required`；项目管理员建 key 时 `project_id` 默认并且只能是自己的项目），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：`speclock init` 只发一把随机的 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock key create` 是兜底；吊销即生效（下次请求 401）；最后一把超级管理员 key 拒绝删除
+- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（超级管理员，全部权限，可以是全局的）、`project-admin`（项目管理员：读 + 批准 / 驳回 + 管理**本项目**的 key + 删本项目的模块，必须绑定项目，不能建项目 / 改角色 / 建超级管理员）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读规格 / 审核单 / 待办，不能开单、不能提交 Commit）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有超级管理员
 - **给各目录的 Agent 发身份**：同一目录下多个 Agent 彼此看得见对方的文件，身份靠各目录 AGENTS.md 里的提示词。[`roles/`](roles/) 是我们推荐的一套：`common.md`（先 `whoami`、已有 key 不重复创建、创建 key 是危险操作必须先问人）加需求 / 执行 / 测试 / 扫描四个角色文件，复制到对应目录的 AGENTS.md 并填好「我的 SpecLock 身份」（写文件名，不写 key）。key 由人用 `speclock key create` 创建，或在人同意后由持有 admin key 的 Agent 创建，创建后用 `use_api_key(key_file=…)` 立即切换使用，不需要重启客户端；Agent 的配置里只写 key 文件名（`speclock mcp --key-file …`），不写 key 本身
-- 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局
+- 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局，只有超级管理员 admin 允许。项目管理员只看得到、管得了本项目的 key
 - `GET /api/v1/me` 返回当前 key 的角色与权限
 - 审计只记录 hint，不记录明文
 
@@ -244,7 +244,7 @@ MCP 启动时会在 stderr 打印服务地址、数据目录（以及它是怎�
 **admin key 不要写进项目里的 `.mcp.json`**（同目录的 Agent 读得到）。需要让客户端以管理员身份代你操作时，配在用户级的 MCP 配置里（如 `claude mcp add --scope user`），
 并且只在你自己跟它对话的那个会话里用。
 
-MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限的返回 403；admin key 全部可用）：
+MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限的返回 403；admin key 全部可用）：
 
 | 工具 | 权限 | 用途 |
 |---|---|---|
@@ -252,6 +252,8 @@ MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限
 | `get_index` / `get_block` / `get_capability` / `get_diff` | `spec.read` | 读规格：索引树、模块（带版本级别标签与 cr_id / commit_id）、小业务 manifest、版本 diff |
 | `list_projects` | `spec.read` | 看得到的项目（全局 key 开审核单、建 key 绑项目要用 id） |
 | `create_project` / `rename_project` | `project.manage` | 创建项目 / 项目改名（人类专属权限，只有 admin 能做；先问人） |
+| `delete_block` / `delete_capability` / `delete_business` | `spec.delete` | **危险操作，不可恢复**：删除模块 / 小业务 / 大业务（连同下面的模块、版本历史、执行记录）。已发布的模块要先通过审核单归档，否则 409 `published_blocks_exist`；须先问人并附原话 `evidence`；`spec.delete` 是人类专属权限（admin / project-admin） |
+| `delete_project` | `project.manage` | **危险操作，不可恢复**：删除整个项目（含全部内容、审核单和绑定它的 key）。里面还有已发布模块时拒绝；只有超级管理员 admin 能做；须先问人并附原话 |
 | `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 往回翻页、`after_id` 取更新的事件 |
 | `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
 | `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
@@ -293,6 +295,10 @@ MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限
 | `work_not_holder` / `work_verifier_is_implementer` | 403 | 只有领取者能操作 / 验证者不能是实现者 |
 | `block_archived` | 409 | 模块已归档 |
 | `local_only` | 403 | 接口只对本机地址开放 |
+| `project_required` | 422 | Agent 角色和项目管理员的 key 必须绑定项目（创建时传 `project_id`） |
+| `super_admin_required` | 403 | 只有超级管理员能做：改角色、建带人类专属权限的 key（项目管理员只管本项目的 key） |
+| `published_blocks_exist` | 409 | 删除时下面还有已发布的模块：先通过审核单归档（`detail.published_blocks` 列出哪些） |
+| `web_project_required` | 422 | `GET /api/v1/web/session`：库里有多个项目，要指明 `project_id` |
 
 - **轮询新事件**：`GET /api/v1/activity?after_id=<已处理到的最大 id>`，只返回更新的事件，排序仍是新的在前（`limit` 默认 50）。
   新事件多于 `limit` 时返回的是最新的那些，用 `before_id=<本页最小 id>` 往回补，直到补到 `after_id`。MCP 的 `get_activity` 也有同名的可选参数 `after_id`，用法一致。

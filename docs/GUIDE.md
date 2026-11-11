@@ -31,7 +31,7 @@ speclock serve       # 启动服务和网页（地址 init 时打印了）
 ```
 
 `init` 做四件事：创建 `.speclock/`（配置和数据库）、生成一把**随机**的 admin key（只显示这一次，库里只存哈希）、
-生成一把网页用的只读 key、告诉你下一步。
+给网页准备一把只读 key（绑定这个项目）、告诉你下一步。
 
 | | 跟项目走 | 跟电脑走 |
 |---|---|---|
@@ -78,7 +78,7 @@ speclock key create --role scanner-agent      --label 扫描
 | **admin key** | 只在 `init` 时显示一次，由你保管；不放进任何 Agent 读得到的文件 | `speclock init --new-admin` 再发一把 |
 | **Agent 的 key**（需求 / 执行 / 测试 / 扫描） | `.speclock/keys/<角色>--<名称>.key`，一把一个，创建时由 SpecLock 直接写，**明文不经过对话** | `speclock key show <id>` 查看；吊销用 `key delete`，文件一并删除 |
 | **人类 key**（如 reviewer） | 和 admin 一样，只显示一次，由人保管 | 再建一把 |
-| **网页用的只读 key** | `.speclock/web.key`，网页自动使用 | 缺了启动时自动补 |
+| **网页用的只读 key** | `.speclock/web-keys/<项目 id>.key`，每个项目一把、绑定该项目，网页自动使用 | 缺了需要时自动补 |
 
 `keys/README.md` 告诉每个 Agent 只读自己的那个文件。同一个目录里的 Agent 互相看得见文件，这一点靠提示词约束，
 所以人类 key 不放在里面：越界读取最多拿到另一个 Agent 的低权限。
@@ -96,7 +96,7 @@ speclock key create --role scanner-agent      --label 扫描
 
 ## 6. 网页
 
-`speclock serve` 之后打开它打印的地址，**不用登录**：网页自动使用一把只读 key，什么都改不了。
+`speclock serve` 之后打开它打印的地址，**不用登录**：网页自动使用一把只读 key，什么都改不了；它绑定了一个项目，所以**一次只看得到一个项目**（有多个项目时先选一个，或在地址后加 `?project=项目id`）。
 总览告诉你现在有什么需要关注（等你确认的审核单、卡住的任务、等验收的结果），每页几秒内自动刷新。
 
 网页还能**一键嵌进你自己的前端**：

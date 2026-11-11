@@ -67,7 +67,7 @@ speclock key create --role requirements-agent --label 需求
 ## 文档
 
 - [使用指南](docs/GUIDE.md)：安装、两种用法、接入 Agent、key 的存放、批准、备份与导出
-- [参考手册](docs/REFERENCE.md)：完整的特性、接口、规则和 33 个 MCP 工具
+- [参考手册](docs/REFERENCE.md)：完整的特性、接口、规则和 37 个 MCP 工具
 - [接口契约](docs/openapi.json)：REST 接口的 OpenAPI 快照（外部集成用），错误码见参考手册
 - [网页嵌入](docs/EMBED.md)：把只读网页嵌进你自己的前端
 - [角色提示词](roles/)：需求、执行、测试、扫描 Agent 的工作守则

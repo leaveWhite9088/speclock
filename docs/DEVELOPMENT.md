@@ -81,7 +81,7 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 ## 5. 角色、权限与密钥
 
 - key 绑定**角色**，角色是**权限集合**；权限目录由代码定义（接口按权限放行），角色和映射可自定义。
-- 角色有 `kind`（human / agent）。**人类专属权限**（`cr.approve`、`project.manage`、`key.manage`）不能挂在 agent 类角色上，
+- 角色有 `kind`（human / agent）。**人类专属权限**（`cr.approve`、`spec.delete`、`project.manage`、`key.manage`）不能挂在 agent 类角色上，
   所以受限角色的 Agent 批准不了审核单，也创建不了 key。
 - 预置角色：`admin`（**超级管理员**，全部权限，唯一可以是全局 key 的角色）、`project-admin`（**项目管理员 / 项目主管**：批准本项目的审核单、管理本项目的 key；key 必须绑定项目，不能建项目、改角色、建超级管理员）、`reviewer`（读 + 批准 / 驳回）、`viewer`（只读，网页自动使用）、`requirements-agent`（读 + 整理审核单 + `cr.internal` + 提交 Commit）、
   `executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读）。预置角色可改权限、不可删。
@@ -105,9 +105,12 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 - **身份靠提示词**：同一目录下多个 Agent 彼此看得见对方的文件，所以不靠 key 保密隔离角色；key 的作用是角色权限 + 项目隔离，
   Agent 的身份靠各目录 `AGENTS.md` 里的提示词（`roles/`）。
 - **「验证者 ≠ 实现者」只是按 key 判定的机械规则**，同一个 Agent 有意切换 key 能绕过；真正的独立性靠不同的 Agent 实例和提示词约定。
-- **网页不用登录，也不持有 admin key**：`init` / `serve` 时准备一把 `viewer` 角色的只读 key（明文在 `.speclock/web.key`，库里只存哈希，缺了启动时自动补），
-  网页经 `GET /api/v1/web/session` 取用；该接口只对本机 Host、同源请求开放（挡 DNS 重绑定和跨站读取）。`viewer` 有 `key.read`（看密钥 / 角色 / 权限目录，不含明文），没有任何写权限。
-- 审计只记 hint，不记明文。
+- **网页不用登录，也不持有 admin key，而且一次只看一个项目**：网页用的是 `viewer` 角色、**绑定了项目**的只读 key——每个项目一把（明文在 `.speclock/web-keys/<项目 id>.key`，库里只存哈希，缺了需要时自动补），
+  所以服务端的项目隔离对网页和对 Agent 一视同仁，别的项目的结构、审核单、待办、搜索、活动、密钥它都拿不到。地址带 `?project=<id>` 指明看哪个；库里只有一个项目时自动选它，有多个又没指明时显示项目选择页（嵌入模式不列项目，必须由外层指明）。
+  旧版的全局 `web.key` 和它的库记录在每次启动时清掉。网页经 `GET /api/v1/web/session?project_id=` 取 key（`GET /api/v1/web/projects` 只给项目选择页用，返回 id 和名称）；这两个接口该接口只对本机 Host、同源请求开放（挡 DNS 重绑定和跨站读取）。`viewer` 有 `key.read`（看密钥 / 角色 / 权限目录，不含明文），没有任何写权限。
+- 审计只记 hint，不记明文。每条审计记录带 `project_id`（`audit()` 按对象 / detail / 操作者推，删之前的对象要显式传）：项目绑定的 key（非超级管理员）读活动日志时只看得到本项目的；推不出项目的记录（如角色变更）只有全局 key 看得到。
+- **删除**：`spec.delete`（人类专属，admin 和 project-admin 有）管删模块 / 小业务 / 大业务，`project.manage` 管删项目。已发布的模块要先通过审核单归档（409 `published_blocks_exist`），删除连同版本历史、执行记录一起硬删、不可恢复；
+  Agent 代人删除须 `via=natural_language` 并附原话 `evidence`（写进审计）。删的是单个对象，不是规格内容的写入，所以不走审核单；项目管理员只能删本项目的。
 
 ## 6. 执行记录
 
@@ -236,14 +239,14 @@ git add -f apps/web/dist   # 发布提交里带上；日常开发提交不带
 - `api_exec.py`：执行接口。
 - `api_admin.py`：读视图（树 / 版本 / 归档 / 审计 / 活动）+ 项目 / 密钥 / 角色管理。
 - `api_search.py`：搜索（已发布模块的当前版本 + 审核单，子串匹配，项目隔离）。
-- `api_web.py`：网页用的只读 key 的自动发放。
+- `api_web.py`：网页用的、绑定项目的只读 key 的自动发放，和项目选择页用的项目列表。
 - `api_meta.py`：`GET /api/v1/health`（服务状态与版本，不需要 key，只对本机开放）。
 - `responses.py`：全部响应模型（接口形状的声明），`ERROR_RESPONSES` 把统一的错误结构挂到各路由上。
 - `deps.py`（按权限放行的依赖、仅限本机的检查）、`scope.py`（项目隔离）、`serializers.py`（共用的响应转换）。
 - `static/embed.js`：给外层页面引用的嵌入脚本（`GET /embed.js`，不依赖网页构建）；`main.py` 装配应用、给所有响应加 `frame-ancestors`
   （来源由 `config.toml` 的 `embed_origins` 决定，默认只有本机）、托管网页；没有构建网页时 `/` 返回构建提示页。
 
-`packages/mcp/src/speclock_mcp/server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。工具返回是文本包着的 JSON（`{"status", "body"}`），body 与 REST 响应一致（错误也带 `code`）。
+`packages/mcp/src/speclock_mcp/server.py`：stdio MCP，37 个工具，经 HTTP 调用本系统 REST。工具返回是文本包着的 JSON（`{"status", "body"}`），body 与 REST 响应一致（错误也带 `code`）。
 
 `packages/cli/src/speclock_cli/`：`cli.py`（统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`）、`exporter.py`
 （完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git），`backup` / `restore` / `export` 直接调它，不走 HTTP）。

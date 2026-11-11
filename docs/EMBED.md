@@ -6,12 +6,13 @@ SpecLock 的网页有两种用法：
 - **嵌进别的页面**：放进你自己的前端的 iframe 里，只显示内容，没有侧栏和顶栏。
 
 嵌进去的网页是**只读**的，什么都改不了（和单独打开时一样，它自动使用一把只读 key）。
+**一个网页只看得到一个项目**：它用的 key 绑定了这个项目，别的项目的内容它拿不到。库里有多个项目时，嵌入要用 `data-project`（或 `project:` 选项、`?project=` 参数）指明项目 id；只有一个项目时可以省略。
 
 ## 最简单：一段 script
 
 ```html
 <script src="http://127.0.0.1:端口/embed.js"></script>
-<div data-speclock="overview"></div>
+<div data-speclock="overview" data-project="1"></div>
 ```
 
 `/embed.js` 是 SpecLock 服务自己提供的统一入口。`data-speclock` 写要显示的**页面名**，
@@ -46,6 +47,7 @@ SpecLock 的网页有两种用法：
 <div id="spec"></div>
 <script>
   var box = SpecLock.mount('#spec', {
+    project: 1,                         // 要看的项目 id（多个项目时必填）
     view: 'tree',                       // 或 path: '/blocks/3'
     height: 'auto',                     // 默认；也可以是 '600px' / 600
     onReady: function (path) {},        // 里面的页面准备好了
@@ -107,5 +109,6 @@ SpecLock 把它写进响应头 `Content-Security-Policy: frame-ancestors 'self' 
 
 - **嵌进去是空白，控制台提示 frame-ancestors**：你的页面来源不在 `embed_origins` 里，加上并重启服务。
 - **从 https 页面嵌 `http://127.0.0.1`**：浏览器对 localhost / 127.0.0.1 放行混合内容，可以；其他 http 地址会被拦。
-- **想让嵌入页看到别的项目的数据**：网页用的是只读 key，能看到整个库里所有项目；嵌入页和单独打开看到的内容一样。
+- **想让嵌入页看到别的项目的数据**：做不到，也是有意的——一个网页用的 key 绑定了一个项目，只看得到它。要看另一个项目就再放一个嵌入，`data-project` 写另一个项目的 id。
+- **嵌进去提示「选择项目」/ 要指明项目**：库里有多个项目，你没写 `data-project`。
 - **SpecLock 服务没启动**：iframe 里是浏览器的连接失败页。服务启动、网页构建好（`apps/web/dist`）才有内容。
