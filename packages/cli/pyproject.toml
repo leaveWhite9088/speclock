@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speclock-cli"
-version = "0.2.6"
+version = "0.2.7"
 description = "SpecLock 命令行：init / serve / key / export / backup"
 license = { text = "MIT" }
 requires-python = ">=3.11"

@@ -25,6 +25,7 @@ SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**
 - [配置与数据目录](#配置与数据目录speclock)
 - [密钥管理](#密钥管理)
 - [Agent 接入](#agent-接入)
+- [REST 接口约定](#rest-接口约定给外部集成方)
 - [规则摘要](#规则摘要)
 - [License](#license)
 
@@ -123,7 +124,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 前端开发模式（热更新，vite 把 `/api` 代理到 `SPECLOCK_URL`，默认 47821）：
 
 ```bash
-cd web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
+cd apps/web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
 ```
 
 所有 API 请求带 `X-API-Key` 请求头。
@@ -265,6 +266,37 @@ MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限
 | `approve_change_request` / `reject_change_request` | `cr.approve` | Agent **代人**批准 / 驳回：必须带上人看过的那一版的 `content_hash` 与人的原话 `evidence`（驳回必须写理由），Core 把渠道记为 natural_language 并留原话；没有人的明确指示时不得调用 |
 
 所有操作都由 Agent 经 MCP 完成；网页只做展示（参考实现，可不启动），也只调用公开 REST 接口，别人想自己做一个同样能接。
+
+## REST 接口约定（给外部集成方）
+
+- **接口契约**：[`docs/openapi.json`](openapi.json) 是整份 OpenAPI 的快照（服务运行时 `/openapi.json` 是同一份，多一个版本号），每个接口的返回结构都有声明；
+  它有测试盯着，接口形状变化会在 [CHANGELOG](CHANGELOG.md) 里写明。
+- **MCP 工具契约**：[`docs/mcp_tools.json`](mcp_tools.json) 列出每个工具的参数、调用的 REST 接口和返回结构。工具返回文本 `{"status": <HTTP 状态码>, "body": <REST 响应>}`（连不上服务时是 `{"error": …}`），`body` 的形状见 `returns` 引用的响应模型。
+- **健康检查**：`GET /api/v1/health` → `{"status":"ok","version":"0.2.7"}`。不需要 key，只对本机地址开放（Host 不是回环地址返回 403）；数据库读不动时返回 503 + `{"status":"error",…}`。
+- **错误**：所有错误都是 `{"detail": …, "code": …}`。`detail` 是给人看的中文（有的是带结构的对象，如 `{"error", "missing"}`；请求体字段校验失败时是 FastAPI 的错误列表），措辞可能调整，**程序请按 `code` 判断**：
+
+| code | 状态码 | 含义 |
+|---|---|---|
+| `unauthenticated` | 401 | 缺少 `X-API-Key`，或 key 不存在 / 已吊销 |
+| `permission_denied` | 403 | key 的角色缺少该接口需要的权限 |
+| `not_found` | 404 | 不存在，或这把 key（项目隔离）无权访问——两者故意不区分 |
+| `bad_request` / `method_not_allowed` | 400 / 405 | 请求本身不合法 / 路径不支持该方法 |
+| `validation_failed` | 422 | 请求内容校验失败（字段缺失、类型不对、业务校验不通过） |
+| `conflict` | 409 | 与当前状态冲突（没有更具体的 code 时） |
+| `cr_state_conflict` | 409 | 审核单当前状态不允许这个操作（含在未批准的审核单下提交 Commit） |
+| `cr_content_changed` | 409 | 批准时带的 `content_hash` 过期（撤回并重新提交过） |
+| `cr_supersede_invalid` | 409 | 要取代的审核单不是 `approved` |
+| `cr_no_commits` / `cr_coverage_incomplete` | 409 | 完成审核单时：还没有 Commit / 仍有验收条件没被覆盖（`detail.missing`） |
+| `cr_not_owner` | 403 | 草稿只有开单的 key（或管理员）能改、提交、撤回 |
+| `work_superseded` | 409 | 执行记录针对的版本已被取代（`detail.latest_work_id` 指向最新的） |
+| `work_state_conflict` / `work_already_claimed` | 409 | 记录当前状态不允许该操作 / 已被别人领取 |
+| `work_not_holder` / `work_verifier_is_implementer` | 403 | 只有领取者能操作 / 验证者不能是实现者 |
+| `block_archived` | 409 | 模块已归档 |
+| `local_only` | 403 | 接口只对本机地址开放 |
+
+- **轮询新事件**：`GET /api/v1/activity?after_id=<已处理到的最大 id>`，只返回更新的事件，排序仍是新的在前（`limit` 默认 50）。
+  新事件多于 `limit` 时返回的是最新的那些，用 `before_id=<本页最小 id>` 往回补，直到补到 `after_id`。MCP 的 `get_activity` 暂不带 `after_id`。
+- **待办轮询**：`GET /api/v1/work?status=pending|implemented|blocked|failed`。
 
 ## 规则摘要
 

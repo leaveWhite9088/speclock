@@ -164,7 +164,7 @@ apps/web/                       Vue 3 只读展示网页
 - 改动同步：测试、GUIDE / REFERENCE / README、`roles/`（如果影响 Agent 的用法）。
 - 临时的、一次性的测试（联调报告回归、按「第几轮修复」命名的测试）用完就删，不留；测试按功能命名、放进对应的文件。
 - 版本号的源头是 `speclock_config.__version__`；各包 `pyproject.toml` 的 `version` 与它保持一致（测试检查）。对外接口有变化时一起升，
-  同时改 `apps/web/src/App.vue` 的版本标签和 `apps/web/package.json`，并在 [CHANGELOG](CHANGELOG.md) 记一条。
+  同时改 `apps/web/package.json`（网页显示的版本号读它），并在 [CHANGELOG](CHANGELOG.md) 记一条。向后兼容的增量升 `0.2.x` 的末位。
 - 环境：`uv sync` 在 `.venv/` 里装好全部包（editable）和 pytest；前端在 `apps/web`。
 
 ```bash
@@ -176,6 +176,31 @@ uv run python tests/e2e_real_flow.py --global  # 同上（跟电脑走）
 cd apps/web && npm run dev                     # 前端热更新（代理 /api 到 SPECLOCK_URL，默认 47821）
 uv run speclock init && uv run speclock serve  # 在一个测试目录里跑起来
 ```
+
+### 对外接口的稳定性约定
+
+外部系统（脚手架、调度器）只经 REST（`/api/v1`）和 MCP 集成，不碰 Core 代码，所以**接口的形状就是契约**：
+
+- **响应形状有声明，有测试盯着**：每个接口都写 `response_model=…`，模型集中在 `speclock_server/responses.py`
+  （规格读视图的模型在 `speclock_core/schemas.py`）。`docs/openapi.json` 是整份 OpenAPI 的快照，
+  `tests/test_openapi_contract.py` 逐字比对；另一个测试要求每个 `/api/` 接口都声明了 JSON 响应，**新增接口不声明就过不了**。
+- **改了响应形状要更新快照并记 CHANGELOG**：`UPDATE_OPENAPI_SNAPSHOT=1 uv run pytest tests/test_openapi_contract.py`，
+  把 `docs/openapi.json` 的变化和代码一起提交，CHANGELOG 里写清楚改了什么。
+  **只增不改**：新增接口、新增可选字段、新增查询参数是向后兼容的增量；改字段名 / 类型、删字段、把可选改必填、改状态码或权限都不是，要避免，不得不改就明说。
+- **响应模型的写法**：字段默认必填（`X | None` 表示值可以是 null，键仍在）；`extra="forbid"`，处理函数多返回没声明的字段会在测试里暴露；
+  只有确实"有时没有这个键"的才给默认值并在路由上加 `response_model_exclude_unset=True`（目前只有创建密钥）。
+  有几种形状的接口用 `A | B` 并让各自的字段保持必填（`/diff`、提交 Commit、搜索命中）。
+- **错误都带稳定的 `code`**：错误响应是 `{"detail": …, "code": …}`，`detail` 给人看（措辞可以改），`code` 给程序判断。
+  要区分的情形在 `speclock_core/errors.py` 登记并用 `ApiError("code", detail)` 抛出（状态码以登记表为准）；
+  其余的由状态码给通用 code（404 `not_found`、403 `permission_denied`、422 `validation_failed`……）。
+  新增、改名、删除 code 都是对外接口变化，要记 CHANGELOG；`tests/test_error_codes.py` 核对登记表和代码里实际使用的一致。
+- **新增接口的检查单**：声明响应模型 → 声明/复用错误码 → 更新 `docs/openapi.json` → 补测试 → CHANGELOG →（有意义的话）REFERENCE。
+- **MCP 工具的名字和参数不能随意变**：它们是 Agent 的契约；要加参数只能加可选的。
+  `docs/mcp_tools.json` 是 MCP 工具的快照（名字、参数、调用的 REST 接口、返回结构），`tests/test_mcp_contract.py` 比对；
+  有意改了就 `UPDATE_MCP_SNAPSHOT=1 uv run pytest tests/test_mcp_contract.py` 并记 CHANGELOG。新增工具会让它失败，直到快照更新。
+  工具返回是 `{"status", "body"}` 文本，`body` 是 REST 响应——所以**工具的返回结构由对应接口的 response_model 决定**，
+  工具里对 body 再加工（如 `whoami` 加 `key_source`）要写进测试里的 `RETURN_NOTES`。
+- **健康检查**：`GET /api/v1/health`（不需要 key，只对本机开放）；轮询活动日志用 `GET /api/v1/activity?after_id=`。
 
 **发布网页**：`apps/web/dist/` 平时被 gitignore。只在发布版本时构建并提交，让使用者克隆下来不装 Node 也有网页：
 
@@ -198,6 +223,7 @@ git add -f apps/web/dist   # 发布提交里带上；日常开发提交不带
 - `diffing.py`：结构化 API / 规则校验、字段级 delta、级别标签、OpenAPI 生成、版本号计算。
 - `executions.py`：执行记录状态机；`events.py`：发布 / 恢复事件。
 - `permissions.py`：权限目录、预置角色、一次性迁移。
+- `errors.py`：错误码登记表与 `ApiError`（对外接口的稳定错误类型）。
 - `bootstrap.py`：`init_db`、`init_home`、`ensure_web_key`。
 
 `packages/server/src/speclock_server/`：
@@ -208,11 +234,13 @@ git add -f apps/web/dist   # 发布提交里带上；日常开发提交不带
 - `api_admin.py`：读视图（树 / 版本 / 归档 / 审计 / 活动）+ 项目 / 密钥 / 角色管理。
 - `api_search.py`：搜索（已发布模块的当前版本 + 审核单，子串匹配，项目隔离）。
 - `api_web.py`：网页用的只读 key 的自动发放。
-- `deps.py`（按权限放行的依赖）、`scope.py`（项目隔离）、`serializers.py`（共用的响应转换）。
+- `api_meta.py`：`GET /api/v1/health`（服务状态与版本，不需要 key，只对本机开放）。
+- `responses.py`：全部响应模型（接口形状的声明），`ERROR_RESPONSES` 把统一的错误结构挂到各路由上。
+- `deps.py`（按权限放行的依赖、仅限本机的检查）、`scope.py`（项目隔离）、`serializers.py`（共用的响应转换）。
 - `static/embed.js`：给外层页面引用的嵌入脚本（`GET /embed.js`，不依赖网页构建）；`main.py` 装配应用、给所有响应加 `frame-ancestors`
   （来源由 `config.toml` 的 `embed_origins` 决定，默认只有本机）、托管网页；没有构建网页时 `/` 返回构建提示页。
 
-`packages/mcp/src/speclock_mcp/server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。
+`packages/mcp/src/speclock_mcp/server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。工具返回是文本包着的 JSON（`{"status", "body"}`），body 与 REST 响应一致（错误也带 `code`）。
 
 `packages/cli/src/speclock_cli/`：`cli.py`（统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`）、`exporter.py`
 （完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git），`backup` / `restore` / `export` 直接调它，不走 HTTP）。

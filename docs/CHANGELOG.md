@@ -2,7 +2,29 @@
 
 版本号的源头是 `speclock_config.__version__`（各包 pyproject 的版本与它一致）。
 
-## 未发布 — monorepo 与分层
+## 0.2.7 — 对外接口成为可机器检查的契约；monorepo 与分层
+
+**对外接口（纯增量：路径、方法、字段、状态码、权限、MCP 工具都没变；改动前后用 1700 多次真实请求逐条比对过响应）**
+
+- **响应都有声明**：全部 47 个 REST 操作声明了响应模型（`speclock_server/responses.py`），接口文档里能看到返回结构；
+  服务端按它校验后再返回，字段缺了会直接报错而不是悄悄交出错的形状。
+- **OpenAPI 契约快照**：`docs/openapi.json` 是整份接口的快照，`tests/test_openapi_contract.py` 逐字比对；
+  形状变了测试失败，并提示用 `UPDATE_OPENAPI_SNAPSHOT=1` 有意更新。外部集成方可以拿它生成客户端或检查"接口没变"。
+- **`GET /api/v1/health`**：不需要 key，只对本机地址开放（否则 403 `local_only`）；返回 `{"status":"ok","version":…}`，数据库读不动时 503 + `status: error`。
+- **错误带稳定的 `code`**：所有错误响应是 `{"detail": …, "code": …}`，`detail` 原样不变，`code` 集中登记在 `speclock_core/errors.py`：
+  通用的（`unauthenticated` / `permission_denied` / `not_found` / `bad_request` / `method_not_allowed` / `conflict` / `validation_failed`）
+  和需要区分的（`cr_state_conflict` / `cr_content_changed` / `cr_supersede_invalid` / `cr_no_commits` / `cr_coverage_incomplete` / `cr_not_owner` /
+  `work_superseded` / `work_state_conflict` / `work_already_claimed` / `work_not_holder` / `work_verifier_is_implementer` / `block_archived` / `local_only`）。
+  MCP 工具返回的错误体里也随之多了 `code`。
+- **`GET /api/v1/activity?after_id=`**：只取 id 大于它的事件，排序仍是新的在前；可与 `before_id` 组合补齐中间缺的一段。MCP 的 `get_activity` 同样多了可选参数 `after_id`（只加可选参数，原有工具名、参数、返回都没变）。
+
+- **MCP 工具契约快照**：`docs/mcp_tools.json` 记录每个 MCP 工具的名字、参数、调用的 REST 接口和返回结构，`tests/test_mcp_contract.py` 逐字比对（`UPDATE_MCP_SNAPSHOT=1` 有意更新）。
+  工具返回仍是文本 JSON `{"status", "body"}`，`body` 就是对应 REST 接口的响应，所以返回结构直接引用 OpenAPI 里的响应模型；
+  和"原样包一层"不一样的三处（`whoami` 多 `key_source`、`use_api_key`、`create/update_change_request` 的 kind 校验错误）在快照里单独标注。工具的描述文字不在快照里。
+
+没有改动的：所有路径、方法、字段名、状态码、权限、MCP 工具名、参数和返回文本。没做的：`GET /embed.js`、`/docs`、`/openapi.json` 和网页托管不在契约内。
+
+**monorepo 与分层**
 
 - **仓库改成 monorepo**：后端拆成 `speclock-config` / `core` / `server` / `mcp` / `cli` 五个包加一个总装包 `speclock`（`packages/`），前端移到 `apps/web`；`uv sync` 一次装全，命令和 MCP 配置不变。
 - **层间只能向下依赖，跨包只走 index**（`__all__`），由 `tests/test_architecture.py` 强制；包内核心模块同样分层。

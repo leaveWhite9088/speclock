@@ -895,7 +895,7 @@ wheels = [
 
 [[package]]
 name = "speclock"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/speclock" }
 dependencies = [
     { name = "speclock-cli" },
@@ -916,7 +916,7 @@ requires-dist = [
 
 [[package]]
 name = "speclock-cli"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "httpx" },
@@ -937,12 +937,12 @@ requires-dist = [
 
 [[package]]
 name = "speclock-config"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/config" }
 
 [[package]]
 name = "speclock-core"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "fastapi" },
@@ -963,7 +963,7 @@ requires-dist = [
 
 [[package]]
 name = "speclock-mcp"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/mcp" }
 dependencies = [
     { name = "httpx" },
@@ -980,7 +980,7 @@ requires-dist = [
 
 [[package]]
 name = "speclock-server"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "packages/server" }
 dependencies = [
     { name = "fastapi" },
