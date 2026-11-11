@@ -1,6 +1,6 @@
 """Agent 类 key 的存放：``.speclock/keys/`` 里每把一个 ``.key`` 文件。
 
-- 只存 **Agent 类**角色的 key（需求 / 执行 / 测试 / 扫描）。人类 key（admin / reviewer）创建时显示一次，
+- 存 **Agent 类**角色（需求 / 执行 / 测试 / 扫描）的 key，和网页用的只读 key（viewer，绑定项目）。其他人类 key（admin / reviewer…）创建时显示一次，
   由人自己保管，不放进这里，免得同目录的 Agent 读到管理员权限。
 - 创建 key 时由服务端直接写文件，API 响应里只给文件名、不给明文，所以明文不会经过任何对话。
 - 吊销 key 时对应文件一并删除。
