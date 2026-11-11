@@ -12,24 +12,24 @@ from speclock_config import (
     GLOBAL_PORT,
     HOME_DIRNAME,
     WEB_KEY_LABEL,
-    delete_legacy_web_key,
+    WEB_ROLE,
     Config,
+    delete_legacy_web_files,
     ensure_keys_dir,
-    ensure_web_key_ignored,
     find_home,
     free_port,
     global_home,
     is_home,
     read_config,
-    read_web_key,
+    read_key,
+    save_key,
     write_home,
-    write_web_key,
 )
 from speclock_core import db as dbmod
 from speclock_core.auth import backfill_audit_projects, hash_key, key_hint, new_key
 from speclock_core.executions import backfill
 from speclock_core.migrations import create_schema
-from speclock_core.models import ApiKey, Project
+from speclock_core.models import ApiKey, Project, Role
 from speclock_core.permissions import _once, get_role, seed_roles
 
 
@@ -47,43 +47,77 @@ def init_db() -> None:
         db.close()
 
 
-def ensure_web_key(project_id: int, home: Path | None = None) -> str | None:
-    """确保这个项目有一把有效的网页只读 key（``viewer`` 角色、**绑定该项目**），返回明文；
-    没有 .speclock/（如测试）返回 None。网页只用这把 key，所以只看得到这一个项目。
-    调用前数据库必须已经 init_db（要用到 viewer 角色）。key 被删或文件丢了，下次需要时自动补一把。"""
+def find_web_key(project_id: int, home: Path | None = None) -> str | None:
+    """这个项目的网页只读 key 明文：绑定该项目的 ``viewer`` key，存在 ``.speclock/keys/`` 的 key 文件里
+    （和其他 key 一样）。没有这样的 key、或文件读不到 / 和库里的哈希对不上，返回 None。"""
     home = home or find_home()
     if home is None:
         return None
-    key = read_web_key(home, project_id)
     db = dbmod.SessionLocal()
     try:
-        row = db.query(ApiKey).filter(ApiKey.key == hash_key(key)).first() if key else None
-        if row is not None and row.project_id == project_id:
-            ensure_web_key_ignored(home)
-            return key
-        role = get_role(db, "viewer")
-        key = new_key("human")
-        db.add(ApiKey(key=hash_key(key), hint=key_hint(key), prefix=role.kind,
-                      role_id=role.id, project_id=project_id, label=WEB_KEY_LABEL))
+        rows = (db.query(ApiKey).join(Role, ApiKey.role_id == Role.id)
+                .filter(Role.name == WEB_ROLE, ApiKey.project_id == project_id, ApiKey.key_file != "")
+                .order_by(ApiKey.id).all())
+        for row in rows:
+            try:
+                key = read_key(row.key_file, home, strict=True)
+            except (OSError, ValueError):
+                continue
+            if hash_key(key) == row.key:
+                return key
+    finally:
+        db.close()
+    return None
+
+
+def ensure_web_key(project_id: int, home: Path | None = None) -> str | None:
+    """确保这个项目有一把网页只读 key（``viewer`` 角色、**绑定该项目**、存成 key 文件，和其他 key 一样），
+    返回明文；没有 .speclock/（如测试）返回 None。网页只用这把 key，所以只看得到这一个项目。
+    调用前数据库必须已经 init_db（要用到 viewer 角色）。已经有就不再建。"""
+    home = home or find_home()
+    if home is None:
+        return None
+    existing = find_web_key(project_id, home)
+    if existing:
+        return existing
+    db = dbmod.SessionLocal()
+    try:
+        role = get_role(db, WEB_ROLE)
+        key = new_key(role.kind)
+        row = ApiKey(key=hash_key(key), hint=key_hint(key), prefix=role.kind, role_id=role.id,
+                     project_id=project_id, label=WEB_KEY_LABEL)
+        db.add(row)
+        db.flush()
+        row.key_file = save_key(home, role.name, f"{WEB_KEY_LABEL}-p{project_id}", row.id, key)
         db.commit()
     finally:
         db.close()
-    write_web_key(home, key, project_id)
     return key
 
 
-def retire_global_web_key(home: Path | None = None) -> None:
-    """旧版给网页发过一把**全局**的只读 key（能看到所有项目）：删掉库里的记录和 web.key 文件。
-    幂等；每次启动都做一遍，所以哪怕是被人拷回来的旧文件也会被清掉。"""
+def ensure_web_keys(home: Path | None = None) -> None:
+    """给每个还没有网页只读 key 的项目补一把（启动时做；新项目创建时也会建）。"""
+    db = dbmod.SessionLocal()
+    try:
+        ids = [p.id for p in db.query(Project).order_by(Project.id).all()]
+    finally:
+        db.close()
+    for pid in ids:
+        ensure_web_key(pid, home)
+
+
+def retire_legacy_web_keys(home: Path | None = None) -> None:
+    """旧版给网页发过的 key 不再用：库里标签是 web、却没有 key 文件的那些（旧版那把**全局**的、能看全库的，
+    和上一版每项目一把存在 web-keys/ 里的），以及 web.key / web-keys/ 文件，都清掉。幂等，每次启动做一遍。"""
     home = home or find_home()
     db = dbmod.SessionLocal()
     try:
-        db.query(ApiKey).filter(ApiKey.label == WEB_KEY_LABEL, ApiKey.project_id.is_(None)).delete()
+        db.query(ApiKey).filter(ApiKey.label == WEB_KEY_LABEL, ApiKey.key_file == "").delete()
         db.commit()
     finally:
         db.close()
     if home is not None:
-        delete_legacy_web_key(home)
+        delete_legacy_web_files(home)
 
 
 def init_home(root: Path, *, glob: bool = False, project_name: str | None = None,
@@ -105,7 +139,7 @@ def init_home(root: Path, *, glob: bool = False, project_name: str | None = None
     session = dbmod.SessionLocal()
     try:
         if not new_admin and session.query(ApiKey).filter(ApiKey.label != WEB_KEY_LABEL).count():
-            retire_global_web_key(home)
+            retire_legacy_web_keys(home)
             ensure_keys_dir(home)
             return cfg, None
         project = session.query(Project).first()

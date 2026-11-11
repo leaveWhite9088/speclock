@@ -1,6 +1,6 @@
 """网页自动登录：把**绑定了一个项目**的只读 key 交给本机上同源的网页。
 
-网页只看得到一个项目：它用绑定了该项目的 ``viewer`` key 画界面，所以跨项目的内容它根本拿不到
+网页只看得到一个项目：它用绑定了该项目的 ``viewer`` key（一把普通的 key，存在 ``.speclock/keys/``）画界面，所以跨项目的内容它根本拿不到
 （服务端的项目隔离对它和对 Agent 的 key 一视同仁）。只在请求来自本机地址（Host 是 127.0.0.1 /
 localhost / ::1，挡 DNS 重绑定）且不是跨站请求时才给；给出去的 key 写不了任何东西。
 """
@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy.orm import Session
 
-from speclock_core import ApiError, Project, ensure_web_key, get_db
+from speclock_core import ApiError, Project, find_web_key, get_db
 from speclock_server.deps import require_local_host
 from speclock_server.responses import WebProjectOut, WebSessionOut
 
@@ -54,7 +54,11 @@ def web_session(
         project_id = ids[0]
     elif project_id not in ids:
         raise HTTPException(status_code=404, detail=f"没有项目 {project_id}")
-    key = ensure_web_key(project_id)
+    key = find_web_key(project_id)
     if key is None:
-        raise HTTPException(status_code=404, detail="没有网页用的 key：先运行 speclock init / serve")
+        raise HTTPException(
+            status_code=404,
+            detail=f"项目 {project_id} 还没有网页用的只读 key：让超级管理员给它建一把 viewer 角色、绑定该项目的 key"
+                   "（重启 speclock serve 也会自动补）",
+        )
     return JSONResponse({"key": key, "project_id": project_id}, headers={"Cache-Control": "no-store"})

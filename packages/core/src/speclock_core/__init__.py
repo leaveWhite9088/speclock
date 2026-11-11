@@ -13,7 +13,9 @@
 from speclock_core import executions  # noqa: I001
 from speclock_core import diffing, events, permissions
 from speclock_core.auth import audit, hash_key, key_hint, new_key
-from speclock_core.bootstrap import ensure_web_key, init_db, init_home, retire_global_web_key
+from speclock_core.bootstrap import (
+    ensure_web_key, ensure_web_keys, find_web_key, init_db, init_home, retire_legacy_web_keys,
+)
 from speclock_core.commits import apply_commit
 from speclock_core.errors import CODES as ERROR_CODES, GENERIC as GENERIC_ERROR_CODES, ApiError, code_of
 from speclock_core.db import Base, SessionLocal, configure, get_db, get_engine
@@ -89,7 +91,9 @@ __all__ = [
     "key_hint",
     "new_key",
     "ensure_web_key",
-    "retire_global_web_key",
+    "ensure_web_keys",
+    "find_web_key",
+    "retire_legacy_web_keys",
     "init_db",
     "init_home",
     "apply_commit",

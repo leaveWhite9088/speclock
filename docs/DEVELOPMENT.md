@@ -105,9 +105,9 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 - **身份靠提示词**：同一目录下多个 Agent 彼此看得见对方的文件，所以不靠 key 保密隔离角色；key 的作用是角色权限 + 项目隔离，
   Agent 的身份靠各目录 `AGENTS.md` 里的提示词（`roles/`）。
 - **「验证者 ≠ 实现者」只是按 key 判定的机械规则**，同一个 Agent 有意切换 key 能绕过；真正的独立性靠不同的 Agent 实例和提示词约定。
-- **网页不用登录，也不持有 admin key，而且一次只看一个项目**：网页用的是 `viewer` 角色、**绑定了项目**的只读 key——每个项目一把（明文在 `.speclock/web-keys/<项目 id>.key`，库里只存哈希，缺了需要时自动补），
+- **网页不用登录，也不持有 admin key，而且一次只看一个项目**：网页用的是 `viewer` 角色、**绑定了项目**的只读 key——**一把普通的 key，和其他 key 一样存放**：明文在 `.speclock/keys/viewer--web-p<项目 id>.key`，库里只存哈希，key 列表里看得到、能吊销。每个项目一把，项目创建时（`POST /api/v1/projects`、`speclock init`）自动建出来，启动时给缺的项目补上；管理员自己建的 viewer key（`create_api_key(role="viewer", project_id=…)`）同样能给网页用。吊销后网页那个项目会提示没有 key，不会被悄悄重建（重启才补），
   所以服务端的项目隔离对网页和对 Agent 一视同仁，别的项目的结构、审核单、待办、搜索、活动、密钥它都拿不到。地址带 `?project=<id>` 指明看哪个；库里只有一个项目时自动选它，有多个又没指明时显示项目选择页（嵌入模式不列项目，必须由外层指明）。
-  旧版的全局 `web.key` 和它的库记录在每次启动时清掉。网页经 `GET /api/v1/web/session?project_id=` 取 key（`GET /api/v1/web/projects` 只给项目选择页用，返回 id 和名称）；这两个接口该接口只对本机 Host、同源请求开放（挡 DNS 重绑定和跨站读取）。`viewer` 有 `key.read`（看密钥 / 角色 / 权限目录，不含明文），没有任何写权限。
+  旧版的存放方式（全局的 `.speclock/web.key`、上一版的 `.speclock/web-keys/`，以及对应的库记录）在每次启动时清掉。网页经 `GET /api/v1/web/session?project_id=` 取 key（`GET /api/v1/web/projects` 只给项目选择页用，返回 id 和名称）；这两个接口该接口只对本机 Host、同源请求开放（挡 DNS 重绑定和跨站读取）。`viewer` 有 `key.read`（看密钥 / 角色 / 权限目录，不含明文），没有任何写权限。
 - 审计只记 hint，不记明文。每条审计记录带 `project_id`（`audit()` 按对象 / detail / 操作者推，删之前的对象要显式传）：项目绑定的 key（非超级管理员）读活动日志时只看得到本项目的；推不出项目的记录（如角色变更）只有全局 key 看得到。
 - **删除**：`spec.delete`（人类专属，admin 和 project-admin 有）管删模块 / 小业务 / 大业务，`project.manage` 管删项目。已发布的模块要先通过审核单归档（409 `published_blocks_exist`），删除连同版本历史、执行记录一起硬删、不可恢复；
   **删除必须由人批准的审核单授权**（`cr_id`）：本项目里的业务变更单（内部整理单不算）、状态是 approved / applied，并且单子的标题 / 意图 / 预期结果 / 影响说明 / 验收条件里点名了要删的东西（模块标题、小业务标题、大业务名称、项目名称）；授权记进审计（`cr_id`、单子标题）。
@@ -141,7 +141,7 @@ monorepo：Python 后端拆成按层依赖的多个包（`packages/`），前端
 
 ```
 packages/
-├── config/   speclock_config   .speclock/ 的查找、config.toml、key 文件、web.key 文件。不依赖任何 speclock 包
+├── config/   speclock_config   .speclock/ 的查找、config.toml、key 文件。不依赖任何 speclock 包
 ├── core/     speclock_core     模型、版本 / diff、发布引擎、Commit、执行记录、权限目录、引导（init_db / init_home）
 ├── server/   speclock_server   FastAPI 路由与应用装配、网页托管。依赖 config、core
 ├── mcp/      speclock_mcp      MCP server，只经 HTTP 调 REST，不碰数据库。依赖 config

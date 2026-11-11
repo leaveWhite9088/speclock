@@ -37,14 +37,7 @@ from speclock_config.keyfiles import (
     read_key,
     save_key,
 )
-from speclock_config.webkey import (
-    WEB_KEY_FILE,
-    WEB_KEY_LABEL,
-    delete_legacy_web_key,
-    ensure_web_key_ignored,
-    read_web_key,
-    write_web_key,
-)
+from speclock_config.webkey import WEB_KEY_LABEL, WEB_ROLE, delete_legacy_web_files
 
 __all__ = [
     "__version__", "keyfiles",
@@ -53,5 +46,5 @@ __all__ = [
     "default_url", "embed_origins", "find_home", "free_port", "global_home", "is_home",
     "load_config", "locate_home", "mcp_config", "read_config", "write_home",
     "KEY_SUFFIX", "KEYS_DIRNAME", "delete_key_file", "ensure_keys_dir", "keys_dir", "read_key", "save_key",
-    "WEB_KEY_FILE", "WEB_KEY_LABEL", "delete_legacy_web_key", "ensure_web_key_ignored", "read_web_key", "write_web_key",
+    "WEB_KEY_LABEL", "WEB_ROLE", "delete_legacy_web_files",
 ]

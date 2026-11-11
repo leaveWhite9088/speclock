@@ -117,7 +117,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 
 代码结构（`apps/web/src/`）：`api/`（客户端 + 按资源封装的请求）、`composables/`（`useAsync` 取数、`usePolling`、`useChangeSignal` / `useAutoRefresh` 自动刷新）、`components/`（只收 props 的展示组件）、`views/`（薄页面）、`labels.js`（全站统一中文文案）、`errors.js`（请求错误翻成人话）；整理逻辑都是纯函数（`overview.js` / `activity.js` / `agents.js` / `search.js` / `trace.js` / `treeFilter.js`），都有单元测试。
 
-展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd apps/web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，**绑定一个项目**，`.speclock/web-keys/<项目 id>.key`），只对本机地址、同源请求开放。**网页一次只看一个项目**：地址带 `?project=<项目 id>` 指明；库里只有一个项目时自动选它；有多个又没指明时先显示项目选择页。别的项目的内容它拿不到（用的是绑定项目的 key，隔离由服务端保证）。
+展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd apps/web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，**绑定一个项目**，是一把和其他 key 一样存在 `.speclock/keys/` 的普通 key，项目创建时自动建），只对本机地址、同源请求开放。**网页一次只看一个项目**：地址带 `?project=<项目 id>` 指明；库里只有一个项目时自动选它；有多个又没指明时先显示项目选择页。别的项目的内容它拿不到（用的是绑定项目的 key，隔离由服务端保证）。
 
 **嵌入**：网页可以被一键嵌进别的前端（`/embed.js` + `?embed=1`），只读、高度自适应、有 `postMessage` 通信，只有 `embed_origins` 里允许的来源能嵌，详见 [EMBED.md](EMBED.md)。
 

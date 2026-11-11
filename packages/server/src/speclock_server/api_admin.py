@@ -29,7 +29,7 @@ from speclock_server.responses import (
     DeletedOut, KeyCreatedOut, KeyListEntry, MeOut, PermissionOut, ProjectDeletedOut, ProjectOut,
     RoleOut, TreeProject,
 )
-from speclock_core import ApiError, KeyCreate, ProjectCreate, RenameRequest, RoleCreate, RoleUpdate
+from speclock_core import ApiError, KeyCreate, ensure_web_key, ProjectCreate, RenameRequest, RoleCreate, RoleUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
@@ -243,6 +243,7 @@ def create_project(
     db.flush()
     audit(db, key.hint, "project_create", f"project:{body.name}", {}, project_id=p.id)
     db.commit()
+    ensure_web_key(p.id)  # 这个项目的网页只读 key（普通的 viewer key，存成 key 文件）：新项目立刻有网页可看
     return {"id": p.id, "name": p.name}
 
 
@@ -662,19 +663,21 @@ def create_key(
     db.add(k)
     db.flush()
     home = find_home()
-    if role.kind == "agent" and home is not None:
-        # Agent 类 key：服务端直接写进 .speclock/keys/，响应里只给文件名，明文不经过对话
+    if perms.stores_key_file(role) and home is not None:
+        # Agent 类 key 和网页用的只读 key：服务端直接写进 .speclock/keys/，响应里只给文件名，明文不经过对话
         k.key_file = keyfiles.save_key(home, role.name, body.label, k.id, plaintext)
     audit(db, key.hint, "key_create", f"apikey:{k.hint}",
           {"role": role.name, "label": k.label, "project_id": k.project_id,
            "via": body.via, "evidence": body.evidence, "key_file": k.key_file})
     db.commit()
     if k.key_file:
-        return {**_key_out(k),
-                "notice": f"key 已保存到 {keyfiles.KEYS_DIRNAME}/{k.key_file}，明文不在这里返回；"
-                          "把这个文件名交给要用它的 Agent，只有它自己去读",
-                # 可以直接写进那个 Agent 的 .mcp.json（用文件名而不是 key，SPECLOCK_HOME 写死）
-                "mcp_config": mcp_config(home, k.key_file)}
+        out = {**_key_out(k),
+               "notice": f"key 已保存到 {keyfiles.KEYS_DIRNAME}/{k.key_file}，明文不在这里返回；"
+                         "把这个文件名交给要用它的 Agent，只有它自己去读"}
+        if role.kind == "agent":
+            # 可以直接写进那个 Agent 的 .mcp.json（用文件名而不是 key，SPECLOCK_HOME 写死）
+            out["mcp_config"] = mcp_config(home, k.key_file)
+        return out
     # 人类 key（或没有 .speclock/ 时）：明文仅此一次返回，此后任何地方都不可再见
     return {**_key_out(k), "key": plaintext,
             "notice": "此 key 仅此一次可见，请立即复制保存；系统只存哈希，无法找回"}

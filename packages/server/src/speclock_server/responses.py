@@ -442,7 +442,8 @@ class KeyListEntry(KeyBase):
 
 class KeyCreatedOut(KeyBase):
     """创建密钥。Agent 类 key 写进 ``.speclock/keys/``：带 ``mcp_config``、不带明文 ``key``；
-    人类 key（或没有 ``.speclock/`` 时）带明文 ``key``（仅此一次）、不带 ``mcp_config``。
+    网页用的只读 key（viewer）同样写进 ``keys/``，既不带明文也不带 ``mcp_config``；
+    其余人类 key（或没有 ``.speclock/`` 时）带明文 ``key``（仅此一次）、不带 ``mcp_config``。
     不出现的字段整个键都不在响应里。"""
 
     key: str | None = None

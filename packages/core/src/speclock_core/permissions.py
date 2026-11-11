@@ -84,6 +84,12 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
 # 旧版预置角色升级时补上的权限（只在该角色完全没有 exec.* 权限时补一次）
 EXEC_PERMISSIONS = ("exec.read", "exec.write", "exec.verify")
 
+def stores_key_file(role: Role) -> bool:
+    """这个角色的 key 创建时由服务端直接写进 ``.speclock/keys/``（响应里只给文件名、不给明文）：
+    Agent 类角色，和网页用的只读角色 viewer。其余人类 key（admin、reviewer……）显示一次，由人自己保管。"""
+    return role.kind == "agent" or role.name == "viewer"
+
+
 def requires_project(role: Role) -> bool:
     """这个角色的 key 是否必须绑定项目：**除了超级管理员（能管项目 = 有 project.manage），所有角色都必须绑定**——
     Agent、项目管理员、审核人、只读……项目范围由 key 决定，不能靠调用里自己填。"""

@@ -78,7 +78,7 @@ speclock key create --role scanner-agent      --label 扫描
 | **admin key** | 只在 `init` 时显示一次，由你保管；不放进任何 Agent 读得到的文件 | `speclock init --new-admin` 再发一把 |
 | **Agent 的 key**（需求 / 执行 / 测试 / 扫描） | `.speclock/keys/<角色>--<名称>.key`，一把一个，创建时由 SpecLock 直接写，**明文不经过对话** | `speclock key show <id>` 查看；吊销用 `key delete`，文件一并删除 |
 | **人类 key**（如 reviewer） | 和 admin 一样，只显示一次，由人保管 | 再建一把 |
-| **网页用的只读 key** | `.speclock/web-keys/<项目 id>.key`，每个项目一把、绑定该项目，网页自动使用 | 缺了需要时自动补 |
+| **网页用的只读 key** | 一把普通的 viewer key，`.speclock/keys/viewer--web-p<项目 id>.key`，每个项目一把、绑定该项目，网页自动使用 | 新项目自动建；缺了启动时自动补 |
 
 `keys/README.md` 告诉每个 Agent 只读自己的那个文件。同一个目录里的 Agent 互相看得见文件，这一点靠提示词约束，
 所以人类 key 不放在里面：越界读取最多拿到另一个 Agent 的低权限。
