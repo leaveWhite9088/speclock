@@ -143,6 +143,28 @@ def _item_id_no(item_id: str, prefix: str) -> int | None:
     return int(tail)
 
 
+SURFACE_MAX_LEN = 40
+
+
+def validate_surfaces(value: object, where: str = "surfaces") -> list[str]:
+    """「端」清单（如 前端 / 后端 / 数据）：非空字符串的数组，去掉首尾空白，不重复、保持给定顺序。"""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ApisValidationError(f"{where} 必须是字符串数组")
+    out: list[str] = []
+    for s in value:
+        if not isinstance(s, str) or not s.strip():
+            raise ApisValidationError(f"{where} 里的每个端都必须是非空字符串")
+        name = s.strip()
+        if len(name) > SURFACE_MAX_LEN:
+            raise ApisValidationError(f"端的名字最长 {SURFACE_MAX_LEN} 个字符：{name[:12]}…")
+        if name in out:
+            raise ApisValidationError(f"端 {name!r} 重复")
+        out.append(name)
+    return out
+
+
 def validate_items(items: object, kind: str) -> list[dict]:
     """校验并规范化带稳定 ID 的条目清单（规则 / 验收条件同构）：
     [{id, name, detail}]。id 可缺省（由服务端分配），给了就必须形如 R-1 / AC-1
@@ -173,7 +195,14 @@ def validate_items(items: object, kind: str) -> list[dict]:
             if item_id in seen:
                 raise ApisValidationError(f"{label} id {item_id} 重复")
             seen.add(item_id)
-        normalized.append({"id": item_id, "name": name.strip(), "detail": detail.strip()})
+        row = {"id": item_id, "name": name.strip(), "detail": detail.strip()}
+        surfaces = entry.get("surfaces")
+        if surfaces:
+            if kind != "acceptance":
+                raise ApisValidationError(f"{where}（{name.strip()}）：只有验收条件能指明负责的端（surfaces）")
+            # 只在指明了才有这个键：没指明 = 所有端都要覆盖，和以前存的数据一模一样
+            row["surfaces"] = validate_surfaces(surfaces, f"{where} 的 surfaces")
+        normalized.append(row)
     return normalized
 
 
@@ -233,7 +262,7 @@ def items_delta(old_items: list, new_items: list, kind: str) -> dict[str, list[s
     modified, renamed = [], []
     for k in old.keys() & new.keys():
         o, n = old[k], new[k]
-        if o["detail"] != n["detail"]:
+        if o["detail"] != n["detail"] or o.get("surfaces", []) != n.get("surfaces", []):
             modified.append(label(n))
         elif o["name"] != n["name"]:
             renamed.append(label(n))

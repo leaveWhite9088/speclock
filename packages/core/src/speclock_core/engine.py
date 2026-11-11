@@ -57,6 +57,30 @@ def validate_acceptance_or_422(items: list[dict]) -> list[dict]:
         raise HTTPException(status_code=422, detail=f"验收条件清单不合法: {exc}") from exc
 
 
+def validate_surfaces_or_422(value: object) -> list[str]:
+    try:
+        return diffing.validate_surfaces(value)
+    except diffing.ApisValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"端清单不合法: {exc}") from exc
+
+
+def surface_problems(surfaces: list[str], acceptance: list[dict]) -> list[str]:
+    """端与验收条件的一致性（中文问题清单，空 = 没问题）：
+    - 验收条件指明的端必须是模块声明过的端（没声明端的模块，验收条件不能指明端）；
+    - 声明了的每个端至少要负责一条验收条件（否则那个端没有东西可验收）。"""
+    problems: list[str] = []
+    declared = set(surfaces)
+    for a in acceptance:
+        for s in a.get("surfaces") or []:
+            if s not in declared:
+                where = f"模块声明的端是 {'、'.join(surfaces)}" if surfaces else "模块没有声明任何端"
+                problems.append(f"验收条件 {a.get('id') or a['name']} 指明了端 {s!r}，但{where}")
+    for s in surfaces:
+        if not any(not a.get("surfaces") or s in a["surfaces"] for a in acceptance):
+            problems.append(f"端 {s!r} 没有负责任何验收条件（至少要有一条，或者有不指明端的验收条件）")
+    return problems
+
+
 def with_ids(block: Block, kind: str, items: list[dict]) -> list[dict]:
     """给缺 id 的条目分配稳定 id：编号 = 当前草稿与全部历史快照（含已作废版本）
     里已用最大编号 + 1，因此条目被删除后编号也不会复用。"""
@@ -98,6 +122,12 @@ def check_publish_readiness(block: Block) -> list[str]:
         acceptance = []
     if not acceptance:
         problems.append("验收条件清单至少需要 1 条验收条件（每条含名称与详述）")
+    try:
+        surfaces = diffing.validate_surfaces(json.loads(block.draft_surfaces_json or "[]"))
+    except diffing.ApisValidationError as exc:
+        problems.append(f"端清单不合法：{exc}")
+    else:
+        problems.extend(surface_problems(surfaces, acceptance))
     try:
         apis = diffing.validate_apis(
             json.loads(block.draft_apis_json or "[]"), require_desc=False
@@ -191,8 +221,10 @@ def publish_block(
                      validate_rules_or_422(json.loads(block.draft_rules_json or "[]")))
     acceptance = with_ids(block, "acceptance", validate_acceptance_or_422(
         json.loads(block.draft_acceptance_json or "[]")))
+    surfaces = validate_surfaces_or_422(json.loads(block.draft_surfaces_json or "[]"))
     block.draft_rules_json = json.dumps(rules, ensure_ascii=False)
     block.draft_acceptance_json = json.dumps(acceptance, ensure_ascii=False)
+    block.draft_surfaces_json = json.dumps(surfaces, ensure_ascii=False)
 
     old_apis: list = []
     old_rules: list = []
@@ -230,6 +262,7 @@ def publish_block(
         rules_json=json.dumps(rules, ensure_ascii=False),
         apis_json=json.dumps(apis, ensure_ascii=False),
         acceptance_json=json.dumps(acceptance, ensure_ascii=False),
+        surfaces_json=json.dumps(surfaces, ensure_ascii=False),
         openapi_yaml=diffing.apis_to_openapi_yaml(apis),
         level=level,
         change_note=change_note,

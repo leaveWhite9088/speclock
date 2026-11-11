@@ -46,7 +46,12 @@ class ItemEntry(BaseModel):
 
 
 RuleEntry = ItemEntry
-AcceptanceEntry = ItemEntry
+
+
+class AcceptanceEntry(ItemEntry):
+    """模块的验收条件：多了 ``surfaces``——由哪个（些）端负责。不写 = 所有端都要覆盖。"""
+
+    surfaces: list[str] | None = None
 
 
 # ---------- 管理：项目 / 密钥 / 角色 ----------
@@ -65,6 +70,8 @@ class KeyCreate(StrictModel):
     label: str = ""
     # 项目隔离：绑定项目后该 key 只能访问该项目的内容；None = 全局。
     project_id: int | None = None
+    # 限定这把 key 属于哪个端（如 前端）：只能领取 / 提交 / 验收这个端的执行记录。不填 = 不限定
+    surface: str = ""
     # 创建来源与依据：Agent 代人创建须 via=natural_language 并附人的原话
     via: str = Field(default="api", pattern="^(cli|natural_language|api)$")
     evidence: str = ""
@@ -168,7 +175,7 @@ class ItemOp(BaseModel):
 
     op: str = Field(pattern="^(upsert|delete)$")
     id: str | None = None
-    entry: ItemEntry | None = None  # upsert 必填，delete 必须为 null
+    entry: AcceptanceEntry | None = None  # upsert 必填，delete 必须为 null（surfaces 只有验收条件能用）
 
 
 RuleOp = ItemOp
@@ -178,13 +185,24 @@ AcceptanceOp = ItemOp
 # ---------- responses ----------
 
 
+class WorkRef(BaseModel):
+    """一个模块版本的某个端的执行记录（没声明端的模块只有一条，surface 为空串）。"""
+
+    work_id: int
+    surface: str  # 端的名字；没声明端的模块是 ""
+    status: str  # 这个端自己的执行状态
+
+
 class IndexBlock(BaseModel):
     block_id: int
     title: str
     version: str
     summary: str  # <= 50 chars
+    # 声明了端的模块：work_id 是第一个端的记录，execution_status 是各端的汇总（所有端都 verified 才是 verified）；
+    # 每个端各自的在 works 里。没声明端的模块：和以前一样（works 里只有一条，surface 为空）
     work_id: int | None = None  # 当前版本的执行记录 id
     execution_status: str | None = None  # 当前版本的执行状态（见 executions.py）
+    works: list[WorkRef] = []
 
 
 class IndexCapability(BaseModel):
@@ -219,6 +237,7 @@ class BlockOut(BaseModel):
     block_id: int
     title: str
     version: str
+    surfaces: list[str] = []  # 这个版本涉及的端（空 = 没声明）；验收条件里的 surfaces 指明由哪些端负责
     content_md: str
     rules: list[dict]  # 结构化业务规则清单 [{id, name, detail}]
     acceptance: list[dict]  # 结构化验收条件清单 [{id, name, detail}]
@@ -233,7 +252,10 @@ class BlockOut(BaseModel):
     delta: Delta
     published_at: datetime | None
     work_id: int | None = None  # 该版本的执行记录 id
-    execution_status: str | None = None  # 该版本的执行状态
+    execution_status: str | None = None  # 该版本的执行状态（各端汇总）
+    works: list[WorkRef] = []  # 每个端各自的执行记录和状态
+    works: list[WorkRef] = []  # 每个端各自的记录和状态
+    surfaces: list[str] = []  # 这个版本声明的端（空 = 没声明）
     # 溯源：产生这个版本的审核单与 Commit（灌入的示例数据为空）
     cr_id: int | None = None
     commit_id: int | None = None

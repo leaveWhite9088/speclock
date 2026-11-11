@@ -107,6 +107,11 @@
           "role": {
             "title": "Role",
             "type": "string"
+          },
+          "surface": {
+            "default": "",
+            "title": "Surface",
+            "type": "string"
           }
         },
         "required": [
@@ -689,6 +694,18 @@
             "default": "",
             "title": "Status",
             "type": "string"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Surface"
           }
         },
         "title": "list_workArguments",

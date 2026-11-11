@@ -12,7 +12,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from speclock_core import diffing
+from speclock_core import diffing, executions
 from speclock_core import audit
 from speclock_core import get_db
 from speclock_core import ApiKey, Block, BlockVersion, Capability, CapabilityVersion, ExecutionRecord
@@ -43,12 +43,8 @@ def _published_snapshot(db: Session, block: Block, version: str | None) -> Block
     return bv
 
 
-def _exec_record(db: Session, block_id: int, version: str) -> ExecutionRecord | None:
-    return (
-        db.query(ExecutionRecord)
-        .filter(ExecutionRecord.block_id == block_id, ExecutionRecord.version == version)
-        .first()
-    )
+def _exec_records(db: Session, block_id: int, version: str) -> list[ExecutionRecord]:
+    return executions.records_for(db, block_id, version)
 
 
 @router.get("/index", response_model=list[IndexBusiness])
@@ -62,10 +58,9 @@ def get_index(
     模块节点带 work_id / execution_status（当前版本的执行状态）；要找待办用 /work。"""
     tree: dict[str, dict[int, dict]] = {}
     count = 0
-    records = {
-        (r.block_id, r.version): r
-        for r in db.query(ExecutionRecord).filter(ExecutionRecord.status != "superseded").all()
-    }
+    records: dict[tuple[int, str], list[ExecutionRecord]] = {}
+    for r in db.query(ExecutionRecord).filter(ExecutionRecord.status != "superseded").order_by(ExecutionRecord.id):
+        records.setdefault((r.block_id, r.version), []).append(r)
     for block in db.query(Block).filter(Block.status == "published").all():
         if block.current_published_version is None:
             # 全部版本已作废：按未发布处理，不出现在索引
@@ -75,7 +70,7 @@ def get_index(
             continue
         if business is not None and doc.business.name != business:
             continue
-        rec = records.get((block.id, block.current_published_version))
+        ex = executions.exec_fields(records.get((block.id, block.current_published_version), []))
         docs = tree.setdefault(doc.business.name, {})
         slot = docs.setdefault(doc.id, {"doc": doc, "blocks": []})
         slot["blocks"].append(
@@ -84,8 +79,7 @@ def get_index(
                 title=block.title,
                 version=block.current_published_version,
                 summary=(block.summary or block.draft_content_md.strip())[:50],
-                work_id=rec.id if rec else None,
-                execution_status=rec.status if rec else None,
+                **ex,
             )
         )
         count += 1
@@ -125,7 +119,7 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     bv = _published_snapshot(db, block, m.group("version"))
     audit(db, key.hint, "pull", f"block:{block.id}@{bv.version}", {})
     db.commit()
-    return block_out(bv, _exec_record(db, block.id, bv.version))
+    return block_out(bv, _exec_records(db, block.id, bv.version))
 
 
 @router.get("/blocks/{block_id}/history", response_model=list[BlockHistoryEntry])
@@ -295,14 +289,12 @@ def _capability_out(db: Session, dv: CapabilityVersion) -> CapabilityOut:
     manifest = json.loads(dv.manifest_json)
     entries = []
     for bid, m in manifest.items():
-        rec = _exec_record(db, int(bid), m["version"])
         entries.append(
             {
                 "block_id": int(bid),
                 "title": m["title"],
                 "version": m["version"],
-                "work_id": rec.id if rec else None,
-                "execution_status": rec.status if rec else None,
+                **executions.exec_fields(_exec_records(db, int(bid), m["version"])),
             }
         )
     return CapabilityOut(

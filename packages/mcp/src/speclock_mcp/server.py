@@ -241,11 +241,14 @@ def get_capability_history(capability_id: int) -> str:
     "blocked (stuck on a business question — the requirements agent should answer it "
     "through a Change Request), failed, implemented (waiting for independent "
     "verification), verified; optionally block_id / capability_id, or mine=true for the "
-    "ones you claimed. Default: everything except superseded. Requires exec.read."
+    "ones you claimed. A module that declares surfaces (前端 / 后端 / 数据 ...) has ONE record "
+    "per surface, each with its own status — filter with surface='前端'; a key limited to a "
+    "surface sees only its own surface by default. Default: everything except superseded. "
+    "Requires exec.read."
 ))
 def list_work(
     status: str = "", block_id: int | None = None,
-    capability_id: int | None = None, mine: bool = False,
+    capability_id: int | None = None, mine: bool = False, surface: str | None = None,
 ) -> str:
     params: dict = {}
     if status:
@@ -256,14 +259,18 @@ def list_work(
         params["capability_id"] = capability_id
     if mine:
         params["mine"] = "true"
+    if surface is not None:
+        params["surface"] = surface
     return _call("GET", "/api/v1/work", params=params)
 
 
 @mcp.tool(description=(
     "One execution record with its event history, the results submitted so far and the "
     "FULL spec of exactly the version it targets (background, rules, acceptance "
-    "criteria, APIs). Testers read this to see what the executor claims. "
-    "Requires exec.read."
+    "criteria, APIs). Testers read this to see what the executor claims. For a module "
+    "with surfaces it also says which surface this record is ('surface'), which acceptance "
+    "criteria this surface must report on ('required_acceptance') and the records of the "
+    "other surfaces ('siblings'). Requires exec.read."
 ))
 def get_work(work_id: int) -> str:
     return _call("GET", f"/api/v1/work/{work_id}")
@@ -273,7 +280,9 @@ def get_work(work_id: int) -> str:
     "Claim a task: pending / failed / blocked → in_progress. The response carries the "
     "full spec pinned to the version being claimed — work from THAT snapshot. If a newer "
     "version is published meanwhile, your later reports get 409 and you must claim the "
-    "new record. Requires exec.write."
+    "new record. A module with surfaces has one record per surface: claim only your own "
+    "(a key limited to a surface gets 403 work_surface_mismatch on the others); the other "
+    "surfaces proceed independently. Requires exec.write."
 ))
 def claim_work(work_id: int) -> str:
     return _call("POST", f"/api/v1/work/{work_id}/claim")
@@ -309,7 +318,8 @@ def report_failed(work_id: int, reason: str) -> str:
     "Submit your implementation: in_progress → implemented. 'results' must contain ONE "
     "entry per acceptance criterion of the claimed version: {ac_id: 'AC-1', result: "
     "'pass', evidence: '<test output / response / what you observed>'}. Evidence is "
-    "required. Every criterion must pass — if you cannot make one pass, use "
+    "required. Every criterion of YOUR surface must pass ('required_acceptance' in the record "
+    "lists them; criteria owned by other surfaces are not yours) — if you cannot make one pass, use "
     "report_failed or report_blocked instead of submitting. 'evidence' here is PROOF of "
     "your test result (output, response, what you observed). A DIFFERENT key (the "
     "tester) then verifies it. Requires exec.write."
@@ -324,8 +334,10 @@ def submit_implementation(work_id: int, results: list[dict], note: str = "") -> 
     "the pinned spec, then give ONE result per acceptance criterion: {ac_id, result: "
     "'pass' | 'fail', evidence}. All pass → verified; any fail → the task goes back to "
     "failed with your evidence as the reason. 'evidence' is proof of what YOU observed "
-    "when testing. You cannot verify what you implemented (same key → 403). "
-    "Requires exec.verify."
+    "when testing. You cannot verify what you implemented (same key → 403) — judged per "
+    "record, so a key that implemented the front end may verify the back end. Only the "
+    "criteria of this record's surface are verified here; the module counts as verified "
+    "when EVERY surface's record is. Requires exec.verify."
 ))
 def verify_work(work_id: int, results: list[dict], note: str = "") -> str:
     return _call("POST", f"/api/v1/work/{work_id}/verification",
@@ -455,12 +467,17 @@ def get_activity(
     "list_api_keys first so you do not create a duplicate. project_id binds the key to one "
     "project and is REQUIRED for every role except the super admin 'admin' (422 project_required): "
     "agents, project-admin, reviewer, viewer — only the global admin key may be global. Only the "
-    "super admin creates and revokes keys. Requires key.manage."
+    "super admin creates and revokes keys. surface limits an executor / tester key to one "
+    "surface (e.g. '前端'): it can then only claim, report on and verify that surface's execution "
+    "records; leave it empty for a key that works on all surfaces. Requires key.manage."
 ))
-def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
+def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None,
+                   surface: str = "") -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}
     if project_id is not None:
         body["project_id"] = project_id
+    if surface:
+        body["surface"] = surface
     return _call("POST", "/api/v1/keys", json=body)
 
 
@@ -683,9 +700,9 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "list; each has an 'op' field: create_business {name, ref?}; update_business {id, "
     "name}; create_capability {business, title, summary?, ref?}; update_capability {id, "
     "title?, summary?}; create_block {capability, title, summary?, content_md, rules, apis, "
-    "acceptance, ref?} (must be complete: background >= 20 chars, >= 1 rule, >= 1 "
+    "acceptance, surfaces?, ref?} (must be complete: background >= 20 chars, >= 1 rule, >= 1 "
     "acceptance item, every API with desc); update_block {id, title?, summary?, "
-    "content_md?, and per list EITHER a full replacement (rules / apis / acceptance) OR "
+    "content_md?, surfaces?, and per list EITHER a full replacement (rules / apis / acceptance) OR "
     "incremental ops (rule_ops / api_ops / acceptance_ops)}; archive_block {id}; "
     "restore_block {id}; move_block {id, capability} moves a published module under "
     "another capability of the same project, keeping its identity, history and work "
@@ -706,6 +723,13 @@ def reject_change_request(cr_id: int, reason: str, evidence: str = "") -> str:
     "every AC to be covered by some commit. Each touched block gets a new version whose "
     "'level' label is computed mechanically; each touched capability gets exactly one "
     "new version. Use dry_run=true to preview versions/levels/deltas without writing. "
+    "SURFACES: when the module is implemented by several separate parties (前端 / 后端 / 数据 ...) "
+    "declare them: surfaces:['前端','后端'] (free names, full replacement). Publishing then creates "
+    "one execution record per surface, each claimed / implemented / verified independently, and the "
+    "module counts as verified only when all are. An acceptance item may name who is responsible: "
+    "{name, detail, surfaces:['后端']} — no surfaces = every surface must cover it. Every declared "
+    "surface must own at least one criterion, and a criterion can only name declared surfaces. "
+    "Do not declare surfaces for a module one party implements. "
     "Requires commit.write."
 ))
 def submit_commit(

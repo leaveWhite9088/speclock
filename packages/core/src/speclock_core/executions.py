@@ -2,8 +2,12 @@
 
 Core 只做机械的事——登记、转换、校验、留痕；谁来做、怎么做、做得好不好由外部 Agent 负责。
 
-- 每个已发布的模块版本自动有一条记录（``sync_block``，由发布引擎在发布后调用）；
-  同一模块发布新版本时，旧版本上未结束的记录变 ``superseded``。
+- 每个已发布的模块版本自动有执行记录（``sync_block``，由发布引擎在发布后调用）：模块声明了「端」
+  （前端 / 后端 / 数据…）就每个端一条，各端独立走完整流程、状态互不影响；没声明端的模块只有一条
+  （``surface = ""``，和以前完全一样）。同一模块发布新版本时，旧版本上所有端未结束的记录一起变 ``superseded``。
+- 验收条件可以指明由哪些端负责（没指明 = 所有端都要覆盖）：一个端提交实现 / 验收时只需覆盖归它的条件。
+  key 可以限定属于哪个端（``ApiKey.surface``），只能动那个端的记录。模块算「已验收」要等所有端的记录都 verified
+  （见 ``aggregate_status``）。
 - 状态：``pending`` → ``in_progress``（领取）→ ``implemented``（逐条验收条件自测全部通过）
   → ``verified``（独立验证者逐条确认）。``in_progress`` 还可以去 ``blocked`` / ``failed``，
   这两个状态可以重新领取；验收不通过也回到 ``failed``。``verified`` / ``superseded`` 是终态。
@@ -57,35 +61,49 @@ def _transition(
     )
     rec.status = to
     rec.updated_at = utcnow()
-    audit(db, actor, f"exec_{event}", f"work:{rec.block_id}@{rec.version}",
-          {"status": to, "note": note})
+    # 多端的模块：目标里带上端（work:3@1.0.0#前端），详情里也写 surface；没声明端的和以前一样
+    suffix = f"#{rec.surface}" if rec.surface else ""
+    audit(db, actor, f"exec_{event}", f"work:{rec.block_id}@{rec.version}{suffix}",
+          {"status": to, "note": note, **({"surface": rec.surface} if rec.surface else {})})
 
 
-def sync_block(db: Session, block: Block, actor: str) -> ExecutionRecord | None:
+def version_surfaces(db: Session, block: Block, version: str) -> list[str]:
+    """这个版本声明的端；没声明（老数据、没写端的模块）返回 []。"""
+    bv = (db.query(BlockVersion)
+          .filter(BlockVersion.block_id == block.id, BlockVersion.version == version).first())
+    return json.loads(bv.surfaces_json or "[]") if bv else []
+
+
+def sync_block(db: Session, block: Block, actor: str) -> list[ExecutionRecord]:
     """让执行记录跟上模块的当前已发布版本（幂等）：
-    - 当前版本没有记录就建一条 pending；
-    - 该模块其它版本上未结束的记录 → superseded。
-    不改变 verified 的记录。未发布 / 已归档的模块不建记录。"""
+    - 当前版本的每个端（没声明端 = 一个默认端 ""）没有记录就建一条 pending；
+    - 该模块其它版本上未结束的记录（所有端）→ superseded。
+    不改变 verified 的记录。未发布 / 已归档的模块不建记录。返回当前版本的记录。"""
     if block.status != "published" or block.current_published_version is None:
-        return None
+        return []
     current = block.current_published_version
+    wanted = version_surfaces(db, block, current) or [""]
     records = db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id).all()
-    mine = None
+    mine: dict[str, ExecutionRecord] = {}
     for rec in records:
         if rec.version == current:
-            mine = rec
+            mine[rec.surface] = rec
         elif rec.status in OPEN_STATUSES:
             _transition(db, rec, "superseded", "superseded", actor,
                         f"模块已发布新版本 {current}", {"superseded_by": current})
-    if mine is None:
-        mine = ExecutionRecord(block_id=block.id, version=current, status="pending")
-        db.add(mine)
+    for surface in wanted:
+        if surface in mine:
+            continue
+        rec = ExecutionRecord(block_id=block.id, version=current, surface=surface, status="pending")
+        db.add(rec)
         db.flush()
+        label = f"（{surface}）" if surface else ""
         db.add(
-            ExecutionEvent(record=mine, event="created", from_status="", to_status="pending",
-                           actor=actor, note=f"版本 {current} 发布，等待领取")
+            ExecutionEvent(record=rec, event="created", from_status="", to_status="pending",
+                           actor=actor, note=f"版本 {current}{label} 发布，等待领取")
         )
-    return mine
+        mine[surface] = rec
+    return [mine[s] for s in wanted]
 
 
 def backfill(db: Session) -> None:
@@ -95,7 +113,8 @@ def backfill(db: Session) -> None:
     db.commit()
 
 
-def current_record(db: Session, block: Block) -> ExecutionRecord | None:
+def current_record(db: Session, block: Block, surface: str = "") -> ExecutionRecord | None:
+    """当前版本某个端的记录（没声明端的模块：默认端 ""）。"""
     if block.current_published_version is None:
         return None
     return (
@@ -103,18 +122,61 @@ def current_record(db: Session, block: Block) -> ExecutionRecord | None:
         .filter(
             ExecutionRecord.block_id == block.id,
             ExecutionRecord.version == block.current_published_version,
+            ExecutionRecord.surface == surface,
         )
         .first()
     )
 
 
+def records_for(db: Session, block_id: int, version: str) -> list[ExecutionRecord]:
+    """模块某个版本的全部端的记录（按创建顺序，也就是声明端的顺序）。没声明端的模块只有一条。"""
+    return (db.query(ExecutionRecord)
+            .filter(ExecutionRecord.block_id == block_id, ExecutionRecord.version == version)
+            .order_by(ExecutionRecord.id).all())
+
+
+_PROGRESS = ("pending", "in_progress", "implemented", "verified")
+
+
+def aggregate_status(statuses: list[str]) -> str | None:
+    """一个模块版本各端状态的汇总：**所有端都 verified 才算 verified**。
+    有端 blocked / failed 就先报它们（需要人关注的排最前），否则取进度最慢的那个端
+    （pending < in_progress < implemented < verified）。只有一条记录时就是它自己的状态（和以前一样）。"""
+    live = [s for s in statuses if s != "superseded"]
+    if not live:
+        return statuses[0] if statuses else None
+    for attention in ("blocked", "failed"):
+        if attention in live:
+            return attention
+    return min(live, key=_PROGRESS.index)
+
+
+def exec_fields(recs: list[ExecutionRecord]) -> dict:
+    """响应里模块 / 版本节点上的执行信息：``work_id`` / ``execution_status``（各端汇总；只有一个端时和以前一样），
+    以及 ``works``（每个端各自的记录和状态）。"""
+    return {
+        "work_id": recs[0].id if recs else None,
+        "execution_status": aggregate_status([r.status for r in recs]),
+        "works": [{"work_id": r.id, "surface": r.surface, "status": r.status} for r in recs],
+    }
+
+
+def required_acceptance(acceptance: list[dict], surface: str) -> list[dict]:
+    """这个端要覆盖的验收条件：没指明端的（所有端都要）+ 指明了包含这个端的。默认端 "" 要覆盖全部。"""
+    if not surface:
+        return acceptance
+    return [a for a in acceptance if not a.get("surfaces") or surface in a["surfaces"]]
+
+
 def version_acceptance(db: Session, rec: ExecutionRecord) -> list[dict]:
+    """这条记录要逐条给出结果的验收条件（按它的端过滤）。"""
     bv = (
         db.query(BlockVersion)
         .filter(BlockVersion.block_id == rec.block_id, BlockVersion.version == rec.version)
         .first()
     )
-    return json.loads(bv.acceptance_json or "[]") if bv else []
+    items = json.loads(bv.acceptance_json or "[]") if bv else []
+    return required_acceptance(items, rec.surface)
 
 
 # ---------- 守卫 ----------
@@ -123,7 +185,7 @@ def version_acceptance(db: Session, rec: ExecutionRecord) -> list[dict]:
 def _require_current(rec: ExecutionRecord) -> None:
     block = rec.block
     if rec.status == "superseded" or rec.version != block.current_published_version:
-        latest = current_record(object_session(rec), block)
+        latest = current_record(object_session(rec), block, rec.surface)
         raise ApiError(
             "work_superseded",
             detail={
@@ -134,6 +196,15 @@ def _require_current(rec: ExecutionRecord) -> None:
         )
     if block.status != "published":
         raise ApiError("block_archived", f"模块 {block.id} 已归档，暂不能处理")
+
+
+def require_surface(rec: ExecutionRecord, key: ApiKey) -> None:
+    """限定了端的 key 只能动自己那个端的记录（没限定的 key 不受影响）。"""
+    if key.surface and key.surface != rec.surface:
+        raise ApiError(
+            "work_surface_mismatch",
+            f"这把 key 限定在「{key.surface}」端，这条记录属于「{rec.surface or '默认'}」端，不能操作",
+        )
 
 
 def _require_status(rec: ExecutionRecord, allowed: tuple[str, ...], action: str) -> None:
@@ -156,6 +227,7 @@ def _require_holder(rec: ExecutionRecord, key: ApiKey) -> None:
 
 
 def claim(db: Session, rec: ExecutionRecord, key: ApiKey) -> None:
+    require_surface(rec, key)
     _require_current(rec)
     if rec.status == "in_progress":
         raise ApiError("work_already_claimed", f"已被 {rec.claimed_by} 领取，进行中")
@@ -174,6 +246,7 @@ def claim(db: Session, rec: ExecutionRecord, key: ApiKey) -> None:
 def release(db: Session, rec: ExecutionRecord, key: ApiKey, force: bool) -> None:
     _require_status(rec, ("in_progress",), "释放")
     if not force:
+        require_surface(rec, key)
         _require_holder(rec, key)
     rec.claimed_by = ""
     rec.claimed_by_key_id = None
@@ -181,6 +254,7 @@ def release(db: Session, rec: ExecutionRecord, key: ApiKey, force: bool) -> None
 
 
 def report_blocked(db: Session, rec: ExecutionRecord, key: ApiKey, reason: str) -> None:
+    require_surface(rec, key)
     _require_current(rec)
     _require_status(rec, ("in_progress",), "报告阻塞")
     _require_holder(rec, key)
@@ -191,6 +265,7 @@ def report_blocked(db: Session, rec: ExecutionRecord, key: ApiKey, reason: str) 
 
 
 def report_failed(db: Session, rec: ExecutionRecord, key: ApiKey, reason: str) -> None:
+    require_surface(rec, key)
     _require_current(rec)
     _require_status(rec, ("in_progress",), "报告失败")
     _require_holder(rec, key)
@@ -233,6 +308,7 @@ def _check_results(acceptance: list[dict], results: list[dict], who: str) -> lis
 def submit_implementation(
     db: Session, rec: ExecutionRecord, key: ApiKey, results: list[dict], note: str
 ) -> None:
+    require_surface(rec, key)
     _require_current(rec)
     _require_status(rec, ("in_progress",), "提交实现结果")
     _require_holder(rec, key)
@@ -252,7 +328,9 @@ def submit_implementation(
 
 
 def verify(db: Session, rec: ExecutionRecord, key: ApiKey, results: list[dict], note: str) -> str:
-    """独立验收。全部通过 → verified；有不通过 → failed（原因写进记录）。返回新状态。"""
+    """独立验收。全部通过 → verified；有不通过 → failed（原因写进记录）。返回新状态。
+    「验证者不能是实现者」按每条记录各自判断（前端的实现者可以去验收后端）。"""
+    require_surface(rec, key)
     _require_current(rec)
     _require_status(rec, ("implemented",), "验收")
     if rec.implemented_by_key_id == key.id:

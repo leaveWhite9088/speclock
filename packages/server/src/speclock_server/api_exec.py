@@ -44,6 +44,7 @@ def _summary(rec: ExecutionRecord) -> dict:
         "capability_title": cap.title,
         "business": cap.business.name,
         "version": rec.version,
+        "surface": rec.surface,
         "status": rec.status,
         "claimed_by": rec.claimed_by,
         "reason": rec.reason,
@@ -55,10 +56,13 @@ def _summary(rec: ExecutionRecord) -> dict:
 def _detail(db: Session, rec: ExecutionRecord) -> dict:
     """记录 + 事件历史 + 锁定到该版本的完整规格（领取后按这份干活，不会因后续发布而变）。"""
     bv = published_version(db, rec.block, rec.version)
+    recs = executions.records_for(db, rec.block_id, rec.version)
     return {
         **_summary(rec),
         "implementation": json.loads(rec.results_json or "[]"),
         "verification": json.loads(rec.verification_json or "[]"),
+        "required_acceptance": executions.version_acceptance(db, rec),
+        "siblings": executions.exec_fields(recs)["works"],
         "events": [
             {
                 "event": e.event,
@@ -71,7 +75,7 @@ def _detail(db: Session, rec: ExecutionRecord) -> dict:
             }
             for e in rec.events
         ],
-        "spec": block_out(bv, rec),
+        "spec": block_out(bv, recs),
     }
 
 
@@ -81,6 +85,7 @@ def list_work(
     block_id: int | None = None,
     capability_id: int | None = None,
     mine: bool = False,
+    surface: str | None = Query(default=None, description="只看这个端的记录（没声明端的模块用空串）；限定了端的 key 缺省只看自己那个端"),
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("exec.read")),
 ):
@@ -101,6 +106,10 @@ def list_work(
         q = q.filter(Block.capability_id == capability_id)
     if mine:
         q = q.filter(ExecutionRecord.claimed_by_key_id == key.id)
+    if surface is None and key.surface:
+        surface = key.surface  # 限定了端的 key：缺省只看自己那个端
+    if surface is not None:
+        q = q.filter(ExecutionRecord.surface == surface)
     out = []
     for rec in q.order_by(ExecutionRecord.id.desc()).all():
         if key.project_id is not None and rec.block.capability.business.project_id != key.project_id:

@@ -155,6 +155,30 @@ try:
     s, b = call(m.revoke_api_key(kid, evidence="同意吊销")); ok("revoke_api_key", s == 200)
     ok("revoked key file removed", not (home_dir / "keys" / files["scan"]).exists())
 
+    # ---- 一个模块按「端」分别领取 ----
+    J(m.use_api_key()); as_("req")
+    s, b = call(m.create_change_request(title="日报分前后端实现", intent="前端和后端各自实现日报查询", expected_outcome="两个端都能交付",
+                                        acceptance=[{"name": "两端完成", "detail": "前后端都完成"}], project_id=pid)); cr3 = b["id"]
+    call(m.submit_change_request(cr3)); h3 = call(m.get_change_request(cr3))[1]["content_hash"]
+    J(m.use_api_key()); call(m.approve_change_request(cr3, h3, "同意"))
+    as_("req")
+    s, b = call(m.submit_commit(cr3, [{"op": "create_block", "capability": cap_id, "title": "日报查询", "surfaces": ["前端", "后端"],
+        "content_md": "前端展示、后端提供数据的日报查询，各自实现。", "rules": [{"name": "口径", "detail": "销售额含退款"}], "apis": [],
+        "acceptance": [{"name": "页面可看", "detail": "页面展示日报", "surfaces": ["前端"]},
+                       {"name": "接口返回", "detail": "接口返回日报", "surfaces": ["后端"]}]}], covers=["AC-1"]))
+    ok("create_block with surfaces", s in (200, 201), str(b)[:200]); sblock = b["blocks"][0]["block_id"]
+    J(m.use_api_key())
+    s, k = call(m.create_api_key("executor-agent", "fe-exec", evidence="同意", project_id=pid, surface="前端")); ok("create_api_key with a surface", s == 201 and k["surface"] == "前端", str(k)[:200])
+    s, b = call(m.list_work(block_id=sblock)); ok("one record per surface", s == 200 and {x["surface"] for x in b} == {"前端", "后端"}, str(b)[:200])
+    be_id = [x["id"] for x in b if x["surface"] == "后端"][0]; fe_id = [x["id"] for x in b if x["surface"] == "前端"][0]
+    J(m.use_api_key(key_file=k["key_file"]))
+    s, b = call(m.list_work(block_id=sblock)); ok("a key limited to a surface lists only its own", {x["surface"] for x in b} == {"前端"})
+    s, b = call(m.claim_work(be_id)); ok("limited key cannot claim another surface (403 work_surface_mismatch)", s == 403 and b["code"] == "work_surface_mismatch")
+    s, b = call(m.claim_work(fe_id)); ok("limited key claims its own surface", s == 200 and b["surface"] == "前端" and [a["id"] for a in b["required_acceptance"]] == ["AC-1"], str(b)[:200])
+    J(m.use_api_key()); s, b = call(m.claim_work(be_id)); ok("the other surface is claimed independently", s == 200 and b["status"] == "in_progress")
+    s, b = call(m.get_index()); row = [bl for biz in b for c_ in biz["capabilities"] for bl in c_["blocks"] if bl["block_id"] == sblock][0]
+    ok("index shows each surface's status", {w["surface"]: w["status"] for w in row["works"]} == {"前端": "in_progress", "后端": "in_progress"} and row["execution_status"] == "in_progress")
+
     r = httpx.get(url + "/api/v1/web/session"); ok("web session needs a project when there are several (422)", r.status_code == 422 and r.json()["code"] == "web_project_required")
     web = httpx.get(url + f"/api/v1/web/session?project_id={pid}").json()["key"]
     me = httpx.get(url + "/api/v1/me", headers={"X-API-Key": web}).json(); ok("web viewer key is read-only and bound to its project", me["role"] == "viewer" and me["project_id"] == pid)
@@ -196,7 +220,7 @@ try:
     # 导出与备份（本机命令）
     exp = work / "exported"
     r = subprocess.run([*EXE, "export", "--out", str(exp)], cwd=work, env=env, capture_output=True, text=True, encoding="utf-8")
-    ok("speclock export", r.returncode == 0 and (exp / "index.md").is_file() and "1 个模块" in r.stdout, r.stdout + r.stderr)
+    ok("speclock export", r.returncode == 0 and (exp / "index.md").is_file() and "2 个模块" in r.stdout, r.stdout + r.stderr)
     r = subprocess.run([*EXE, "backup"], cwd=work, env=env, capture_output=True, text=True, encoding="utf-8")
     ok("speclock backup", r.returncode == 0 and any((home_dir / "backups").glob("*.db")), r.stdout + r.stderr)
 finally:
