@@ -30,8 +30,8 @@
 
 **网页只看一个项目；删除模块 / 小业务 / 大业务 / 项目（会改变行为）**
 
-- **网页按项目隔离**：网页不再用一把能看全库的只读 key，而是每个项目一把**绑定该项目**的 `viewer` key（`.speclock/web-keys/<项目 id>.key`），所以别的项目的结构、审核单、待办、搜索、活动、密钥它都拿不到。地址带 `?project=<id>` 指明看哪个；库里只有一个项目时自动选；多个又没指明时先显示项目选择页（嵌入模式必须由外层指明：`data-project` / `project:` 选项）。
-  `GET /api/v1/web/session` 多了查询参数 `project_id`，返回里多了 `project_id`；新增 `GET /api/v1/web/projects`（项目选择页用，只有 id 和名称）；多项目又没指明时 422 `web_project_required`。旧版全局的 `web.key` 和它的库记录在启动时清掉。
+- **网页按项目隔离**：网页不再用一把能看全库的只读 key，而是每个项目一把**绑定该项目**的 `viewer` key，**和其他 key 一样存放**（`.speclock/keys/` 里的 key 文件，key 列表里看得到、能吊销；项目创建时自动建，启动时给缺的补上），所以别的项目的结构、审核单、待办、搜索、活动、密钥它都拿不到。地址带 `?project=<id>` 指明看哪个；库里只有一个项目时自动选；多个又没指明时先显示项目选择页（嵌入模式必须由外层指明：`data-project` / `project:` 选项）。
+  `GET /api/v1/web/session` 多了查询参数 `project_id`，返回里多了 `project_id`；新增 `GET /api/v1/web/projects`（项目选择页用，只有 id 和名称）；多项目又没指明时 422 `web_project_required`。旧版的存放方式（全局的 `web.key`、`web-keys/` 目录和对应的库记录）在启动时清掉；吊销了的网页 key 不会被悄悄重建。
 - **活动日志按项目隔离**：审计记录新增 `project_id`（升级时按对象尽力回填），项目绑定的 key 读 `/api/v1/activity` 只看得到本项目的；推不出项目的记录只有全局 key 看得到。
 - **删除**：新增 REST `DELETE /api/v1/blocks/{id}` / `capabilities/{id}` / `businesses/{id}`，MCP 工具 `delete_block` / `delete_capability` / `delete_business` / `delete_project`（共 37 个工具），都是**不可恢复**的危险操作：**必须由人批准的审核单授权**（删除接口 / 工具带 `cr_id`：本项目里的业务变更单、已批准、内容里点名了要删的东西，否则 409 `delete_needs_approval`；授权写进审计）；已发布的模块要先通过审核单归档（409 `published_blocks_exist`）。
   新增人类专属权限 `spec.delete`（admin、project-admin 有；项目管理员只能删本项目的）；删项目仍是 `project.manage`（只有超级管理员）。`DELETE /api/v1/projects/{id}` 同样要 `cr_id`（授权它的那张审核单随项目一起删，审计里留着编号和标题）。新增错误码 `delete_needs_approval`、`published_blocks_exist`、`web_project_required`。
