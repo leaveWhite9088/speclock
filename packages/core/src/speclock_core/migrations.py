@@ -41,6 +41,9 @@ def _ensure_columns() -> None:
             "role_id": "INTEGER REFERENCES roles(id)",
             "key_file": "TEXT NOT NULL DEFAULT ''",
         },
+        "audit_logs": {
+            "project_id": "INTEGER",
+        },
         "change_requests": {
             "kind": "TEXT NOT NULL DEFAULT 'business'",
             "kind_reason": "TEXT NOT NULL DEFAULT ''",

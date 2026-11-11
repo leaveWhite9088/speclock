@@ -40,9 +40,11 @@ CODES: dict[str, tuple[int, str]] = {
     "work_verifier_is_implementer": (403, "验证者不能是实现者本人（同一把 key）"),
     # ---- 规格 / Commit ----
     "block_archived": (409, "模块已归档，不能在其上操作"),
+    "published_blocks_exist": (409, "下面还有已发布的模块，不能删除：先通过审核单归档它们（detail.published_blocks 列出哪些）"),
     # ---- 密钥 ----
     "project_required": (422, "Agent 类角色和项目管理员的 key 必须绑定项目（创建时传 project_id）；只有超级管理员 admin 可以是全局的"),
     "super_admin_required": (403, "只有超级管理员（admin）能做：项目管理员只能管本项目的 key，不能改角色、不能建权限比自己大的 key"),
+    "web_project_required": (422, "库里有多个项目，网页要指明看哪一个（?project=<项目 id>）"),
     # ---- 其他 ----
     "local_only": (403, "这个接口只对本机地址开放（Host 不是 127.0.0.1 / localhost / ::1）"),
 }

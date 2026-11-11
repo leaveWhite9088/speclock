@@ -155,10 +155,14 @@ try:
     s, b = call(m.revoke_api_key(kid, evidence="同意吊销")); ok("revoke_api_key", s == 200)
     ok("revoked key file removed", not (home_dir / "keys" / files["scan"]).exists())
 
-    web = httpx.get(url + "/api/v1/web/session").json()["key"]
-    me = httpx.get(url + "/api/v1/me", headers={"X-API-Key": web}).json(); ok("web viewer key is read-only", me["role"] == "viewer")
+    r = httpx.get(url + "/api/v1/web/session"); ok("web session needs a project when there are several (422)", r.status_code == 422 and r.json()["code"] == "web_project_required")
+    web = httpx.get(url + f"/api/v1/web/session?project_id={pid}").json()["key"]
+    me = httpx.get(url + "/api/v1/me", headers={"X-API-Key": web}).json(); ok("web viewer key is read-only and bound to its project", me["role"] == "viewer" and me["project_id"] == pid)
+    seen = httpx.get(url + "/api/v1/projects", headers={"X-API-Key": web}).json(); ok("web key sees only its own project", [p["id"] for p in seen] == [pid])
     r = httpx.post(url + "/api/v1/projects", json={"name": "x"}, headers={"X-API-Key": web}); ok("viewer cannot write (403)", r.status_code == 403)
     ok("web served at /", httpx.get(url + "/").status_code == 200)
+    s, b = call(m.delete_project(p2, evidence="好，把第二个项目删了")); ok("delete_project (empty second project)", s == 200 and b["deleted"])
+    s, b = call(m.delete_block(1, evidence="好")); ok("delete_block refuses a published module (409 published_blocks_exist)", s == 409 and b["code"] == "published_blocks_exist")
     ok("embed.js served", "SpecLock" in httpx.get(url + "/embed.js").text)
     h = httpx.get(url + "/api/v1/health")  # 接口契约：健康检查不要 key；错误带稳定的 code；after_id 取新事件
     ok("health needs no key and reports the version", h.status_code == 200 and h.json()["status"] == "ok" and h.json()["version"])

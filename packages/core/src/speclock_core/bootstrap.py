@@ -12,6 +12,7 @@ from speclock_config import (
     GLOBAL_PORT,
     HOME_DIRNAME,
     WEB_KEY_LABEL,
+    delete_legacy_web_key,
     Config,
     ensure_keys_dir,
     ensure_web_key_ignored,
@@ -25,11 +26,11 @@ from speclock_config import (
     write_web_key,
 )
 from speclock_core import db as dbmod
-from speclock_core.auth import hash_key, key_hint, new_key
+from speclock_core.auth import backfill_audit_projects, hash_key, key_hint, new_key
 from speclock_core.executions import backfill
 from speclock_core.migrations import create_schema
 from speclock_core.models import ApiKey, Project
-from speclock_core.permissions import get_role, seed_roles
+from speclock_core.permissions import _once, get_role, seed_roles
 
 
 def init_db() -> None:
@@ -39,31 +40,50 @@ def init_db() -> None:
     try:
         seed_roles(db)
         backfill(db)
+        if _once(db, "audit_project_id"):
+            backfill_audit_projects(db)
+            db.commit()
     finally:
         db.close()
 
 
-def ensure_web_key(home: Path | None = None) -> str | None:
-    """确保 .speclock/ 里有一把有效的网页只读 key，返回明文；没有 .speclock/（如测试）返回 None。
-    调用前数据库必须已经 init_db（要用到 viewer 角色）。key 被删或文件丢了，下次启动自动补一把。"""
+def ensure_web_key(project_id: int, home: Path | None = None) -> str | None:
+    """确保这个项目有一把有效的网页只读 key（``viewer`` 角色、**绑定该项目**），返回明文；
+    没有 .speclock/（如测试）返回 None。网页只用这把 key，所以只看得到这一个项目。
+    调用前数据库必须已经 init_db（要用到 viewer 角色）。key 被删或文件丢了，下次需要时自动补一把。"""
     home = home or find_home()
     if home is None:
         return None
-    key = read_web_key(home)
+    key = read_web_key(home, project_id)
     db = dbmod.SessionLocal()
     try:
-        if key and db.query(ApiKey).filter(ApiKey.key == hash_key(key)).first():
+        row = db.query(ApiKey).filter(ApiKey.key == hash_key(key)).first() if key else None
+        if row is not None and row.project_id == project_id:
             ensure_web_key_ignored(home)
             return key
         role = get_role(db, "viewer")
         key = new_key("human")
         db.add(ApiKey(key=hash_key(key), hint=key_hint(key), prefix=role.kind,
-                      role_id=role.id, project_id=None, label=WEB_KEY_LABEL))
+                      role_id=role.id, project_id=project_id, label=WEB_KEY_LABEL))
         db.commit()
     finally:
         db.close()
-    write_web_key(home, key)
+    write_web_key(home, key, project_id)
     return key
+
+
+def retire_global_web_key(home: Path | None = None) -> None:
+    """旧版给网页发过一把**全局**的只读 key（能看到所有项目）：删掉库里的记录和 web.key 文件。
+    幂等；每次启动都做一遍，所以哪怕是被人拷回来的旧文件也会被清掉。"""
+    home = home or find_home()
+    db = dbmod.SessionLocal()
+    try:
+        db.query(ApiKey).filter(ApiKey.label == WEB_KEY_LABEL, ApiKey.project_id.is_(None)).delete()
+        db.commit()
+    finally:
+        db.close()
+    if home is not None:
+        delete_legacy_web_key(home)
 
 
 def init_home(root: Path, *, glob: bool = False, project_name: str | None = None,
@@ -85,7 +105,7 @@ def init_home(root: Path, *, glob: bool = False, project_name: str | None = None
     session = dbmod.SessionLocal()
     try:
         if not new_admin and session.query(ApiKey).filter(ApiKey.label != WEB_KEY_LABEL).count():
-            ensure_web_key(home)
+            retire_global_web_key(home)
             ensure_keys_dir(home)
             return cfg, None
         project = session.query(Project).first()
@@ -98,8 +118,9 @@ def init_home(root: Path, *, glob: bool = False, project_name: str | None = None
         session.add(ApiKey(key=hash_key(key), hint=key_hint(key), prefix=role.kind,
                            role_id=role.id, project_id=None, label="admin"))
         session.commit()
+        project_id = project.id
     finally:
         session.close()
-    ensure_web_key(home)  # 网页用的只读 key
+    ensure_web_key(project_id, home)  # 这个项目的网页只读 key（绑定项目，网页只看得到它）
     ensure_keys_dir(home)  # Agent key 的存放目录 + README
     return cfg, key

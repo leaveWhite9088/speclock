@@ -63,7 +63,13 @@ class HealthOut(Out):
 
 
 class WebSessionOut(Out):
-    key: str
+    key: str  # 绑定了 project_id 的只读 key：网页用它画界面，所以只看得到这一个项目
+    project_id: int
+
+
+class WebProjectOut(Out):
+    id: int
+    name: str
 
 
 class MeOut(Out):

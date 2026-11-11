@@ -362,6 +362,52 @@ def rename_project(project_id: int, name: str) -> str:
 
 
 @mcp.tool(description=(
+    "DANGEROUS, irreversible: delete a module (block) with all its versions and execution "
+    "records. A PUBLISHED module cannot be deleted — archive it first through a Change Request "
+    "(archive_block op); a draft or archived one can. Only after the human explicitly agreed in "
+    "this conversation: pass THEIR words as 'evidence' (recorded in the audit log). "
+    "Requires spec.delete (human-owned permission: admin / project-admin)."
+))
+def delete_block(block_id: int, evidence: str) -> str:
+    return _call("DELETE", f"/api/v1/blocks/{block_id}",
+                 params={"via": "natural_language", "evidence": evidence})
+
+
+@mcp.tool(description=(
+    "DANGEROUS, irreversible: delete a capability (小业务) with every module and version history "
+    "under it. Refused (409 published_blocks_exist, detail lists them) while any module under it is "
+    "still published — archive those through a Change Request first. Only after the human explicitly "
+    "agreed in this conversation: pass THEIR words as 'evidence'. Requires spec.delete."
+))
+def delete_capability(capability_id: int, evidence: str) -> str:
+    return _call("DELETE", f"/api/v1/capabilities/{capability_id}",
+                 params={"via": "natural_language", "evidence": evidence})
+
+
+@mcp.tool(description=(
+    "DANGEROUS, irreversible: delete a business (大业务) with every capability, module and version "
+    "history under it. Refused (409 published_blocks_exist) while any module under it is still "
+    "published. Only after the human explicitly agreed in this conversation: pass THEIR words as "
+    "'evidence'. Requires spec.delete."
+))
+def delete_business(business_id: int, evidence: str) -> str:
+    return _call("DELETE", f"/api/v1/businesses/{business_id}",
+                 params={"via": "natural_language", "evidence": evidence})
+
+
+@mcp.tool(description=(
+    "DANGEROUS, irreversible: delete a whole project — every business / capability / module, all "
+    "version history, all Change Requests, and every API key bound to it. Refused while any module in "
+    "it is still published (archive first) and when it would remove the last super-admin key. Only "
+    "after the human explicitly agreed in this conversation (name the project to them): pass THEIR "
+    "words as 'evidence'. Requires project.manage (super admin only)."
+))
+def delete_project(project_id: int, evidence: str) -> str:
+    return _call("DELETE", f"/api/v1/projects/{project_id}",
+                 params={"via": "natural_language", "evidence": evidence})
+
+
+@mcp.tool(description=(
     "Read the audit log (newest first): who (key hint) did what to what, and when. Filters "
     "can be combined: actor (a key hint), action (comma-separated; a trailing * is a prefix, "
     "e.g. 'cr_*,commit'), exclude_action (e.g. 'pull' to skip reads), target_prefix (e.g. "

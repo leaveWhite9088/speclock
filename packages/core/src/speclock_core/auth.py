@@ -14,7 +14,9 @@ import secrets
 
 from sqlalchemy.orm import Session
 
-from speclock_core.models import AuditLog
+from speclock_core.models import (
+    ApiKey, AuditLog, Block, Business, Capability, ChangeRequest, ExecutionRecord, Project,
+)
 
 
 def new_key(prefix: str) -> str:
@@ -32,12 +34,54 @@ def key_hint(key: str) -> str:
     return f"{key.split('-', 1)[0]}-…{key[-4:]}"
 
 
-def audit(db: Session, actor: str, action: str, target: str, detail: dict | None = None) -> None:
+def infer_project_id(db: Session, actor: str, target: str, detail: dict | None = None) -> int | None:
+    """一条审计记录属于哪个项目：先看对象（block / capability / cr / work / business / project），
+    再看 detail 里写明的 project_id，最后看操作者这把 key 绑定的项目。推不出来就是 None
+    （只有全局 key 看得到）。"""
+    kind, _, rest = target.partition(":")
+    ident = rest.split("@", 1)[0].split("/", 1)[0]
+    try:
+        n = int(ident)
+    except ValueError:
+        n = None
+    if n is not None:
+        if kind == "block" and (b := db.get(Block, n)) is not None:
+            return b.capability.business.project_id
+        if kind == "work":
+            rec = db.query(ExecutionRecord).filter(ExecutionRecord.block_id == n).first()
+            if rec is not None:
+                return rec.block.capability.business.project_id
+        if kind == "capability" and (c := db.get(Capability, n)) is not None:
+            return c.business.project_id
+        if kind == "business" and (bz := db.get(Business, n)) is not None:
+            return bz.project_id
+        if kind == "cr" and (cr := db.get(ChangeRequest, n)) is not None:
+            return cr.project_id
+        if kind == "project" and db.get(Project, n) is not None:
+            return n
+    if detail and isinstance(detail.get("project_id"), int):
+        return detail["project_id"]
+    bound = {k.project_id for k in db.query(ApiKey).filter(ApiKey.hint == actor).all()}
+    return bound.pop() if len(bound) == 1 else None
+
+
+def audit(db: Session, actor: str, action: str, target: str, detail: dict | None = None,
+          project_id: int | None = None) -> None:
+    """写一条审计记录。``project_id`` 不传就按对象 / detail / 操作者推（见 ``infer_project_id``）；
+    对象马上要被删掉的（删模块、删项目）要在删之前显式传。"""
+    db.flush()  # 同一事务里刚建的对象也要能查到
     db.add(
         AuditLog(
             actor=actor,
             action=action,
             target=target,
             detail_json=json.dumps(detail or {}, ensure_ascii=False),
+            project_id=project_id if project_id is not None else infer_project_id(db, actor, target, detail),
         )
     )
+
+
+def backfill_audit_projects(db: Session) -> None:
+    """给升级前没有 project_id 的老记录补上（尽力而为，推不出来的保持 NULL）。"""
+    for row in db.query(AuditLog).filter(AuditLog.project_id.is_(None)).all():
+        row.project_id = infer_project_id(db, row.actor, row.target, json.loads(row.detail_json or "{}"))

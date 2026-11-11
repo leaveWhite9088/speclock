@@ -305,3 +305,5 @@ class AuditLog(Base):
     target: Mapped[str]  # e.g. block:3@1.2.0
     detail_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # 这条记录属于哪个项目（项目绑定的 key 只看得到自己项目的；不属于任何项目 / 推不出来的是 NULL，只有全局 key 看得到）
+    project_id: Mapped[int | None] = mapped_column(nullable=True, index=True)

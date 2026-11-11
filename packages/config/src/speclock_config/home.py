@@ -143,7 +143,7 @@ def write_home(home: Path, port: int) -> None:
         encoding="utf-8",
     )
     (home / ".gitignore").write_text(
-        "# 数据库和网页用的 key 不进 git\n*.db\n*.db-*\nweb.key\n", encoding="utf-8")
+        "# 数据库和网页用的 key 不进 git\n*.db\n*.db-*\nweb.key\nweb-keys/\n", encoding="utf-8")
 
 
 def embed_origins() -> tuple:

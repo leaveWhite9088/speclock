@@ -22,7 +22,7 @@ from speclock_core import audit, hash_key, key_hint, new_key
 from speclock_core import get_db
 from speclock_core import published_version
 from speclock_config import find_home, mcp_config
-from speclock_core import ApiKey, AuditLog, Block, BlockVersion, Capability, CapabilityVersion, ChangeRequest, Commit, ExecutionEvent, ExecutionRecord, Project, Role, utcnow
+from speclock_core import ApiKey, AuditLog, Block, BlockVersion, Business, Capability, CapabilityVersion, ChangeRequest, Commit, ExecutionEvent, ExecutionRecord, Project, Role, utcnow
 from speclock_server.deps import require_key, require_permission
 from speclock_server.responses import (
     ActivityOut, ArchivedBlockOut, BlockVersionEntry, BlockVersionFull, CapabilityVersionEntry,
@@ -185,6 +185,8 @@ def list_activity(
     ``after_id`` 之后的事件多于 ``limit`` 时返回的是**最新**的 ``limit`` 条，中间缺的一段用
     ``before_id=本页最小 id`` 往回补，直到补到 ``after_id``。actor_prefix 可按 key 前缀过滤（如 ``agent`` 只看 AI 活动）。"""
     q = db.query(AuditLog)
+    if key.project_id is not None and not _is_super(key):
+        q = q.filter(AuditLog.project_id == key.project_id)  # 项目绑定的 key 只看得到本项目的活动
     if actor_prefix:
         q = q.filter(AuditLog.actor.like(f"{actor_prefix}%"))
     if actor:
@@ -238,7 +240,8 @@ def create_project(
 ):
     p = Project(name=body.name)
     db.add(p)
-    audit(db, key.hint, "project_create", f"project:{body.name}", {})
+    db.flush()
+    audit(db, key.hint, "project_create", f"project:{body.name}", {}, project_id=p.id)
     db.commit()
     return {"id": p.id, "name": p.name}
 
@@ -272,16 +275,17 @@ def _hard_delete_block(db: Session, block: Block) -> None:
     db.delete(block)
 
 
-def _hard_delete_capability(db: Session, doc: Capability) -> None:
-    published = [b for b in doc.blocks if b.status == "published"]
+def _refuse_published(blocks: list[Block], message: str) -> None:
+    published = [b for b in blocks if b.status == "published"]
     if published:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "小业务下仍有已发布模块，请先（通过审核单）归档这些模块再删除",
-                "published_blocks": [{"id": b.id, "title": b.title} for b in published],
-            },
-        )
+        raise ApiError("published_blocks_exist", {
+            "error": message,
+            "published_blocks": [{"id": b.id, "title": b.title} for b in published],
+        })
+
+
+def _hard_delete_capability(db: Session, doc: Capability) -> None:
+    _refuse_published(doc.blocks, "小业务下仍有已发布模块，请先（通过审核单）归档这些模块再删除")
     for b in doc.blocks:
         _hard_delete_block(db, b)
     db.query(CapabilityVersion).filter(CapabilityVersion.capability_id == doc.id).delete()
@@ -322,15 +326,100 @@ def _key_in_scope(key: ApiKey, k: ApiKey) -> bool:
     return _is_super(key) or key.project_id is None or k.project_id == key.project_id
 
 
+def _check_deletion_words(via: str, evidence: str) -> None:
+    if via == "natural_language" and not evidence.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Agent 代人删除必须附 evidence：人同意删除它的原话（先问人，不要自己决定）",
+        )
+
+
+_DELETE_VIA = Query(default="api", pattern="^(cli|natural_language|api)$")
+_DELETE_EVIDENCE = Query(default="", description="Agent 代人删除时：人同意的原话")
+
+
+@router.delete("/blocks/{block_id}", response_model=DeletedOut)
+def delete_block(
+    block_id: int,
+    via: str = _DELETE_VIA,
+    evidence: str = _DELETE_EVIDENCE,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("spec.delete")),
+):
+    """删除一个模块（连同它的全部版本和执行记录，不可恢复）。已发布的模块要先通过审核单归档。
+    Agent 代人删除须 via=natural_language 并附人同意的原话（写进审计）。"""
+    _check_deletion_words(via, evidence)
+    block = db.get(Block, block_id)
+    if block is None:
+        raise HTTPException(status_code=404, detail="block not found")
+    pid = block.capability.business.project_id
+    check_project_scope(key, pid)
+    _refuse_published([block], "模块还是已发布状态，请先（通过审核单）归档它再删除")
+    audit(db, key.hint, "delete", f"block:{block.id}",
+          {"title": block.title, "via": via, "evidence": evidence}, project_id=pid)
+    _hard_delete_block(db, block)
+    db.commit()
+    return {"id": block_id, "deleted": True}
+
+
+@router.delete("/capabilities/{capability_id}", response_model=DeletedOut)
+def delete_capability(
+    capability_id: int,
+    via: str = _DELETE_VIA,
+    evidence: str = _DELETE_EVIDENCE,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("spec.delete")),
+):
+    """删除一个小业务（连同它下面的模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。"""
+    _check_deletion_words(via, evidence)
+    doc = db.get(Capability, capability_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="capability not found")
+    pid = doc.business.project_id
+    check_project_scope(key, pid)
+    audit(db, key.hint, "delete", f"capability:{doc.id}",
+          {"title": doc.title, "blocks": len(doc.blocks), "via": via, "evidence": evidence}, project_id=pid)
+    _hard_delete_capability(db, doc)
+    db.commit()
+    return {"id": capability_id, "deleted": True}
+
+
+@router.delete("/businesses/{business_id}", response_model=DeletedOut)
+def delete_business(
+    business_id: int,
+    via: str = _DELETE_VIA,
+    evidence: str = _DELETE_EVIDENCE,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_permission("spec.delete")),
+):
+    """删除一个大业务（连同它下面的小业务、模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。"""
+    _check_deletion_words(via, evidence)
+    business = db.get(Business, business_id)
+    if business is None:
+        raise HTTPException(status_code=404, detail="business not found")
+    check_project_scope(key, business.project_id)
+    audit(db, key.hint, "delete", f"business:{business.id}",
+          {"name": business.name, "capabilities": len(business.capabilities), "via": via, "evidence": evidence},
+          project_id=business.project_id)
+    for doc in business.capabilities:
+        _hard_delete_capability(db, doc)
+    db.delete(business)
+    db.commit()
+    return {"id": business_id, "deleted": True}
+
+
 @router.delete("/projects/{project_id}", response_model=ProjectDeletedOut)
 def delete_project(
     project_id: int,
+    via: str = _DELETE_VIA,
+    evidence: str = _DELETE_EVIDENCE,
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("project.manage")),
 ):
     """项目删除：仅当其下无已发布模块时允许，否则 409 提示先归档模块。
     删除时级联硬删全部 大业务/小业务/模块/版本历史/审核单，并一并删除绑定到
     该项目的 API key（避免遗留 key 失效语义不清）。"""
+    _check_deletion_words(via, evidence)
     p = db.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -358,7 +447,8 @@ def delete_project(
     for k in bound_keys:
         db.delete(k)
     audit(db, key.hint, "delete", f"project:{p.id}",
-          {"name": p.name, "deleted_keys": len(bound_keys), "deleted_crs": len(cr_ids)})
+          {"name": p.name, "deleted_keys": len(bound_keys), "deleted_crs": len(cr_ids),
+           "via": via, "evidence": evidence}, project_id=p.id)
     db.delete(p)
     db.commit()
     return {"id": project_id, "deleted": True, "deleted_keys": len(bound_keys)}

@@ -21,6 +21,9 @@ from tests.conftest import (
 
 # 仍然存在的写接口。executor agent key -> 403，不带 key -> 401。
 WRITE_ENDPOINTS = [
+    ("DELETE", "/api/v1/blocks/1", None),
+    ("DELETE", "/api/v1/capabilities/1", None),
+    ("DELETE", "/api/v1/businesses/1", None),
     ("POST", "/api/v1/projects", {"name": "x"}),
     ("PUT", "/api/v1/projects/1", {"name": "x"}),
     ("DELETE", "/api/v1/projects/1", None),
@@ -43,13 +46,10 @@ WRITE_ENDPOINTS = [
 REMOVED_ENDPOINTS = [
     ("POST", "/api/v1/businesses"),
     ("PUT", "/api/v1/businesses/1"),
-    ("DELETE", "/api/v1/businesses/1"),
     ("POST", "/api/v1/capabilities"),
     ("PUT", "/api/v1/capabilities/1"),
-    ("DELETE", "/api/v1/capabilities/1"),
     ("POST", "/api/v1/blocks"),
     ("PUT", "/api/v1/blocks/1"),
-    ("DELETE", "/api/v1/blocks/1"),
     ("GET", "/api/v1/blocks/1/draft"),
     ("POST", "/api/v1/blocks/1/restore"),
     ("DELETE", "/api/v1/blocks/1/purge"),

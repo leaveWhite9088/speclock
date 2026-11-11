@@ -3096,16 +3096,40 @@
         "title": "VersionEventOut",
         "type": "object"
       },
+      "WebProjectOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "WebProjectOut",
+        "type": "object"
+      },
       "WebSessionOut": {
         "additionalProperties": false,
         "properties": {
           "key": {
             "title": "Key",
             "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
           }
         },
         "required": [
-          "key"
+          "key",
+          "project_id"
         ],
         "title": "WebSessionOut",
         "type": "object"
@@ -3778,6 +3802,138 @@
         ]
       }
     },
+    "/api/v1/blocks/{block_id}": {
+      "delete": {
+        "description": "删除一个模块（连同它的全部版本和执行记录，不可恢复）。已发布的模块要先通过审核单归档。\nAgent 代人删除须 via=natural_language 并附人同意的原话（写进审计）。",
+        "operationId": "delete_block_api_v1_blocks__block_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "block_id",
+            "required": true,
+            "schema": {
+              "title": "Block Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "default": "api",
+              "pattern": "^(cli|natural_language|api)$",
+              "title": "Via",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Agent 代人删除时：人同意的原话",
+            "in": "query",
+            "name": "evidence",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Agent 代人删除时：人同意的原话",
+              "title": "Evidence",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求本身不合法"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "缺少或不认识的 X-API-Key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "权限不足 / 不是你的资源"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "不存在，或无权访问"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "与当前状态冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求内容校验失败"
+          }
+        },
+        "summary": "Delete Block",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/blocks/{block_id}/diff": {
       "get": {
         "description": "版本间 diff。from/to 可选，缺省 = 最近两个已发布版本；只有一个已发布\n版本时返回友好提示（200）而非报错。\n\nhuman / agent key 均可用（同一路径，人机共用）：agent key 受 published\n状态与项目隔离约束并写 pull 审计；human key 无限制、不写审计。",
@@ -4380,6 +4536,138 @@
         ]
       }
     },
+    "/api/v1/businesses/{business_id}": {
+      "delete": {
+        "description": "删除一个大业务（连同它下面的小业务、模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。",
+        "operationId": "delete_business_api_v1_businesses__business_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "business_id",
+            "required": true,
+            "schema": {
+              "title": "Business Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "default": "api",
+              "pattern": "^(cli|natural_language|api)$",
+              "title": "Via",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Agent 代人删除时：人同意的原话",
+            "in": "query",
+            "name": "evidence",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Agent 代人删除时：人同意的原话",
+              "title": "Evidence",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求本身不合法"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "缺少或不认识的 X-API-Key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "权限不足 / 不是你的资源"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "不存在，或无权访问"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "与当前状态冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求内容校验失败"
+          }
+        },
+        "summary": "Delete Business",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/capabilities": {
       "get": {
         "description": "小业务列表 + 当前小业务版本。没有任何已发布模块的小业务对 agent 不可见。\n可选过滤：business（大业务名称精确匹配）。",
@@ -4497,6 +4785,138 @@
         "summary": "Get Capabilities",
         "tags": [
           "agent"
+        ]
+      }
+    },
+    "/api/v1/capabilities/{capability_id}": {
+      "delete": {
+        "description": "删除一个小业务（连同它下面的模块、版本历史，不可恢复）。其下有已发布模块时拒绝（409）。",
+        "operationId": "delete_capability_api_v1_capabilities__capability_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "default": "api",
+              "pattern": "^(cli|natural_language|api)$",
+              "title": "Via",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Agent 代人删除时：人同意的原话",
+            "in": "query",
+            "name": "evidence",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Agent 代人删除时：人同意的原话",
+              "title": "Evidence",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求本身不合法"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "缺少或不认识的 X-API-Key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "权限不足 / 不是你的资源"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "不存在，或无权访问"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "与当前状态冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求内容校验失败"
+          }
+        },
+        "summary": "Delete Capability",
+        "tags": [
+          "admin"
         ]
       }
     },
@@ -6914,6 +7334,29 @@
             }
           },
           {
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "default": "api",
+              "pattern": "^(cli|natural_language|api)$",
+              "title": "Via",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Agent 代人删除时：人同意的原话",
+            "in": "query",
+            "name": "evidence",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Agent 代人删除时：人同意的原话",
+              "title": "Evidence",
+              "type": "string"
+            }
+          },
+          {
             "in": "header",
             "name": "x-api-key",
             "required": false,
@@ -7802,9 +8245,115 @@
         ]
       }
     },
+    "/api/v1/web/projects": {
+      "get": {
+        "description": "网页的项目选择页用：只有 id 和名称。嵌进别的页面时应当直接指明项目，不经过它。",
+        "operationId": "web_projects_api_v1_web_projects_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebProjectOut"
+                  },
+                  "title": "Response Web Projects Api V1 Web Projects Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求本身不合法"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "缺少或不认识的 X-API-Key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "权限不足 / 不是你的资源"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "不存在，或无权访问"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "与当前状态冲突"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "请求内容校验失败"
+          }
+        },
+        "summary": "Web Projects",
+        "tags": [
+          "web"
+        ]
+      }
+    },
     "/api/v1/web/session": {
       "get": {
         "operationId": "web_session_api_v1_web_session_get",
+        "parameters": [
+          {
+            "description": "网页要看的项目；库里只有一个项目时可以不传",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "网页要看的项目；库里只有一个项目时可以不传",
+              "title": "Project Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

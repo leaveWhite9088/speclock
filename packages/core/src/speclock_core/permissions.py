@@ -30,6 +30,7 @@ PERMISSIONS: dict[str, tuple[str, bool]] = {
     "cr.internal": ("开「内部整理」类审核单：不改变业务内容的重组，提交即生效、不经人批准（由提交者自行判断，Core 不检查内容）", False),
     "commit.write": ("在已批准的审核单下提交 Commit，改写规格库", False),
     "audit.read": ("查看审计日志与回执看板", False),
+    "spec.delete": ("删除模块 / 小业务 / 大业务（须先归档其下的已发布模块；不可恢复，须附人同意的原话）", True),
     "project.manage": ("创建、重命名、删除项目", True),
     "key.read": ("查看密钥、角色与权限目录（只读，不含明文；网页的 Agent 页用）", False),
     "key.manage": ("管理密钥与角色", True),
@@ -45,7 +46,7 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
         "human",
         "项目管理员（项目主管）：管理本项目的 key、批准 / 驳回本项目的审核单；key 必须绑定项目，"
         "不能建项目、不能改角色、不能建超级管理员",
-        ["spec.read", "exec.read", "cr.read", "cr.approve", "key.read", "key.manage"],
+        ["spec.read", "exec.read", "cr.read", "cr.approve", "spec.delete", "key.read", "key.manage"],
     ),
     ("reviewer", "human", "审核人：只能查看并批准 / 驳回审核单", ["spec.read", "cr.read", "cr.approve"]),
     (
@@ -166,6 +167,12 @@ def seed_roles(db: Session) -> None:
         if role is not None and role.builtin:
             have = set(json.loads(role.permissions_json or "[]"))
             role.permissions_json = json.dumps(sorted(have | {"key.read"}))
+    if _once(db, "spec_delete_permission"):
+        for name in ("admin", "project-admin"):
+            role = existing.get(name)
+            if role is not None and role.builtin:
+                have = set(json.loads(role.permissions_json or "[]"))
+                role.permissions_json = json.dumps(sorted(have | {"spec.delete"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()

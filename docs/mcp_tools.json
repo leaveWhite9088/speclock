@@ -241,6 +241,102 @@
         "$ref": "#/components/schemas/ProjectOut"
       }
     },
+    "delete_block": {
+      "params": {
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "integer"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id",
+          "evidence"
+        ],
+        "title": "delete_blockArguments",
+        "type": "object"
+      },
+      "rest": "DELETE /api/v1/blocks/{block_id}",
+      "returns": {
+        "$ref": "#/components/schemas/DeletedOut"
+      }
+    },
+    "delete_business": {
+      "params": {
+        "properties": {
+          "business_id": {
+            "title": "Business Id",
+            "type": "integer"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_id",
+          "evidence"
+        ],
+        "title": "delete_businessArguments",
+        "type": "object"
+      },
+      "rest": "DELETE /api/v1/businesses/{business_id}",
+      "returns": {
+        "$ref": "#/components/schemas/DeletedOut"
+      }
+    },
+    "delete_capability": {
+      "params": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "integer"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "evidence"
+        ],
+        "title": "delete_capabilityArguments",
+        "type": "object"
+      },
+      "rest": "DELETE /api/v1/capabilities/{capability_id}",
+      "returns": {
+        "$ref": "#/components/schemas/DeletedOut"
+      }
+    },
+    "delete_project": {
+      "params": {
+        "properties": {
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "evidence"
+        ],
+        "title": "delete_projectArguments",
+        "type": "object"
+      },
+      "rest": "DELETE /api/v1/projects/{project_id}",
+      "returns": {
+        "$ref": "#/components/schemas/ProjectDeletedOut"
+      }
+    },
     "get_activity": {
       "params": {
         "properties": {

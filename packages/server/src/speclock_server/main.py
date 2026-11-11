@@ -117,7 +117,7 @@ def run() -> None:
     import uvicorn
 
     from speclock_config import ensure_keys_dir, find_home, load_config, locate_home
-    from speclock_core import ensure_web_key, get_engine
+    from speclock_core import get_engine, retire_global_web_key
 
     cfg = load_config()
     found, how = locate_home()
@@ -127,7 +127,7 @@ def run() -> None:
             print("注意：用的是上层目录的数据，不是当前目录的。想在这里用独立的一份，先运行 speclock init。")
     get_engine()
     init_db()
-    ensure_web_key()  # 网页用的只读 key，缺了就补
+    retire_global_web_key()  # 旧版给网页发的全局只读 key（能看全部项目）：清掉；网页现在按项目各用一把绑定项目的 key
     home = find_home()
     if home is not None:
         ensure_keys_dir(home)

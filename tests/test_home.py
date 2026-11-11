@@ -56,7 +56,7 @@ def test_init_project_creates_random_admin_key_once(tmp_path, clean_env):
     db = dbmod.SessionLocal()
     try:
         assert [k.key for k in db.query(ApiKey).filter(ApiKey.label == "admin").all()] == [hash_key(key)]  # 只存哈希
-        assert db.query(ApiKey).filter(ApiKey.label == "web").count() == 1 and (cfg.home / "web.key").is_file()
+        assert db.query(ApiKey).filter(ApiKey.label == "web").count() == 1 and (cfg.home / "web-keys" / f"{db.query(Project).first().id}.key").is_file() and not (cfg.home / "web.key").exists()
         assert [p.name for p in db.query(Project).all()] == ["shop"]
     finally:
         db.close()
