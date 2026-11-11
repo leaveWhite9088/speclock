@@ -366,7 +366,9 @@ def rename_project(project_id: int, name: str) -> str:
     "can be combined: actor (a key hint), action (comma-separated; a trailing * is a prefix, "
     "e.g. 'cr_*,commit'), exclude_action (e.g. 'pull' to skip reads), target_prefix (e.g. "
     "'block:3' or 'cr:5'), since / until (ISO times). Page backwards with before_id (the id of "
-    "the last row of the previous page). Requires audit.read."
+    "the last row of the previous page). To poll for NEW events pass after_id (the largest id "
+    "you have seen): only newer rows come back, still newest first; if more than 'limit' are "
+    "new you get the newest ones — fill the gap with before_id. Requires audit.read."
 ))
 def get_activity(
     limit: int = 50,
@@ -377,6 +379,7 @@ def get_activity(
     since: str = "",
     until: str = "",
     before_id: int | None = None,
+    after_id: int | None = None,
 ) -> str:
     params: dict = {"limit": limit}
     for name, value in (("actor", actor), ("action", action), ("exclude_action", exclude_action),
@@ -385,6 +388,8 @@ def get_activity(
             params[name] = value
     if before_id is not None:
         params["before_id"] = before_id
+    if after_id is not None:
+        params["after_id"] = after_id
     return _call("GET", "/api/v1/activity", params=params)
 
 

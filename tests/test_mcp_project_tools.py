@@ -54,6 +54,17 @@ def test_activity_log_filters_and_paging(env, mcp):
     assert all(r["id"] < rows["body"][0]["id"] for r in older)
 
 
+def test_activity_after_id_returns_only_newer_rows(env, mcp):
+    publish_v1(env["client"], env["human"], env["block_id"])
+    rows = mcp(mcp_server.get_activity(limit=50))["body"]
+    assert len(rows) >= 2
+    mid = rows[1]["id"]
+    newer = mcp(mcp_server.get_activity(after_id=mid))["body"]
+    assert newer and all(r["id"] > mid for r in newer)
+    assert [r["id"] for r in newer] == sorted((r["id"] for r in newer), reverse=True)  # 排序不变
+    assert mcp(mcp_server.get_activity(after_id=rows[0]["id"]))["body"] == []
+
+
 def test_activity_needs_audit_read(env, mcp):
     mcp_server.AGENT_KEY = env["agent"]["X-API-Key"]
     assert mcp(mcp_server.get_activity())["status"] == 403

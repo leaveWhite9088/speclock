@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speclock-mcp"
-version = "0.2.6"
+version = "0.2.7"
 description = "SpecLock MCP server：Agent 经它读写规格（只依赖 REST，不碰数据库）"
 license = { text = "MIT" }
 requires-python = ">=3.11"

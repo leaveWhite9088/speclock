@@ -1,0 +1,1090 @@
+{
+  "envelope": {
+    "not_reached": {
+      "error": "服务连不上 / 没配置 key 等，文本"
+    },
+    "ok": {
+      "body": "REST 响应；形状见各工具的 returns",
+      "status": "HTTP 状态码（int）"
+    }
+  },
+  "tools": {
+    "approve_change_request": {
+      "params": {
+        "properties": {
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cr_id",
+          "content_hash",
+          "evidence"
+        ],
+        "title": "approve_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/approve",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "claim_work": {
+      "params": {
+        "properties": {
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id"
+        ],
+        "title": "claim_workArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/claim",
+      "returns": {
+        "$ref": "#/components/schemas/WorkDetailOut"
+      }
+    },
+    "complete_change_request": {
+      "params": {
+        "properties": {
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cr_id"
+        ],
+        "title": "complete_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/complete",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "create_api_key": {
+      "params": {
+        "properties": {
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "label",
+          "evidence"
+        ],
+        "title": "create_api_keyArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/keys",
+      "returns": {
+        "$ref": "#/components/schemas/KeyCreatedOut"
+      }
+    },
+    "create_change_request": {
+      "params": {
+        "properties": {
+          "acceptance": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Acceptance"
+          },
+          "expected_outcome": {
+            "default": "",
+            "title": "Expected Outcome",
+            "type": "string"
+          },
+          "impact_note": {
+            "default": "",
+            "title": "Impact Note",
+            "type": "string"
+          },
+          "intent": {
+            "default": "",
+            "title": "Intent",
+            "type": "string"
+          },
+          "kind": {
+            "default": "business",
+            "title": "Kind",
+            "type": "string"
+          },
+          "kind_reason": {
+            "default": "",
+            "title": "Kind Reason",
+            "type": "string"
+          },
+          "obsolete": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Obsolete"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Supersedes Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "create_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests",
+      "return_note": "服务端比客户端旧、认不出 kind 时返回 {error, created}，不是 status/body 包装",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "create_project": {
+      "params": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "create_projectArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/projects",
+      "returns": {
+        "$ref": "#/components/schemas/ProjectOut"
+      }
+    },
+    "get_activity": {
+      "params": {
+        "properties": {
+          "action": {
+            "default": "",
+            "title": "Action",
+            "type": "string"
+          },
+          "actor": {
+            "default": "",
+            "title": "Actor",
+            "type": "string"
+          },
+          "after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Id"
+          },
+          "before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Before Id"
+          },
+          "exclude_action": {
+            "default": "",
+            "title": "Exclude Action",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "since": {
+            "default": "",
+            "title": "Since",
+            "type": "string"
+          },
+          "target_prefix": {
+            "default": "",
+            "title": "Target Prefix",
+            "type": "string"
+          },
+          "until": {
+            "default": "",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "title": "get_activityArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/activity",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/ActivityOut"
+        },
+        "title": "Response List Activity Api V1 Activity Get",
+        "type": "array"
+      }
+    },
+    "get_block": {
+      "params": {
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "integer"
+          },
+          "version": {
+            "default": "",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id"
+        ],
+        "title": "get_blockArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/blocks/{ref}",
+      "returns": {
+        "$ref": "#/components/schemas/BlockOut"
+      }
+    },
+    "get_block_history": {
+      "params": {
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "block_id"
+        ],
+        "title": "get_block_historyArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/blocks/{block_id}/history",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/BlockHistoryEntry"
+        },
+        "title": "Response Get Block History Api V1 Blocks  Block Id  History Get",
+        "type": "array"
+      }
+    },
+    "get_capability": {
+      "params": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "integer"
+          },
+          "version": {
+            "default": "",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id"
+        ],
+        "title": "get_capabilityArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/capabilities/{ref}",
+      "returns": {
+        "$ref": "#/components/schemas/CapabilityOut"
+      }
+    },
+    "get_capability_history": {
+      "params": {
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id"
+        ],
+        "title": "get_capability_historyArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/capabilities/{capability_id}/history",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/CapabilityVersionEntry"
+        },
+        "title": "Response Get Capability History Api V1 Capabilities  Capability Id  History Get",
+        "type": "array"
+      }
+    },
+    "get_change_request": {
+      "params": {
+        "properties": {
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cr_id"
+        ],
+        "title": "get_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/change-requests/{cr_id}",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "get_diff": {
+      "params": {
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "integer"
+          },
+          "from_version": {
+            "default": "",
+            "title": "From Version",
+            "type": "string"
+          },
+          "to_version": {
+            "default": "",
+            "title": "To Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id"
+        ],
+        "title": "get_diffArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/blocks/{block_id}/diff",
+      "returns": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/DiffOut"
+          },
+          {
+            "$ref": "#/components/schemas/DiffUnavailableOut"
+          }
+        ],
+        "title": "Response Get Diff Api V1 Blocks  Block Id  Diff Get"
+      }
+    },
+    "get_index": {
+      "params": {
+        "properties": {
+          "business": {
+            "default": "",
+            "title": "Business",
+            "type": "string"
+          }
+        },
+        "title": "get_indexArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/index",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/IndexBusiness"
+        },
+        "title": "Response Get Index Api V1 Index Get",
+        "type": "array"
+      }
+    },
+    "get_work": {
+      "params": {
+        "properties": {
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id"
+        ],
+        "title": "get_workArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/work/{work_id}",
+      "returns": {
+        "$ref": "#/components/schemas/WorkDetailOut"
+      }
+    },
+    "list_api_keys": {
+      "params": {
+        "properties": {},
+        "title": "list_api_keysArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/keys",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/KeyListEntry"
+        },
+        "title": "Response List Keys Api V1 Keys Get",
+        "type": "array"
+      }
+    },
+    "list_change_requests": {
+      "params": {
+        "properties": {
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "list_change_requestsArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/change-requests",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/CRSummaryOut"
+        },
+        "title": "Response List Crs Api V1 Change Requests Get",
+        "type": "array"
+      }
+    },
+    "list_projects": {
+      "params": {
+        "properties": {},
+        "title": "list_projectsArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/projects",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/ProjectOut"
+        },
+        "title": "Response List Projects Api V1 Projects Get",
+        "type": "array"
+      }
+    },
+    "list_work": {
+      "params": {
+        "properties": {
+          "block_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Block Id"
+          },
+          "capability_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Capability Id"
+          },
+          "mine": {
+            "default": false,
+            "title": "Mine",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "list_workArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/work",
+      "returns": {
+        "items": {
+          "$ref": "#/components/schemas/WorkSummaryOut"
+        },
+        "title": "Response List Work Api V1 Work Get",
+        "type": "array"
+      }
+    },
+    "reject_change_request": {
+      "params": {
+        "properties": {
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          },
+          "evidence": {
+            "default": "",
+            "title": "Evidence",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cr_id",
+          "reason"
+        ],
+        "title": "reject_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/reject",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "release_work": {
+      "params": {
+        "properties": {
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id"
+        ],
+        "title": "release_workArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/release",
+      "returns": {
+        "$ref": "#/components/schemas/WorkSummaryOut"
+      }
+    },
+    "rename_project": {
+      "params": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "title": "rename_projectArguments",
+        "type": "object"
+      },
+      "rest": "PUT /api/v1/projects/{project_id}",
+      "returns": {
+        "$ref": "#/components/schemas/ProjectOut"
+      }
+    },
+    "report_blocked": {
+      "params": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id",
+          "reason"
+        ],
+        "title": "report_blockedArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/blocked",
+      "returns": {
+        "$ref": "#/components/schemas/WorkSummaryOut"
+      }
+    },
+    "report_failed": {
+      "params": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id",
+          "reason"
+        ],
+        "title": "report_failedArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/failed",
+      "returns": {
+        "$ref": "#/components/schemas/WorkSummaryOut"
+      }
+    },
+    "revoke_api_key": {
+      "params": {
+        "properties": {
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key_id",
+          "evidence"
+        ],
+        "title": "revoke_api_keyArguments",
+        "type": "object"
+      },
+      "rest": "DELETE /api/v1/keys/{key_id}",
+      "returns": {
+        "$ref": "#/components/schemas/DeletedOut"
+      }
+    },
+    "submit_change_request": {
+      "params": {
+        "properties": {
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cr_id"
+        ],
+        "title": "submit_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/submit",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "submit_commit": {
+      "params": {
+        "properties": {
+          "change_note": {
+            "default": "",
+            "title": "Change Note",
+            "type": "string"
+          },
+          "covers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Covers"
+          },
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "ops": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Ops",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cr_id",
+          "ops"
+        ],
+        "title": "submit_commitArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/commits",
+      "returns": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/CommitDryRunOut"
+          },
+          {
+            "$ref": "#/components/schemas/CommitAppliedOut"
+          }
+        ],
+        "title": "Response Create Commit Api V1 Change Requests  Cr Id  Commits Post"
+      }
+    },
+    "submit_implementation": {
+      "params": {
+        "properties": {
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id",
+          "results"
+        ],
+        "title": "submit_implementationArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/implementation",
+      "returns": {
+        "$ref": "#/components/schemas/WorkSummaryOut"
+      }
+    },
+    "update_change_request": {
+      "params": {
+        "properties": {
+          "acceptance": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Acceptance"
+          },
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          },
+          "expected_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Outcome"
+          },
+          "impact_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Impact Note"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intent"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "kind_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind Reason"
+          },
+          "obsolete": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Obsolete"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Supersedes Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          }
+        },
+        "required": [
+          "cr_id"
+        ],
+        "title": "update_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "PUT /api/v1/change-requests/{cr_id}",
+      "return_note": "同 create_change_request",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    },
+    "use_api_key": {
+      "params": {
+        "properties": {
+          "key": {
+            "default": "",
+            "title": "Key",
+            "type": "string"
+          },
+          "key_file": {
+            "default": "",
+            "title": "Key File",
+            "type": "string"
+          }
+        },
+        "title": "use_api_keyArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/me",
+      "return_note": "成功：{\"switched\": true, \"identity\": <GET /me 的响应>}；失败：{\"error\", \"detail\"}，不是 status/body 包装",
+      "returns": {
+        "$ref": "#/components/schemas/MeOut"
+      }
+    },
+    "verify_work": {
+      "params": {
+        "properties": {
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "work_id",
+          "results"
+        ],
+        "title": "verify_workArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/work/{work_id}/verification",
+      "returns": {
+        "$ref": "#/components/schemas/WorkSummaryOut"
+      }
+    },
+    "whoami": {
+      "params": {
+        "properties": {},
+        "title": "whoamiArguments",
+        "type": "object"
+      },
+      "rest": "GET /api/v1/me",
+      "return_note": "body 是 /me 的响应，另外多一个 key_source（这把 key 从哪来的，只有 MCP 有）",
+      "returns": {
+        "$ref": "#/components/schemas/MeOut"
+      }
+    },
+    "withdraw_change_request": {
+      "params": {
+        "properties": {
+          "cr_id": {
+            "title": "Cr Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cr_id"
+        ],
+        "title": "withdraw_change_requestArguments",
+        "type": "object"
+      },
+      "rest": "POST /api/v1/change-requests/{cr_id}/withdraw",
+      "returns": {
+        "$ref": "#/components/schemas/CROut"
+      }
+    }
+  }
+}
