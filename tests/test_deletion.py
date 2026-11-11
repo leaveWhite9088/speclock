@@ -73,7 +73,7 @@ def test_only_those_with_spec_delete_can_delete(env):
     c = env["client"]
     for headers in (env["agent"], ):
         assert _delete(env, f"blocks/{env['block_id']}", headers=headers).status_code == 403
-    rev = c.post("/api/v1/keys", json={"role": "reviewer", "label": "审核人"}, headers=env["human"]).json()["key"]
+    rev = c.post("/api/v1/keys", json={"role": "reviewer", "label": "审核人", "project_id": env["project_id"]}, headers=env["human"]).json()["key"]
     assert _delete(env, f"blocks/{env['block_id']}", headers={"X-API-Key": rev}).status_code == 403
 
 

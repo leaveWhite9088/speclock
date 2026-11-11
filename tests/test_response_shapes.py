@@ -30,7 +30,7 @@ def test_commit_dry_run_and_real_commit_have_their_own_shapes(env):
 
 def test_create_key_shape_depends_on_whether_the_plaintext_is_returned(env):
     c = env["client"]
-    human = c.post("/api/v1/keys", json={"role": "reviewer", "label": "审核人"}, headers=env["human"]).json()
+    human = c.post("/api/v1/keys", json={"role": "reviewer", "label": "审核人", "project_id": env["project_id"]}, headers=env["human"]).json()
     assert human["key"].startswith("human-") and "mcp_config" not in human  # 没有 .speclock/：明文返回、没有 mcp_config
     assert {"id", "hint", "prefix", "role", "label", "key_file", "project_id", "created_at", "notice"} <= set(human)
 

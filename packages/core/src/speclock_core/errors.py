@@ -42,7 +42,7 @@ CODES: dict[str, tuple[int, str]] = {
     "block_archived": (409, "模块已归档，不能在其上操作"),
     "published_blocks_exist": (409, "下面还有已发布的模块，不能删除：先通过审核单归档它们（detail.published_blocks 列出哪些）"),
     # ---- 密钥 ----
-    "project_required": (422, "Agent 类角色和项目管理员的 key 必须绑定项目（创建时传 project_id）；只有超级管理员 admin 可以是全局的"),
+    "project_required": (422, "除超级管理员 admin 外，所有角色的 key 都必须绑定项目（创建时传 project_id）"),
     "super_admin_required": (403, "只有超级管理员（admin）能做：项目管理员只能管本项目的 key，不能改角色、不能建权限比自己大的 key"),
     "web_project_required": (422, "库里有多个项目，网页要指明看哪一个（?project=<项目 id>）"),
     # ---- 其他 ----

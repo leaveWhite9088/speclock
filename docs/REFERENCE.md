@@ -166,10 +166,10 @@ cd apps/web && npm install && npm run dev     # 默认 http://127.0.0.1:5173/
   - **Agent 类 key**（需求 / 执行 / 测试 / 扫描）：创建时由服务端直接写成 `.speclock/keys/<角色>--<名称>.key`，**响应里只有文件名，没有明文**，明文不经过任何对话。`keys/` 下有 `README.md`（告诉 Agent 只读自己的那个文件）和 `.gitignore`（忽略 `*.key`）。吊销 key 时文件一并删除；`speclock key show <id>` 查看内容；网页的 Agent 页只显示文件名。
   - **人类 key**（admin / reviewer）：不存文件，明文只在创建时返回一次，请自己保管；丢了就新建一把。
   - 同一个项目目录里 Agent 互相看得见文件，所以"只读自己的 key 文件"靠 README 和提示词约束，Core 强制不了。
-- 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`；Agent 角色和 project-admin 必须带 `project_id`，否则 422 `project_required`；项目管理员建 key 时 `project_id` 默认并且只能是自己的项目），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：`speclock init` 只发一把随机的 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock key create` 是兜底；吊销即生效（下次请求 401）；最后一把超级管理员 key 拒绝删除
-- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（超级管理员，全部权限，可以是全局的）、`project-admin`（项目管理员：读 + 批准 / 驳回 + 管理**本项目**的 key + 删本项目的模块，必须绑定项目，不能建项目 / 改角色 / 建超级管理员）、`reviewer`（读 + 批准 / 驳回）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读规格 / 审核单 / 待办，不能开单、不能提交 Commit）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有超级管理员
+- 创建 key 时选**角色**（`POST /api/v1/keys {role, label, project_id?, via?, evidence?}`；**除超级管理员 admin 外的所有角色都必须带 `project_id`**，否则 422 `project_required`；key 由超级管理员创建 / 吊销，项目管理员不管 key），key 类别（human-* / agent-*）由角色的 kind 决定；**不预置多把 key**：`speclock init` 只发一把随机的 admin key，其余由持有 admin key 的 Agent 经 MCP `create_api_key` 创建——必须先问人，附人同意的原话（`via=natural_language` 不带 `evidence` 会 422，来源与原话写进审计）；`speclock key create` 是兜底；吊销即生效（下次请求 401）；最后一把超级管理员 key 拒绝删除
+- **角色与权限**：权限目录由代码定义（`GET /api/v1/permissions`），角色可自定义（`/api/v1/roles` 增删改，预置角色可改权限、不可删）。预置：`admin`（超级管理员，全部权限，可以是全局的）、`project-admin`（项目管理员 / 项目主管：看**本项目**的卡点、失败、待审批和活动日志，批准 / 驳回审核单，删本项目的模块；绑定项目，不管 key / 项目 / 角色）、`reviewer`（读 + 批准 / 驳回，绑定项目）、`requirements-agent`（读 + 整理审核单 + 内部整理 + 提交 Commit）、`executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读规格 / 审核单 / 待办，不能开单、不能提交 Commit）。agent 类角色挂不上人类专属权限（`cr.approve` / `project.manage` / `key.manage`），改权限也不能让系统里没有超级管理员
 - **给各目录的 Agent 发身份**：同一目录下多个 Agent 彼此看得见对方的文件，身份靠各目录 AGENTS.md 里的提示词。[`roles/`](roles/) 是我们推荐的一套：`common.md`（先 `whoami`、已有 key 不重复创建、创建 key 是危险操作必须先问人）加需求 / 执行 / 测试 / 扫描四个角色文件，复制到对应目录的 AGENTS.md 并填好「我的 SpecLock 身份」（写文件名，不写 key）。key 由人用 `speclock key create` 创建，或在人同意后由持有 admin key 的 Agent 创建，创建后用 `use_api_key(key_file=…)` 立即切换使用，不需要重启客户端；Agent 的配置里只写 key 文件名（`speclock mcp --key-file …`），不写 key 本身
-- 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局，只有超级管理员 admin 允许。项目管理员只看得到、管得了本项目的 key
+- 项目绑定对所有 key 生效：绑定后该 key 只能访问所选项目；不绑定 = 全局，只有超级管理员 admin 允许。项目管理员读到的活动、待办、审核单、key 列表都只限本项目
 - `GET /api/v1/me` 返回当前 key 的角色与权限
 - 审计只记录 hint，不记录明文
 
@@ -295,7 +295,7 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 | `work_not_holder` / `work_verifier_is_implementer` | 403 | 只有领取者能操作 / 验证者不能是实现者 |
 | `block_archived` | 409 | 模块已归档 |
 | `local_only` | 403 | 接口只对本机地址开放 |
-| `project_required` | 422 | Agent 角色和项目管理员的 key 必须绑定项目（创建时传 `project_id`） |
+| `project_required` | 422 | 除超级管理员 admin 外，所有角色的 key 都必须绑定项目（创建时传 `project_id`） |
 | `super_admin_required` | 403 | 只有超级管理员能做：改角色、建带人类专属权限的 key（项目管理员只管本项目的 key） |
 | `published_blocks_exist` | 409 | 删除时下面还有已发布的模块：先通过审核单归档（`detail.published_blocks` 列出哪些） |
 | `web_project_required` | 422 | `GET /api/v1/web/session`：库里有多个项目，要指明 `project_id` |

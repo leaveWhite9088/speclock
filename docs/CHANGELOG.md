@@ -21,6 +21,13 @@
   工具返回仍是文本 JSON `{"status", "body"}`，`body` 就是对应 REST 接口的响应，所以返回结构直接引用 OpenAPI 里的响应模型；
   和"原样包一层"不一样的三处（`whoami` 多 `key_source`、`use_api_key`、`create/update_change_request` 的 kind 校验错误）在快照里单独标注。工具的描述文字不在快照里。
 
+**项目管理员看得到本项目的动态；除超级管理员外所有 key 都绑项目（会改变行为）**
+
+- **项目管理员（`project-admin`）有 `audit.read`**：能看本项目的全部动态——卡点（blocked）、失败（failed）、待审批（pending_review）、活动日志（待办和审核单本来就能读）。活动日志已按项目隔离，所以只限本项目。
+- **key 的创建和吊销只有超级管理员做**：项目管理员不再有 `key.manage`（仍能读本项目的 key 列表）；超级管理员可以给任何项目一次建出整套 key，也能删。
+- **除超级管理员 `admin` 外，所有角色的 key 创建时都必须绑定项目**：`reviewer`、`viewer`、自定义角色也一样（422 `project_required`；规则是「没有 `project.manage` 的角色必须绑」）。升级前遗留的没绑项目的 key 不受影响。
+
+
 **网页只看一个项目；删除模块 / 小业务 / 大业务 / 项目（会改变行为）**
 
 - **网页按项目隔离**：网页不再用一把能看全库的只读 key，而是每个项目一把**绑定该项目**的 `viewer` key（`.speclock/web-keys/<项目 id>.key`），所以别的项目的结构、审核单、待办、搜索、活动、密钥它都拿不到。地址带 `?project=<id>` 指明看哪个；库里只有一个项目时自动选；多个又没指明时先显示项目选择页（嵌入模式必须由外层指明：`data-project` / `project:` 选项）。

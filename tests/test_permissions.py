@@ -44,7 +44,7 @@ def test_whoami(env):
 def test_key_prefix_follows_role_kind(env):
     c = env["client"]
     for role, prefix in (("admin", "human-"), ("reviewer", "human-"), ("scanner-agent", "agent-")):
-        r = c.post("/api/v1/keys", json={"role": role, **({"project_id": env["project_id"]} if role.endswith("agent") else {})}, headers=env["human"])
+        r = c.post("/api/v1/keys", json={"role": role, **({"project_id": env["project_id"]} if role != "admin" else {})}, headers=env["human"])
         assert r.status_code == 201 and r.json()["key"].startswith(prefix)
         assert r.json()["role"] == role and r.json()["prefix"] == prefix[:-1]
     assert c.post("/api/v1/keys", json={"role": "nope"}, headers=env["human"]).status_code == 404
@@ -155,7 +155,7 @@ def test_last_admin_key_cannot_be_deleted(env):
     admin_key = next(k for k in c.get("/api/v1/keys", headers=h).json() if k["role"] == "admin")
     assert c.delete(f"/api/v1/keys/{admin_key['id']}", headers=h).status_code == 409
     # 审核人 key 不算管理员，可以随便删
-    rev = c.post("/api/v1/keys", json={"role": "reviewer"}, headers=h).json()
+    rev = c.post("/api/v1/keys", json={"role": "reviewer", "project_id": env["project_id"]}, headers=h).json()
     assert c.delete(f"/api/v1/keys/{rev['id']}", headers=h).status_code == 200
     backup = c.post("/api/v1/keys", json={"role": "admin"}, headers=h).json()
     assert backup["key"]

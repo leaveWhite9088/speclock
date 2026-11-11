@@ -398,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
     kc = key.add_parser("create", help="创建密钥（Agent 类 key 存成文件；人类 key 明文只显示一次）")
     kc.add_argument("--role", required=True, help="角色名，如 executor-agent / tester-agent")
     kc.add_argument("--label", help="备注，如这把 key 给谁用")
-    kc.add_argument("--project", type=int, help="绑定到某个项目（Agent 角色和 project-admin 必填；只有超级管理员 admin 可以不填 = 全局）")
+    kc.add_argument("--project", type=int, help="绑定到某个项目（除超级管理员 admin 外都必填；admin 不填 = 全局）")
     kc.set_defaults(fn=cmd_key_create)
     ks = key.add_parser("show", help="查看一把已保存的 Agent key（读 .speclock/keys/ 里的文件）")
     ks.add_argument("id", type=int)

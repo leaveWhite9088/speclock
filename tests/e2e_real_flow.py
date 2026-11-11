@@ -70,7 +70,7 @@ try:
     ok("create_api_key returns a ready .mcp.json using the file name and SPECLOCK_HOME", cfgj["env"]["SPECLOCK_HOME"] == str(home_dir) and "--key-file" in cfgj["args"] and "key" not in b)
     call(m.revoke_api_key(b["id"], evidence="同意"))
     ok("key files on disk", all((home_dir / "keys" / f).is_file() for f in files.values()))
-    s, b = call(m.create_api_key("reviewer", "human-rev", evidence="同意"))
+    s, b = call(m.create_api_key("reviewer", "human-rev", evidence="同意", project_id=pid))
     ok("human key: plaintext once, no file", s == 201 and b["key"].startswith("human-") and b["key_file"] == "")
 
     def as_(label):

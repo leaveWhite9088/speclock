@@ -44,9 +44,9 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
     (
         "project-admin",
         "human",
-        "项目管理员（项目主管）：管理本项目的 key、批准 / 驳回本项目的审核单；key 必须绑定项目，"
-        "不能建项目、不能改角色、不能建超级管理员",
-        ["spec.read", "exec.read", "cr.read", "cr.approve", "spec.delete", "key.read", "key.manage"],
+        "项目管理员（项目主管）：看本项目的全部动态（卡点、待审批、失败、活动日志）、批准 / 驳回本项目的审核单、"
+        "删本项目的模块；key 绑定项目。key 的创建和吊销由超级管理员做",
+        ["spec.read", "exec.read", "cr.read", "cr.approve", "audit.read", "spec.delete", "key.read"],
     ),
     ("reviewer", "human", "审核人：只能查看并批准 / 驳回审核单", ["spec.read", "cr.read", "cr.approve"]),
     (
@@ -84,13 +84,10 @@ PRESET_ROLES: list[tuple[str, str, str, list[str]]] = [
 # 旧版预置角色升级时补上的权限（只在该角色完全没有 exec.* 权限时补一次）
 EXEC_PERMISSIONS = ("exec.read", "exec.write", "exec.verify")
 
-# 除 agent 类角色外，这些角色的 key 也必须绑定项目（只有超级管理员 admin 可以是全局的）
-PROJECT_SCOPED_ROLES = frozenset({"project-admin"})
-
-
 def requires_project(role: Role) -> bool:
-    """这个角色的 key 是否必须绑定项目：Agent 类角色（项目范围由 key 决定，不能靠它自己在调用里填）和项目管理员。"""
-    return role.kind == "agent" or role.name in PROJECT_SCOPED_ROLES
+    """这个角色的 key 是否必须绑定项目：**除了超级管理员（能管项目 = 有 project.manage），所有角色都必须绑定**——
+    Agent、项目管理员、审核人、只读……项目范围由 key 决定，不能靠调用里自己填。"""
+    return "project.manage" not in role_permissions(role)
 
 
 LEGACY_DEFAULT_ROLE = {"human": "admin", "agent": "executor-agent"}
@@ -173,6 +170,12 @@ def seed_roles(db: Session) -> None:
             if role is not None and role.builtin:
                 have = set(json.loads(role.permissions_json or "[]"))
                 role.permissions_json = json.dumps(sorted(have | {"spec.delete"}))
+    if _once(db, "project_admin_sees_the_project"):
+        # 项目管理员：能看本项目的活动日志；key 的创建 / 吊销改由超级管理员做
+        role = existing.get("project-admin")
+        if role is not None and role.builtin:
+            have = set(json.loads(role.permissions_json or "[]"))
+            role.permissions_json = json.dumps(sorted((have | {"audit.read"}) - {"key.manage"}))
     for key in db.query(ApiKey).filter(ApiKey.role_id.is_(None)).all():
         key.role_id = existing[LEGACY_DEFAULT_ROLE[key.prefix]].id
     db.commit()

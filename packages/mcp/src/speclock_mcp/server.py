@@ -451,10 +451,9 @@ def get_activity(
     "the agent that will use it, or switch to it yourself with use_api_key(key_file=...). A "
     "human-role key (admin, reviewer, project-admin) is returned in plaintext ONCE instead. Check "
     "list_api_keys first so you do not create a duplicate. project_id binds the key to one "
-    "project and is REQUIRED for every agent role and for project-admin (422 project_required); "
-    "only the super admin role 'admin' may be global. A project-admin key can only create keys "
-    "inside its own project (project_id defaults to it) and cannot create admin keys or roles. "
-    "Requires key.manage."
+    "project and is REQUIRED for every role except the super admin 'admin' (422 project_required): "
+    "agents, project-admin, reviewer, viewer — only the global admin key may be global. Only the "
+    "super admin creates and revokes keys. Requires key.manage."
 ))
 def create_api_key(role: str, label: str, evidence: str, project_id: int | None = None) -> str:
     body: dict = {"role": role, "label": label, "via": "natural_language", "evidence": evidence}

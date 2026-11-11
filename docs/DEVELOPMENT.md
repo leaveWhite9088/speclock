@@ -83,11 +83,11 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 - key 绑定**角色**，角色是**权限集合**；权限目录由代码定义（接口按权限放行），角色和映射可自定义。
 - 角色有 `kind`（human / agent）。**人类专属权限**（`cr.approve`、`spec.delete`、`project.manage`、`key.manage`）不能挂在 agent 类角色上，
   所以受限角色的 Agent 批准不了审核单，也创建不了 key。
-- 预置角色：`admin`（**超级管理员**，全部权限，唯一可以是全局 key 的角色）、`project-admin`（**项目管理员 / 项目主管**：批准本项目的审核单、管理本项目的 key；key 必须绑定项目，不能建项目、改角色、建超级管理员）、`reviewer`（读 + 批准 / 驳回）、`viewer`（只读，网页自动使用）、`requirements-agent`（读 + 整理审核单 + `cr.internal` + 提交 Commit）、
+- 预置角色：`admin`（**超级管理员**，全部权限，唯一可以是全局 key 的角色）、`project-admin`（**项目管理员 / 项目主管**：看本项目的全部动态——卡点（blocked）、失败（failed）、待审批、活动日志——批准 / 驳回本项目的审核单、删本项目的模块；不管 key、不建项目、不改角色）、`reviewer`（读 + 批准 / 驳回，绑定项目）、`viewer`（只读，网页自动使用）、`requirements-agent`（读 + 整理审核单 + `cr.internal` + 提交 Commit）、
   `executor-agent`（读 + 领取 / 实现）、`tester-agent`（读 + 独立验收）、`scanner-agent`（只读）。预置角色可改权限、不可删。
-- **项目范围由 key 决定，不靠调用参数**：Agent 类角色和 `project-admin` 的 key 创建时必须绑定项目（否则 422 `project_required`），只有 `admin` 可以是全局的；
-  项目管理员（有 `key.manage` 但没有 `project.manage`）只能在自己的项目里建 / 看 / 删 key，建不出带人类专属权限的角色，角色增删改和项目管理都要超级管理员（403 `super_admin_required`）。
-  「最后一把管理员」指超级管理员（`key.manage` + `project.manage`）。升级前就存在的全局 Agent key 不受影响，但新建不出来了。
+- **项目范围由 key 决定，不靠调用参数**：**除超级管理员 `admin`（能管项目，有 `project.manage`）外，所有角色的 key 创建时都必须绑定项目**（Agent、项目管理员、审核人、只读……否则 422 `project_required`；判断是 `permissions.requires_project`）。
+  **key 的创建和吊销由超级管理员做**：他可以一次给任何项目建出整套 key（项目管理员、审核人、各类 Agent），也能删。项目管理员有 `audit.read` / `exec.read` / `cr.read`，读到的活动、待办、审核单都被服务端限制在本项目内。
+  若有自定义角色拿到了 `key.manage` 但没有 `project.manage`，它只能管本项目的 key、角色增删改要超级管理员（403 `super_admin_required`）。「最后一把管理员」指超级管理员（`key.manage` + `project.manage`）。升级前就存在的没绑项目的 key 不受影响，但新建不出来了。
 - **批准的渠道**：出示人类 key 才能把审核单置为 `approved`，Core 不区分渠道，只记录渠道（`cli` / `natural_language` / `api`）和人的原话。
   实际用法有两种：人用 `speclock cr approve`；或人在对话里明确同意，持有 admin key 的 Agent 经 MCP 代为调用，
   **必须带 `content_hash`（批准哪一版）和 `evidence`（人的原话）**。后者的"人确认了"只是约定，靠提示词和留痕。
