@@ -252,7 +252,7 @@ MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限
 | `get_index` / `get_block` / `get_capability` / `get_diff` | `spec.read` | 读规格：索引树、模块（带版本级别标签与 cr_id / commit_id）、小业务 manifest、版本 diff |
 | `list_projects` | `spec.read` | 看得到的项目（全局 key 开审核单、建 key 绑项目要用 id） |
 | `create_project` / `rename_project` | `project.manage` | 创建项目 / 项目改名（人类专属权限，只有 admin 能做；先问人） |
-| `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 翻页 |
+| `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 往回翻页、`after_id` 取更新的事件 |
 | `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
 | `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |
@@ -295,7 +295,7 @@ MCP server 暴露 **33 个工具**，key 的角色决定哪些能用（没权限
 | `local_only` | 403 | 接口只对本机地址开放 |
 
 - **轮询新事件**：`GET /api/v1/activity?after_id=<已处理到的最大 id>`，只返回更新的事件，排序仍是新的在前（`limit` 默认 50）。
-  新事件多于 `limit` 时返回的是最新的那些，用 `before_id=<本页最小 id>` 往回补，直到补到 `after_id`。MCP 的 `get_activity` 暂不带 `after_id`。
+  新事件多于 `limit` 时返回的是最新的那些，用 `before_id=<本页最小 id>` 往回补，直到补到 `after_id`。MCP 的 `get_activity` 也有同名的可选参数 `after_id`，用法一致。
 - **待办轮询**：`GET /api/v1/work?status=pending|implemented|blocked|failed`。
 
 ## 规则摘要
