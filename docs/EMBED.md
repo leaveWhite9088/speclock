@@ -108,4 +108,4 @@ SpecLock 把它写进响应头 `Content-Security-Policy: frame-ancestors 'self' 
 - **嵌进去是空白，控制台提示 frame-ancestors**：你的页面来源不在 `embed_origins` 里，加上并重启服务。
 - **从 https 页面嵌 `http://127.0.0.1`**：浏览器对 localhost / 127.0.0.1 放行混合内容，可以；其他 http 地址会被拦。
 - **想让嵌入页看到别的项目的数据**：网页用的是只读 key，能看到整个库里所有项目；嵌入页和单独打开看到的内容一样。
-- **SpecLock 服务没启动**：iframe 里是浏览器的连接失败页。服务启动、网页构建好（`web/dist`）才有内容。
+- **SpecLock 服务没启动**：iframe 里是浏览器的连接失败页。服务启动、网页构建好（`apps/web/dist`）才有内容。

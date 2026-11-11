@@ -13,12 +13,11 @@
 
 ## 1. 安装
 
-需要 Python ≥ 3.11。
+需要 Python ≥ 3.11 和 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone <本仓库> speclock
-cd speclock && python -m venv .venv
-.venv/Scripts/pip install -e .          # Linux / macOS：.venv/bin/pip install -e .
+cd speclock && uv sync                  # 在 .venv/ 里装好全部包（editable）
 ```
 
 把 `.venv/Scripts`（Linux / macOS 是 `.venv/bin`）加进 PATH，之后就可以直接敲 `speclock`。

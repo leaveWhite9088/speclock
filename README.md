@@ -35,7 +35,7 @@ SpecLock 只做记录，不做判断。它用三个设计原则解决上面的�
 
 核心结构：
 
-![SpecLock 的核心结构：业务需求与实现的单源关系](docs/assets/sketch-two-sources.svg)
+![SpecLock 的核心结构：业务需求与实现的单源关系](docs/assets/two-sources.png)
 
 工作流程：
 
@@ -48,12 +48,11 @@ SpecLock 只做记录，不做判断。它用三个设计原则解决上面的�
 
 ## 快速开始
 
-需要 Python 3.11 以上。
+需要 Python 3.11 以上和 [uv](https://docs.astral.sh/uv/)。仓库是 monorepo（`packages/` 里是按层依赖的几个 Python 包，`apps/web` 是网页），`uv sync` 一次装全：
 
 ```bash
 git clone <本仓库> speclock
-cd speclock && python -m venv .venv
-.venv/Scripts/pip install -e .
+cd speclock && uv sync
 ```
 
 ```bash

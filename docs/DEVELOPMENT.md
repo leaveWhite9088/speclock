@@ -91,12 +91,12 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 - **密钥**：`speclock init` 只发一把**随机**的 admin key，明文只打印一次，库里只存 SHA-256 哈希和脱敏 hint。
   其余 key 由 admin 创建（MCP `create_api_key`、REST、或 `speclock key create`）。创建 key 是**危险操作**，
   Agent 必须先问人、拿到明确同意，`evidence` 附原话（缺了 422，来源与原话写进审计）。网页不提供创建 key 的操作。
-- **key 的存放（`keyfiles.py`）**：Agent 类 key 由服务端直接写成 `.speclock/keys/<角色>--<名称>.key`，创建响应里只有文件名、没有明文，
+- **key 的存放（`speclock_config.keyfiles`）**：Agent 类 key 由服务端直接写成 `.speclock/keys/<角色>--<名称>.key`，创建响应里只有文件名、没有明文，
   所以明文不经过对话；人类 key（admin / reviewer）不存文件，只在创建时返回一次。吊销时文件一并删除。
   MCP 用 `--key-file` / `SPECLOCK_KEY_FILE` / `use_api_key(key_file=…)` 直接读文件。`keys/README.md` 告诉 Agent 只读自己的那个。
   同目录的 Agent 互相看得见文件，"只读自己的"是约定，Core 强制不了；把人类 key 排除在外，是为了让越界读取最多拿到低权限。
 - **admin key 不进 Agent 读得到的文件**：`init` 只打印一次，不再生成含 admin key 的 `.mcp.json` 片段；人用的 CLI 没有 key 时在终端里提示输入（`getpass`）；
-  创建 Agent key 时返回现成的 `mcp_config`（`home.mcp_config`：key 文件名 + 写死的 `SPECLOCK_HOME` + Python 绝对路径），所以 MCP 不依赖启动时的工作目录，两种用法一致。
+  创建 Agent key 时返回现成的 `mcp_config`（`speclock_config.mcp_config`：key 文件名 + 写死的 `SPECLOCK_HOME` + Python 绝对路径），所以 MCP 不依赖启动时的工作目录，两种用法一致。
 - **身份不能被环境悄悄顶替**：MCP 里 key 文件优先于 `SPECLOCK_KEY`；`whoami` 带 `key_source`；`use_api_key(key_file=)` 是严格模式，只认 `keys/` 里的文件名（`keyfiles.read_key(strict=True)`）；工具参数多余时报错（与 REST 的 `StrictModel` 一致）。
 - 新建的 Agent key 立即可用；`use_api_key` 在会话内切换，不用重启客户端（无效的 key 保持原身份）。
 - **身份靠提示词**：同一目录下多个 Agent 彼此看得见对方的文件，所以不靠 key 保密隔离角色；key 的作用是角色权限 + 项目隔离，
@@ -110,7 +110,7 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 
 规格状态与执行状态**分开**。Core 只做机械的事——登记、转换、校验、留痕。
 
-- **每个已发布的模块版本自动一条执行记录**（发布后 `sync_block`）：`pending → in_progress → implemented → verified`；
+- **每个已发布的模块版本自动一条执行记录**（发布 / 恢复时由 `events` 通知 `executions.sync_block`，发布引擎不认识执行记录）：`pending → in_progress → implemented → verified`；
   `in_progress` 可去 `blocked`（业务上卡住，写原因）/ `failed`（写原因），这两个状态可重新领取（不限次数，旧结果清空，历史留在事件里）；
   验收不通过也回到 `failed`。模块发布新版本时旧版本上未结束的记录变 `superseded`（写一律 409 并指向最新版本）。`verified` / `superseded` 是终态。
 - **领取时拿到锁定版本的完整规格**；不做领取超时，卡住了用 `release_work` 放弃（领取者本人或管理员）。
@@ -122,60 +122,105 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 ## 7. 数据与运行
 
 配置和数据在 `.speclock/`（`config.toml` + `speclock.db` + `.gitignore`），**永远不在源码目录里**。
-查找顺序：`SPECLOCK_HOME` → 从当前目录往上找最近的 `.speclock/` → `~/.speclock/`（见 `home.py`）。
+查找顺序：`SPECLOCK_HOME` → 从当前目录往上找最近的 `.speclock/` → `~/.speclock/`（见 `speclock_config.home`）。
 `speclock init` 在当前目录建（端口自动选空闲的），`speclock init --global` 在 `~/.speclock/` 建（端口 `47821`）。
 `SPECLOCK_DB_URL` 可直接指定数据库（测试用），`SPECLOCK_URL` / `SPECLOCK_KEY` 给 MCP 和 CLI 用。
 
-库结构变更在 `db.py` 写幂等迁移（`_ensure_columns` 等）；预置角色的权限变更用一次性迁移标记（`MigrationMark`），不覆盖管理员改过的角色。
+库结构变更在 `speclock_core/migrations.py` 写幂等迁移（`_ensure_columns` 等）；预置角色的权限变更用一次性迁移标记（`MigrationMark`），不覆盖管理员改过的角色。
 
-## 8. 开发约定
+## 8. 仓库结构与分层
+
+monorepo：Python 后端拆成按层依赖的多个包（`packages/`），前端是 `apps/web`，用 uv 工作区一次装全。
+
+```
+packages/
+├── config/   speclock_config   .speclock/ 的查找、config.toml、key 文件、web.key 文件。不依赖任何 speclock 包
+├── core/     speclock_core     模型、版本 / diff、发布引擎、Commit、执行记录、权限目录、引导（init_db / init_home）
+├── server/   speclock_server   FastAPI 路由与应用装配、网页托管。依赖 config、core
+├── mcp/      speclock_mcp      MCP server，只经 HTTP 调 REST，不碰数据库。依赖 config
+├── cli/      speclock_cli      命令行与导出 / 备份。依赖 config、core、server、mcp
+└── speclock/ speclock          总装包：只声明依赖，提供 `python -m speclock`
+apps/web/                       Vue 3 只读展示网页
+```
+
+**规则**（`tests/test_architecture.py` 强制，违反会让测试失败）：
+
+1. **只能依赖下层**：config < core < server / mcp < cli < speclock，server 与 mcp 互不依赖。
+2. **跨包只走 index**：`from speclock_core import X`，X 必须在对方 `__init__.py` 的 `__all__` 里；不能 `from speclock_core.engine import ...`。
+   要给别的包用的东西，先加进 `__all__`——index 就是这一层的公开接口。
+3. **包内也分层**（核心：`db/events/diffing/schemas` < `models` < `auth/migrations/permissions` < `engine/executions` < `commits` < `bootstrap`），只能依赖更低的层。
+4. **pyproject 里的 speclock-* 依赖要和代码里真实的导入一致**；各包版本号一致。
+5. **例外**要在 `DEEP_IMPORT_EXCEPTIONS` 里登记并写理由；`tests/` 不受这些规则限制。
+
+几个关键的解耦点：
+
+- **发布与执行记录**：`engine` / `commits` 只 `events.emit(...)`，`executions` 订阅 `block.published` / `block.restored` 去同步执行记录；谁都不反向依赖谁。订阅发生在 `executions` 被导入时，所以 `speclock_core/__init__.py` 必须导入它。
+- **建库与种子数据**：`db` 只管引擎 / 会话，`migrations.create_schema` 管表结构，`bootstrap.init_db` 再补预置角色和执行记录；下层不反向调用上层。
+- **配置与引导**：`speclock_config` 只读写文件；需要数据库的初始化（`init_home`、`ensure_web_key`）在 `speclock_core.bootstrap`。
+- **路由共用的逻辑**（项目隔离 `scope.py`、响应序列化 `serializers.py`、鉴权依赖 `deps.py`）是 server 里的独立模块，路由之间不互相 import 私有函数。
+
+## 9. 开发约定
 
 - 改动同步：测试、GUIDE / REFERENCE / README、`roles/`（如果影响 Agent 的用法）。
-- 版本号的源头是 `speclock/__version__`（pyproject 和 FastAPI 都读它）；对外接口有变化时升它，同时改 `web/src/App.vue` 的版本标签和 `web/package.json`，并在 [CHANGELOG](CHANGELOG.md) 记一条。
-- 环境：Python 虚拟环境在 `.venv/`，前端在 `web/`。
+- 临时的、一次性的测试（联调报告回归、按「第几轮修复」命名的测试）用完就删，不留；测试按功能命名、放进对应的文件。
+- 版本号的源头是 `speclock_config.__version__`；各包 `pyproject.toml` 的 `version` 与它保持一致（测试检查）。对外接口有变化时一起升，
+  同时改 `apps/web/src/App.vue` 的版本标签和 `apps/web/package.json`，并在 [CHANGELOG](CHANGELOG.md) 记一条。
+- 环境：`uv sync` 在 `.venv/` 里装好全部包（editable）和 pytest；前端在 `apps/web`。
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q          # 后端测试
-cd web && npm test                             # 前端单元测试（vitest）
-python tests/e2e_real_flow.py                  # 端到端（跟项目走）：真的 init + serve，用 MCP 工具走完整个业务流程
-python tests/e2e_real_flow.py --global         # 同上（跟电脑走）
-cd web && npm run dev                          # 前端热更新（代理 /api 到 SPECLOCK_URL，默认 47821）
-speclock init && speclock serve                # 在一个测试目录里跑起来
+uv sync                                        # 装全部包（editable）+ 开发依赖
+uv run pytest -q                               # 后端测试（含架构规则）
+cd apps/web && npm test                        # 前端单元测试（vitest）
+uv run python tests/e2e_real_flow.py           # 端到端（跟项目走）：真的 init + serve，用 MCP 工具走完整个业务流程
+uv run python tests/e2e_real_flow.py --global  # 同上（跟电脑走）
+cd apps/web && npm run dev                     # 前端热更新（代理 /api 到 SPECLOCK_URL，默认 47821）
+uv run speclock init && uv run speclock serve  # 在一个测试目录里跑起来
 ```
 
-**发布网页**：`web/dist/` 平时被 gitignore。只在发布版本时构建并提交，让使用者克隆下来不装 Node 也有网页：
+**发布网页**：`apps/web/dist/` 平时被 gitignore。只在发布版本时构建并提交，让使用者克隆下来不装 Node 也有网页：
 
 ```bash
-cd web && npm install && npm run build
-git add -f web/dist        # 发布提交里带上；日常开发提交不带
+cd apps/web && npm install && npm run build
+git add -f apps/web/dist   # 发布提交里带上；日常开发提交不带
 ```
 
-## 9. 代码地图
+服务默认从仓库的 `apps/web/dist` 托管网页；部署到别处时用环境变量 `SPECLOCK_WEB_DIST` 指向构建产物。
 
-后端 `speclock/`：
+## 10. 代码地图
+
+`packages/config/src/speclock_config/`：`home.py`（`.speclock/` 查找、`config.toml`、`mcp_config`）、`keyfiles.py`（Agent key 文件与 `keys/README.md`）、`webkey.py`（`web.key` 文件）。
+
+`packages/core/src/speclock_core/`：
+
+- `models.py`、`schemas.py`（请求体全部 `StrictModel`）、`db.py`（引擎 / 会话）、`migrations.py`（幂等迁移 + 建表）、`auth.py`（key 哈希 + 审计）。
+- `engine.py`：发布引擎（内部，无对外写接口）：草稿 → 不可变版本、小业务版本派生、结构完备性校验。
+- `commits.py`：Commit 引擎（ops 原子应用、`$ref`、跨模块 / 小业务、整体回滚）。
+- `diffing.py`：结构化 API / 规则校验、字段级 delta、级别标签、OpenAPI 生成、版本号计算。
+- `executions.py`：执行记录状态机；`events.py`：发布 / 恢复事件。
+- `permissions.py`：权限目录、预置角色、一次性迁移。
+- `bootstrap.py`：`init_db`、`init_home`、`ensure_web_key`。
+
+`packages/server/src/speclock_server/`：
 
 - `api_cr.py`：审核单 + Commit 接口，规格库唯一写入通道（状态机、批准、覆盖检查）。
-- `commits.py`：Commit 引擎（ops 原子应用、`$ref`、跨模块 / 小业务、整体回滚）。
-- `engine.py`：发布引擎（内部，无对外写接口）：草稿 → 不可变版本、小业务版本派生、结构完备性校验。
-- `diffing.py`：结构化 API / 规则校验、字段级 delta、级别标签、OpenAPI 生成、版本号计算。
 - `api_agent.py`：读规格（索引 / 小业务 / 模块 / diff / 历史），没有任何写端点。
-- `api_exec.py` + `executions.py`：执行接口与执行记录状态机。
+- `api_exec.py`：执行接口。
 - `api_admin.py`：读视图（树 / 版本 / 归档 / 审计 / 活动）+ 项目 / 密钥 / 角色管理。
 - `api_search.py`：搜索（已发布模块的当前版本 + 审核单，子串匹配，项目隔离）。
-- `keyfiles.py`：Agent key 文件的读写与 `keys/README.md`。
-- `exporter.py`：完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git）；`cli.py` 的 `backup` / `restore` / `export` 直接调它，不走 HTTP。
-- `static/embed.js`：给外层页面引用的嵌入脚本（`GET /embed.js`，不依赖网页构建）；`main.py` 给所有响应加 `frame-ancestors`（来源由 `config.toml` 的 `embed_origins` 决定，默认只有本机）；没有构建网页时 `/` 返回构建提示页。
-- `permissions.py`：权限目录、预置角色、`require_permission`、一次性迁移。
-- `webkey.py` + `api_web.py`：网页用的只读 key 的准备与自动发放。
-- `home.py` + `settings.py`：`.speclock/` 的查找、`config.toml`、`init_home`。
-- `cli.py`：统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`。
-- `mcp_server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。
-- `models.py`、`schemas.py`（请求体全部 `StrictModel`）、`db.py`（含迁移）、`auth.py`（key 哈希 + 审计）、`main.py`（应用装配 + 托管 `web/dist`）。
+- `api_web.py`：网页用的只读 key 的自动发放。
+- `deps.py`（按权限放行的依赖）、`scope.py`（项目隔离）、`serializers.py`（共用的响应转换）。
+- `static/embed.js`：给外层页面引用的嵌入脚本（`GET /embed.js`，不依赖网页构建）；`main.py` 装配应用、给所有响应加 `frame-ancestors`
+  （来源由 `config.toml` 的 `embed_origins` 决定，默认只有本机）、托管网页；没有构建网页时 `/` 返回构建提示页。
 
-前端 `web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**，不用登录（key 只存在内存里）。**不提供任何修改操作**，新增页面也不要加；
+`packages/mcp/src/speclock_mcp/server.py`：stdio MCP，33 个工具，经 HTTP 调用本系统 REST。
+
+`packages/cli/src/speclock_cli/`：`cli.py`（统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`）、`exporter.py`
+（完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git），`backup` / `restore` / `export` 直接调它，不走 HTTP）。
+
+前端 `apps/web/`：Vue 3 **只读展示**网页，是人监控整个工具的**唯一通道**，不用登录（key 只存在内存里）。**不提供任何修改操作**，新增页面也不要加；
 只调用公开 REST 接口，不依赖 Core 内部实现。页面：总览、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动、Agent 与密钥、搜索、归档、AI 接入。
 嵌入模式（`?embed=1`，`src/embed.js`）：只显示内容、站内跳转保持参数、用 `postMessage` 报告路径与高度并接受外层的跳转指令，用法见 [EMBED.md](EMBED.md)。
 结构：`api/`（客户端 + `resources.js`）、`composables/`（取数、轮询、自动刷新）、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；
 整理逻辑是纯函数并有测试。
 
-`roles/`：推荐的角色提示词（`common.md` + 需求 / 执行 / 测试 / 扫描）。`tests/`：pytest。
+`roles/`：推荐的角色提示词（`common.md` + 需求 / 执行 / 测试 / 扫描）。`tests/`：pytest（跨包的集成测试 + `test_architecture.py`）。

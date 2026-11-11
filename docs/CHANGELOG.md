@@ -1,6 +1,16 @@
 # 版本记录
 
-版本号的源头是 `speclock/__init__.py` 的 `__version__`。
+版本号的源头是 `speclock_config.__version__`（各包 pyproject 的版本与它一致）。
+
+## 未发布 — monorepo 与分层
+
+- **仓库改成 monorepo**：后端拆成 `speclock-config` / `core` / `server` / `mcp` / `cli` 五个包加一个总装包 `speclock`（`packages/`），前端移到 `apps/web`；`uv sync` 一次装全，命令和 MCP 配置不变。
+- **层间只能向下依赖，跨包只走 index**（`__all__`），由 `tests/test_architecture.py` 强制；包内核心模块同样分层。
+- 路由之间不再互相 import 私有函数：项目隔离、响应序列化、鉴权依赖各有独立模块（`scope` / `serializers` / `deps`）。
+- `home` / `webkey` / `settings` 理顺：配置与文件在 `speclock_config`，需要数据库的初始化在 `speclock_core.bootstrap`；`db` 不再反向依赖权限和执行记录。
+- 发布与执行记录解耦：发布引擎发 `block.published` / `block.restored` 事件，执行记录订阅，不再互相 import。
+- 网页构建产物默认从 `apps/web/dist` 托管，部署到别处可用 `SPECLOCK_WEB_DIST` 指定。
+- 删除按「联调报告第几轮」命名的一次性回归测试。
 
 ## 0.2.6 — 联调 v3 修复
 

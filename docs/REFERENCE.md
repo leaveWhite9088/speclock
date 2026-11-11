@@ -13,7 +13,7 @@ SpecLock 是业务文档的**单一事实源（Single Source of Truth）平台**
 
 约束是物理的（权限隔离），不是提示词约定。
 
-架构：**FastAPI 纯 JSON API + Vue 3 展示网页（`web/`，参考实现）**。后端只出 JSON；网页是**人监控整个工具的唯一通道**，**只读展示**（总览、文档树、模块与版本、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明），不提供任何修改操作，只调用公开 REST 接口，别人想自己做一个同样能接。构建产物（`web/dist/`）存在时由同一 FastAPI 进程顺带托管，不构建或不打开它都不影响 Core。所有修改都由 Agent 经 MCP 完成。
+架构：**FastAPI 纯 JSON API + Vue 3 展示网页（`apps/web/`，参考实现）**。后端只出 JSON；网页是**人监控整个工具的唯一通道**，**只读展示**（总览、文档树、模块与版本、审核单、待办、活动时间线、Agent 与密钥、搜索、归档、AI 接入说明），不提供任何修改操作，只调用公开 REST 接口，别人想自己做一个同样能接。构建产物（`apps/web/dist/`）存在时由同一 FastAPI 进程顺带托管，不构建或不打开它都不影响 Core。所有修改都由 Agent 经 MCP 完成。
 
 ## 目录
 
@@ -114,9 +114,9 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 | 搜索 `/search` | 在已发布模块的当前版本和审核单里找关键词，命中词高亮，规则 / 验收条件直达对应的行 |
 | 模块页 | 完整快照、版本历史（每个版本可展开「为什么改」与执行进展）、版本对比 |
 
-代码结构（`web/src/`）：`api/`（客户端 + 按资源封装的请求）、`composables/`（`useAsync` 取数、`usePolling`、`useChangeSignal` / `useAutoRefresh` 自动刷新）、`components/`（只收 props 的展示组件）、`views/`（薄页面）、`labels.js`（全站统一中文文案）、`errors.js`（请求错误翻成人话）；整理逻辑都是纯函数（`overview.js` / `activity.js` / `agents.js` / `search.js` / `trace.js` / `treeFilter.js`），都有单元测试。
+代码结构（`apps/web/src/`）：`api/`（客户端 + 按资源封装的请求）、`composables/`（`useAsync` 取数、`usePolling`、`useChangeSignal` / `useAutoRefresh` 自动刷新）、`components/`（只收 props 的展示组件）、`views/`（薄页面）、`labels.js`（全站统一中文文案）、`errors.js`（请求错误翻成人话）；整理逻辑都是纯函数（`overview.js` / `activity.js` / `agents.js` / `search.js` / `trace.js` / `treeFilter.js`），都有单元测试。
 
-展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，`.speclock/web.key`），只对本机地址、同源请求开放。
+展示网页是 Vue 3 SPA（只读）。构建后由后端顺带托管（发布版本已带构建产物；自己改前端才需要 `cd apps/web && npm install && npm run build`）。启动服务后访问 `speclock init` 打印的地址即可，**网页不用登录**：它从 `GET /api/v1/web/session` 自动取一把只读 key（`viewer` 角色，`.speclock/web.key`），只对本机地址、同源请求开放。
 
 **嵌入**：网页可以被一键嵌进别的前端（`/embed.js` + `?embed=1`），只读、高度自适应、有 `postMessage` 通信，只有 `embed_origins` 里允许的来源能嵌，详见 [EMBED.md](EMBED.md)。
 
