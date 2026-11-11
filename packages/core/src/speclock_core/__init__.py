@@ -15,6 +15,7 @@ from speclock_core import diffing, events, permissions
 from speclock_core.auth import audit, hash_key, key_hint, new_key
 from speclock_core.bootstrap import ensure_web_key, init_db, init_home
 from speclock_core.commits import apply_commit
+from speclock_core.errors import CODES as ERROR_CODES, GENERIC as GENERIC_ERROR_CODES, ApiError, code_of
 from speclock_core.db import Base, SessionLocal, configure, get_db, get_engine
 from speclock_core.migrations import create_schema
 from speclock_core.engine import published_version, publish_block
@@ -80,6 +81,10 @@ __all__ = [
     "events",
     "permissions",
     "audit",
+    "ApiError",
+    "ERROR_CODES",
+    "GENERIC_ERROR_CODES",
+    "code_of",
     "hash_key",
     "key_hint",
     "new_key",

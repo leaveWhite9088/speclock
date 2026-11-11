@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 
 from speclock_core import diffing, events
 from speclock_core.auth import audit
+from speclock_core.errors import ApiError
 from speclock_core.engine import (
     derive_capability_version,
     publish_block,
@@ -385,7 +386,7 @@ def _update_list(block: Block, op: dict, field: str, ops_field: str, kind: str |
 def _op_update_block(ctx: _Ctx, op: dict) -> None:
     block = ctx.block(op.get("id"))
     if block.status == "archived":
-        raise HTTPException(status_code=409, detail=f"模块 {block.id} 已归档，请先 restore_block")
+        raise ApiError("block_archived", f"模块 {block.id} 已归档，请先 restore_block")
     if block.id in ctx.archived:
         raise HTTPException(status_code=409, detail=f"模块 {block.id} 在本 Commit 中已被归档")
     changed_meta = False
@@ -498,14 +499,19 @@ def validate_covers(cr: ChangeRequest, covers: list[str]) -> list[str]:
     return sorted(set(covers), key=lambda s: int(s.split("-")[1]))
 
 
+def _rewrap(exc: HTTPException, detail: object) -> HTTPException:
+    """换一段 detail 重新抛，保留原来的状态码和错误码。"""
+    if isinstance(exc, ApiError):
+        return ApiError(exc.code, detail)
+    return HTTPException(status_code=exc.status_code, detail=detail)
+
+
 def _wrap(i: int, op: dict, exc: HTTPException) -> HTTPException:
     where = f"第 {i} 条 op（{op['op']}）"
     if isinstance(exc.detail, str):
-        return HTTPException(status_code=exc.status_code, detail=f"{where}：{exc.detail}")
+        return _rewrap(exc, f"{where}：{exc.detail}")
     if isinstance(exc.detail, dict):
-        return HTTPException(
-            status_code=exc.status_code, detail={"op_index": i, "op": op["op"], **exc.detail}
-        )
+        return _rewrap(exc, {"op_index": i, "op": op["op"], **exc.detail})
     return exc
 
 
@@ -527,8 +533,8 @@ def apply_commit(
     """在审核单 cr 下原子应用 ops 并发布。dry_run=True 完整执行后回滚（预览：
     会得到的版本号 / 级别标签 / delta），不落库、不写审计。"""
     if cr.status != "approved":
-        raise HTTPException(
-            status_code=409, detail=f"审核单是 {cr.status}，只有已批准（approved）的才能提交 Commit"
+        raise ApiError(
+            "cr_state_conflict", f"审核单是 {cr.status}，只有已批准（approved）的才能提交 Commit"
         )
     if isinstance(ops, list) and not ops:
         # 「只补覆盖」的 Commit：之前的 Commit 漏写了 covers，事后补一条声明。不改规格，
@@ -573,13 +579,11 @@ def apply_commit(
                     derive_capability=False, commit=False,
                 )
             except HTTPException as exc:
-                raise HTTPException(
-                    status_code=exc.status_code,
-                    detail=(
-                        {"block_id": block.id, "title": block.title, **exc.detail}
-                        if isinstance(exc.detail, dict)
-                        else f"模块 {block.id}「{block.title}」：{exc.detail}"
-                    ),
+                raise _rewrap(
+                    exc,
+                    {"block_id": block.id, "title": block.title, **exc.detail}
+                    if isinstance(exc.detail, dict)
+                    else f"模块 {block.id}「{block.title}」：{exc.detail}",
                 ) from exc
             cap_levels.setdefault(block.capability_id, []).append(result.level)
             cap_trigger.setdefault(block.capability_id, block)

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, object_session
 
 from speclock_core import events
 from speclock_core.auth import audit
+from speclock_core.errors import ApiError
 from speclock_core.models import (
     ApiKey,
     Block,
@@ -123,8 +124,8 @@ def _require_current(rec: ExecutionRecord) -> None:
     block = rec.block
     if rec.status == "superseded" or rec.version != block.current_published_version:
         latest = current_record(object_session(rec), block)
-        raise HTTPException(
-            status_code=409,
+        raise ApiError(
+            "work_superseded",
             detail={
                 "error": f"这条记录针对的版本 {rec.version} 已被取代，请改去处理最新版本",
                 "latest_version": block.current_published_version,
@@ -132,22 +133,22 @@ def _require_current(rec: ExecutionRecord) -> None:
             },
         )
     if block.status != "published":
-        raise HTTPException(status_code=409, detail=f"模块 {block.id} 已归档，暂不能处理")
+        raise ApiError("block_archived", f"模块 {block.id} 已归档，暂不能处理")
 
 
 def _require_status(rec: ExecutionRecord, allowed: tuple[str, ...], action: str) -> None:
     if rec.status not in allowed:
-        raise HTTPException(
-            status_code=409,
-            detail=f"当前状态是 {rec.status}，不能{action}（需要处于：{'、'.join(allowed)}）",
+        raise ApiError(
+            "work_state_conflict",
+            f"当前状态是 {rec.status}，不能{action}（需要处于：{'、'.join(allowed)}）",
         )
 
 
 def _require_holder(rec: ExecutionRecord, key: ApiKey) -> None:
     if rec.claimed_by_key_id != key.id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"这条任务由 {rec.claimed_by or '其他人'} 领取，只有领取者能操作",
+        raise ApiError(
+            "work_not_holder",
+            f"这条任务由 {rec.claimed_by or '其他人'} 领取，只有领取者能操作",
         )
 
 
@@ -157,7 +158,7 @@ def _require_holder(rec: ExecutionRecord, key: ApiKey) -> None:
 def claim(db: Session, rec: ExecutionRecord, key: ApiKey) -> None:
     _require_current(rec)
     if rec.status == "in_progress":
-        raise HTTPException(status_code=409, detail=f"已被 {rec.claimed_by} 领取，进行中")
+        raise ApiError("work_already_claimed", f"已被 {rec.claimed_by} 领取，进行中")
     _require_status(rec, CLAIMABLE, "领取")
     retry = rec.status != "pending"
     rec.claimed_by = key.hint
@@ -255,9 +256,9 @@ def verify(db: Session, rec: ExecutionRecord, key: ApiKey, results: list[dict], 
     _require_current(rec)
     _require_status(rec, ("implemented",), "验收")
     if rec.implemented_by_key_id == key.id:
-        raise HTTPException(
-            status_code=403,
-            detail="验证者不能是实现者本人（同一把 key）：请换测试 Agent 的 key 验收",
+        raise ApiError(
+            "work_verifier_is_implementer",
+            "验证者不能是实现者本人（同一把 key）：请换测试 Agent 的 key 验收",
         )
     checked = _check_results(version_acceptance(db, rec), results, "验证方")
     rec.verification_json = json.dumps(checked, ensure_ascii=False)

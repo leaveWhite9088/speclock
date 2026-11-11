@@ -38,7 +38,7 @@ DEEP_IMPORT_EXCEPTIONS: dict[tuple[str, str], str] = {}
 
 # 核心包内的分层：每一层只能依赖更低的层。
 CORE_LAYERS: list[set[str]] = [
-    {"db", "events", "diffing", "schemas"},
+    {"db", "errors", "events", "diffing", "schemas"},
     {"models"},
     {"auth", "migrations", "permissions"},
     {"engine", "executions"},
