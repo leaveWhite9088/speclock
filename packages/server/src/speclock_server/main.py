@@ -1,7 +1,7 @@
 """FastAPI application assembly: admin (read / manage) + change-request (the only
 write channel) + agent (read) JSON APIs.
 
-When the Vue SPA has been built (``web/dist/`` next to the package), it is
+When the Vue SPA has been built (``apps/web/dist/``), it is
 served from the same process: static bundles under ``/assets`` and every
 non-API GET falls back to ``index.html`` so client-side routes (deep links
 like ``/proposals``) work. Unknown ``/api/`` paths still get a JSON 404.
@@ -14,14 +14,16 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.exception_handlers import http_exception_handler
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 
 from speclock_config import __version__, embed_origins
-from speclock_core import init_db
-from speclock_server import api_admin, api_agent, api_cr, api_exec, api_search, api_web
+from speclock_core import code_of, init_db
+from speclock_server import api_admin, api_agent, api_cr, api_exec, api_meta, api_search, api_web
+from speclock_server.responses import ERROR_RESPONSES
 
 BASE_DIR = Path(__file__).resolve().parent
 # 网页构建产物：开发时在 monorepo 的 apps/web/dist（packages/server/src/speclock_server 往上 4 层是仓库根）；
@@ -33,8 +35,8 @@ STATIC_DIR = BASE_DIR / "static"
 NO_WEB_PAGE = """<!doctype html><meta charset="utf-8"><title>SpecLock</title>
 <body style="font:16px/1.6 system-ui;max-width:42rem;margin:4rem auto;padding:0 1rem">
 <h1>SpecLock 服务在运行</h1>
-<p>但这份代码里没有构建好的网页（<code>web/dist/</code>）。要看网页，先构建一次：</p>
-<pre>cd web &amp;&amp; npm install &amp;&amp; npm run build</pre>
+<p>但这份代码里没有构建好的网页（<code>apps/web/dist/</code>）。要看网页，先构建一次：</p>
+<pre>cd apps/web &amp;&amp; npm install &amp;&amp; npm run build</pre>
 <p>构建完刷新本页即可。接口文档在 <a href="/docs">/docs</a>。</p>"""
 
 
@@ -51,14 +53,20 @@ def create_app() -> FastAPI:
     init_db()
 
     @app.exception_handler(StarletteHTTPException)
-    async def friendlier_http_errors(request, exc):
-        # FastAPI 对「请求体不是合法 JSON」只说 error parsing the body，没说是编码问题（Windows 下 curl 常见）
-        if exc.status_code == 400 and exc.detail == "There was an error parsing the body":
-            return JSONResponse(
-                {"detail": "请求体不是有效的 UTF-8 JSON；含中文时请用 UTF-8 编码"
-                           "（curl 用 --data-binary @文件.json，不要在命令行里直接写中文）"},
-                status_code=400)
-        return await http_exception_handler(request, exc)
+    async def http_errors(request, exc):
+        # 所有错误都是 {"detail": ..., "code": ...}：detail 给人看（保持原样），code 给程序判断（见 speclock_core.errors）
+        detail = exc.detail
+        if exc.status_code == 400 and detail == "There was an error parsing the body":
+            # FastAPI 对「请求体不是合法 JSON」只说 error parsing the body，没说是编码问题（Windows 下 curl 常见）
+            detail = ("请求体不是有效的 UTF-8 JSON；含中文时请用 UTF-8 编码"
+                      "（curl 用 --data-binary @文件.json，不要在命令行里直接写中文）")
+        return JSONResponse({"detail": detail, "code": code_of(exc)}, status_code=exc.status_code,
+                            headers=getattr(exc, "headers", None))
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_errors(request, exc):
+        return JSONResponse({"detail": jsonable_encoder(exc.errors()), "code": "validation_failed"},
+                            status_code=422)
 
     frame_ancestors = "frame-ancestors 'self' " + " ".join(embed_origins())
 
@@ -74,12 +82,9 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC_DIR / "embed.js", media_type="application/javascript",
                             headers={"Cache-Control": "no-cache"})
 
-    app.include_router(api_admin.router)
-    app.include_router(api_cr.router)
-    app.include_router(api_agent.router)
-    app.include_router(api_exec.router)
-    app.include_router(api_search.router)
-    app.include_router(api_web.router)
+    app.include_router(api_meta.router)
+    for module in (api_admin, api_cr, api_agent, api_exec, api_search, api_web):
+        app.include_router(module.router, responses=ERROR_RESPONSES)
 
     if DIST_DIR.is_dir():
         index_html = DIST_DIR / "index.html"
@@ -94,7 +99,7 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa_fallback(full_path: str = ""):
             if full_path == "api" or full_path.startswith("api/"):
-                return JSONResponse({"detail": "Not Found"}, status_code=404)
+                return JSONResponse({"detail": "Not Found", "code": "not_found"}, status_code=404)
             return FileResponse(index_html)
     else:
         @app.get("/", include_in_schema=False)

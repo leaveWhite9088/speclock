@@ -121,3 +121,29 @@ def test_keys_list_carries_activity_stats(env):
     unused = rows[qa["hint"]]
     assert (unused["actions_7d"], unused["reads_7d"], unused["last_active_at"]) == (0, 0, None)
     assert all("key" not in k and "hash" not in k for k in rows.values())  # 绝不含明文 / 哈希
+
+
+def test_after_id_returns_only_newer_events_in_the_same_order(env):
+    _scenario(env)
+    rows = _get(env, limit=500)
+    ids = [x["id"] for x in rows]
+    assert ids == sorted(ids, reverse=True)  # 排序仍是新的在前
+    mid = ids[len(ids) // 2]
+    newer = _get(env, limit=500, after_id=mid)
+    assert [x["id"] for x in newer] == [i for i in ids if i > mid]
+    assert _get(env, limit=500, after_id=ids[0]) == []  # 已经是最新：什么都没有
+    assert len(_get(env, limit=500, after_id=0)) == len(ids)
+
+
+def test_after_id_combines_with_before_id_and_other_filters(env):
+    _scenario(env)
+    ids = [x["id"] for x in _get(env, limit=500)]
+    low, high = ids[-3], ids[2]
+    window = _get(env, limit=500, after_id=low, before_id=high)
+    assert [x["id"] for x in window] == [i for i in ids if low < i < high]
+    # 事件比 limit 多时拿到的是最新的 limit 条，缺的一段用 before_id 往回补
+    latest = _get(env, limit=2, after_id=low)
+    assert [x["id"] for x in latest] == ids[:2]
+    gap = _get(env, limit=500, after_id=low, before_id=latest[-1]["id"])
+    assert [x["id"] for x in latest + gap] == [i for i in ids if i > low]
+    assert all(x["action"] != "pull" for x in _get(env, limit=500, after_id=low, exclude_action="pull"))

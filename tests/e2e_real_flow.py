@@ -158,6 +158,15 @@ try:
     r = httpx.post(url + "/api/v1/projects", json={"name": "x"}, headers={"X-API-Key": web}); ok("viewer cannot write (403)", r.status_code == 403)
     ok("web served at /", httpx.get(url + "/").status_code == 200)
     ok("embed.js served", "SpecLock" in httpx.get(url + "/embed.js").text)
+    h = httpx.get(url + "/api/v1/health")  # 接口契约：健康检查不要 key；错误带稳定的 code；after_id 取新事件
+    ok("health needs no key and reports the version", h.status_code == 200 and h.json()["status"] == "ok" and h.json()["version"])
+    r = httpx.get(url + "/api/v1/me")
+    ok("errors carry a stable code next to detail", r.status_code == 401 and r.json()["code"] == "unauthenticated" and r.json()["detail"])
+    rows = httpx.get(url + "/api/v1/activity", params={"limit": 5}, headers={"X-API-Key": admin}).json()
+    newer = httpx.get(url + "/api/v1/activity", params={"after_id": rows[-1]["id"]}, headers={"X-API-Key": admin}).json()
+    ok("activity after_id returns only newer events", newer and all(x["id"] > rows[-1]["id"] for x in newer))
+    spec = httpx.get(url + "/openapi.json").json()
+    ok("openapi.json is served with response schemas", "/api/v1/health" in spec["paths"] and "ErrorOut" in spec["components"]["schemas"])
 
     # MCP 从任意目录启动也能找到 key 文件和服务地址（SPECLOCK_HOME 写死在配置里）
     elsewhere = tempfile.mkdtemp(prefix="elsewhere-")

@@ -19,6 +19,7 @@ from speclock_core import get_db
 from speclock_core import published_version
 from speclock_core import ApiKey, Block, ExecutionRecord
 from speclock_server.deps import require_permission
+from speclock_server.responses import WorkDetailOut, WorkSummaryOut
 from speclock_core import WorkReason, WorkResults
 
 router = APIRouter(prefix="/api/v1", tags=["execution"])
@@ -70,11 +71,11 @@ def _detail(db: Session, rec: ExecutionRecord) -> dict:
             }
             for e in rec.events
         ],
-        "spec": block_out(bv, rec).model_dump(mode="json"),
+        "spec": block_out(bv, rec),
     }
 
 
-@router.get("/work")
+@router.get("/work", response_model=list[WorkSummaryOut])
 def list_work(
     status: str | None = Query(default=None, description="按状态筛选；缺省 = 除已被取代外的全部"),
     block_id: int | None = None,
@@ -108,7 +109,7 @@ def list_work(
     return out
 
 
-@router.get("/work/{work_id}")
+@router.get("/work/{work_id}", response_model=WorkDetailOut)
 def get_work(
     work_id: int,
     db: Session = Depends(get_db),
@@ -117,7 +118,7 @@ def get_work(
     return _detail(db, _record(db, work_id, key))
 
 
-@router.post("/work/{work_id}/claim")
+@router.post("/work/{work_id}/claim", response_model=WorkDetailOut)
 def claim_work(
     work_id: int,
     db: Session = Depends(get_db),
@@ -130,7 +131,7 @@ def claim_work(
     return _detail(db, rec)
 
 
-@router.post("/work/{work_id}/release")
+@router.post("/work/{work_id}/release", response_model=WorkSummaryOut)
 def release_work(
     work_id: int,
     db: Session = Depends(get_db),
@@ -144,7 +145,7 @@ def release_work(
     return _summary(rec)
 
 
-@router.post("/work/{work_id}/blocked")
+@router.post("/work/{work_id}/blocked", response_model=WorkSummaryOut)
 def blocked_work(
     work_id: int,
     body: WorkReason,
@@ -158,7 +159,7 @@ def blocked_work(
     return _summary(rec)
 
 
-@router.post("/work/{work_id}/failed")
+@router.post("/work/{work_id}/failed", response_model=WorkSummaryOut)
 def failed_work(
     work_id: int,
     body: WorkReason,
@@ -172,7 +173,7 @@ def failed_work(
     return _summary(rec)
 
 
-@router.post("/work/{work_id}/implementation")
+@router.post("/work/{work_id}/implementation", response_model=WorkSummaryOut)
 def submit_implementation(
     work_id: int,
     body: WorkResults,
@@ -188,7 +189,7 @@ def submit_implementation(
     return _summary(rec)
 
 
-@router.post("/work/{work_id}/verification")
+@router.post("/work/{work_id}/verification", response_model=WorkSummaryOut)
 def verify_work(
     work_id: int,
     body: WorkResults,

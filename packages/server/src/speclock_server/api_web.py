@@ -12,17 +12,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from speclock_config import read_web_key
+from speclock_server.deps import require_local_host
+from speclock_server.responses import WebSessionOut
 
 router = APIRouter(prefix="/api/v1", tags=["web"])
 
-LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
-
-@router.get("/web/session")
+@router.get("/web/session", response_model=WebSessionOut)
 def web_session(request: Request):
-    host = request.headers.get("host", "")
-    if urlparse(f"//{host}").hostname not in LOCAL_HOSTS:
-        raise HTTPException(status_code=403, detail="只对本机地址开放")
+    host = require_local_host(request)
     if request.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
         raise HTTPException(status_code=403, detail="不接受跨站请求")
     origin = request.headers.get("origin")

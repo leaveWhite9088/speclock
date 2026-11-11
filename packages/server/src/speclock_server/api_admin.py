@@ -24,6 +24,11 @@ from speclock_core import published_version
 from speclock_config import find_home, mcp_config
 from speclock_core import ApiKey, AuditLog, Block, BlockVersion, Capability, CapabilityVersion, ChangeRequest, Commit, ExecutionEvent, ExecutionRecord, Project, Role, utcnow
 from speclock_server.deps import require_key, require_permission
+from speclock_server.responses import (
+    ActivityOut, ArchivedBlockOut, BlockVersionEntry, BlockVersionFull, CapabilityVersionEntry,
+    DeletedOut, KeyCreatedOut, KeyListEntry, MeOut, PermissionOut, ProjectDeletedOut, ProjectOut,
+    RoleOut, TreeProject,
+)
 from speclock_core import KeyCreate, ProjectCreate, RenameRequest, RoleCreate, RoleUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
@@ -41,7 +46,7 @@ def _get_block(db: Session, block_id: int) -> Block:
 # ---------- 当前 key 是谁 ----------
 
 
-@router.get("/me")
+@router.get("/me", response_model=MeOut)
 def whoami(key: ApiKey = Depends(require_key)):
     """当前 key 的身份与权限（MCP 客户端据此只暴露有权限的工具）。"""
     return {
@@ -58,7 +63,7 @@ def whoami(key: ApiKey = Depends(require_key)):
 # ---------- SPA read endpoints（读操作不写审计） ----------
 
 
-@router.get("/tree")
+@router.get("/tree", response_model=list[TreeProject])
 def get_tree(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("spec.read"))
 ):
@@ -112,7 +117,7 @@ def get_tree(
     ]
 
 
-@router.get("/archive")
+@router.get("/archive", response_model=list[ArchivedBlockOut])
 def list_archive(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("spec.read"))
 ):
@@ -160,7 +165,7 @@ def _parse_time(name: str, value: str) -> datetime:
     return dt
 
 
-@router.get("/activity")
+@router.get("/activity", response_model=list[ActivityOut])
 def list_activity(
     limit: int = Query(default=50, ge=1, le=500),
     actor_prefix: str | None = None,
@@ -171,11 +176,14 @@ def list_activity(
     since: str | None = Query(default=None, description="起始时间（含），ISO 格式"),
     until: str | None = Query(default=None, description="截止时间（不含），ISO 格式"),
     before_id: int | None = Query(default=None, description="游标：只取 id 小于它的（加载更多）"),
+    after_id: int | None = Query(default=None, description="游标：只取 id 大于它的（取某个 id 之后的新事件）"),
     db: Session = Depends(get_db),
     key: ApiKey = Depends(require_permission("audit.read")),
 ):
     """审计日志（新的在前，按 id 倒序）。所有筛选条件可以组合；翻页用 ``before_id``
-    （传上一页最后一条的 id）。actor_prefix 可按 key 前缀过滤（如 ``agent`` 只看 AI 活动）。"""
+    （传上一页最后一条的 id）；取新事件用 ``after_id``（传已处理到的最大 id），排序仍是新的在前。
+    ``after_id`` 之后的事件多于 ``limit`` 时返回的是**最新**的 ``limit`` 条，中间缺的一段用
+    ``before_id=本页最小 id`` 往回补，直到补到 ``after_id``。actor_prefix 可按 key 前缀过滤（如 ``agent`` 只看 AI 活动）。"""
     q = db.query(AuditLog)
     if actor_prefix:
         q = q.filter(AuditLog.actor.like(f"{actor_prefix}%"))
@@ -193,6 +201,8 @@ def list_activity(
         q = q.filter(AuditLog.created_at < _parse_time("until", until))
     if before_id is not None:
         q = q.filter(AuditLog.id < before_id)
+    if after_id is not None:
+        q = q.filter(AuditLog.id > after_id)
     return [
         {
             "id": a.id,
@@ -209,7 +219,7 @@ def list_activity(
 # ---------- projects ----------
 
 
-@router.get("/projects")
+@router.get("/projects", response_model=list[ProjectOut])
 def list_projects(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("spec.read"))
 ):
@@ -220,7 +230,7 @@ def list_projects(
     ]
 
 
-@router.post("/projects", status_code=201)
+@router.post("/projects", status_code=201, response_model=ProjectOut)
 def create_project(
     body: ProjectCreate,
     db: Session = Depends(get_db),
@@ -233,7 +243,7 @@ def create_project(
     return {"id": p.id, "name": p.name}
 
 
-@router.put("/projects/{project_id}")
+@router.put("/projects/{project_id}", response_model=ProjectOut)
 def rename_project(
     project_id: int,
     body: RenameRequest,
@@ -296,7 +306,7 @@ def _count_admins(
     return n
 
 
-@router.delete("/projects/{project_id}")
+@router.delete("/projects/{project_id}", response_model=ProjectDeletedOut)
 def delete_project(
     project_id: int,
     db: Session = Depends(get_db),
@@ -345,7 +355,7 @@ def _trace(v) -> dict:
     return {"cr_id": v.cr_id, "commit_id": v.commit_id}
 
 
-@router.get("/blocks/{block_id}/versions")
+@router.get("/blocks/{block_id}/versions", response_model=list[BlockVersionEntry])
 def list_versions(
     block_id: int,
     db: Session = Depends(get_db),
@@ -391,7 +401,7 @@ def list_versions(
     return out
 
 
-@router.get("/blocks/{block_id}/versions/{version}")
+@router.get("/blocks/{block_id}/versions/{version}", response_model=BlockVersionFull)
 def get_version(
     block_id: int,
     version: str,
@@ -428,7 +438,7 @@ def get_version(
     }
 
 
-@router.get("/capabilities/{capability_id}/versions")
+@router.get("/capabilities/{capability_id}/versions", response_model=list[CapabilityVersionEntry])
 def list_capability_versions(
     capability_id: int,
     db: Session = Depends(get_db),
@@ -487,7 +497,7 @@ def _key_activity(db: Session) -> dict[str, dict]:
     return stats
 
 
-@router.get("/keys")
+@router.get("/keys", response_model=list[KeyListEntry])
 def list_keys(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.read"))
 ):
@@ -497,7 +507,7 @@ def list_keys(
     return [{**_key_out(k), **stats.get(k.hint, empty)} for k in db.query(ApiKey).order_by(ApiKey.id).all()]
 
 
-@router.post("/keys", status_code=201)
+@router.post("/keys", status_code=201, response_model=KeyCreatedOut, response_model_exclude_unset=True)
 def create_key(
     body: KeyCreate,
     db: Session = Depends(get_db),
@@ -537,7 +547,7 @@ def create_key(
             "notice": "此 key 仅此一次可见，请立即复制保存；系统只存哈希，无法找回"}
 
 
-@router.delete("/keys/{key_id}")
+@router.delete("/keys/{key_id}", response_model=DeletedOut)
 def delete_key(
     key_id: int,
     via: str = Query(default="api", pattern="^(cli|natural_language|api)$"),
@@ -581,7 +591,7 @@ def _role_out(r: Role, key_count: int) -> dict:
     }
 
 
-@router.get("/permissions")
+@router.get("/permissions", response_model=list[PermissionOut])
 def list_permissions(key: ApiKey = Depends(require_permission("key.read"))):
     """权限目录（由代码定义；角色只能从中挑选）。"""
     return [
@@ -590,7 +600,7 @@ def list_permissions(key: ApiKey = Depends(require_permission("key.read"))):
     ]
 
 
-@router.get("/roles")
+@router.get("/roles", response_model=list[RoleOut])
 def list_roles(
     db: Session = Depends(get_db), key: ApiKey = Depends(require_permission("key.read"))
 ):
@@ -601,7 +611,7 @@ def list_roles(
     return [_role_out(r, counts.get(r.id, 0)) for r in db.query(Role).order_by(Role.id).all()]
 
 
-@router.post("/roles", status_code=201)
+@router.post("/roles", status_code=201, response_model=RoleOut)
 def create_role(
     body: RoleCreate,
     db: Session = Depends(get_db),
@@ -624,7 +634,7 @@ def create_role(
     return _role_out(r, 0)
 
 
-@router.put("/roles/{role_id}")
+@router.put("/roles/{role_id}", response_model=RoleOut)
 def update_role(
     role_id: int,
     body: RoleUpdate,
@@ -655,7 +665,7 @@ def update_role(
     return _role_out(r, count)
 
 
-@router.delete("/roles/{role_id}")
+@router.delete("/roles/{role_id}", response_model=DeletedOut)
 def delete_role(
     role_id: int,
     db: Session = Depends(get_db),

@@ -18,6 +18,7 @@ from speclock_core import get_db
 from speclock_core import ApiKey, Block, BlockVersion, Capability, CapabilityVersion, ExecutionRecord
 from speclock_server.deps import require_permission
 from speclock_server.scope import block_project_id, check_project_scope
+from speclock_server.responses import BlockHistoryEntry, CapabilityVersionEntry, DiffOut, DiffUnavailableOut
 from speclock_server.serializers import block_out
 from speclock_core import BlockOut, CapabilityIndexEntry, CapabilityOut, IndexBlock, IndexCapability, IndexBusiness
 
@@ -127,7 +128,7 @@ def get_block(ref: str, db: Session = Depends(get_db), key: ApiKey = Depends(req
     return block_out(bv, _exec_record(db, block.id, bv.version))
 
 
-@router.get("/blocks/{block_id}/history")
+@router.get("/blocks/{block_id}/history", response_model=list[BlockHistoryEntry])
 def get_block_history(
     block_id: int,
     db: Session = Depends(get_db),
@@ -161,7 +162,7 @@ def get_block_history(
     return out
 
 
-@router.get("/capabilities/{capability_id}/history")
+@router.get("/capabilities/{capability_id}/history", response_model=list[CapabilityVersionEntry])
 def get_capability_history(
     capability_id: int,
     db: Session = Depends(get_db),
@@ -256,7 +257,7 @@ def compute_block_diff(
     }
 
 
-@router.get("/blocks/{block_id}/diff")
+@router.get("/blocks/{block_id}/diff", response_model=DiffOut | DiffUnavailableOut, response_model_by_alias=True)
 def get_diff(
     block_id: int,
     from_: str | None = Query(default=None, alias="from"),

@@ -59,7 +59,7 @@ def test_unknown_api_path_returns_json_404(env):
     r = env["client"].get("/api/v1/nonexistent")
     assert r.status_code == 404
     assert r.headers["content-type"].startswith("application/json")
-    assert r.json() == {"detail": "Not Found"}
+    assert r.json() == {"detail": "Not Found", "code": "not_found"}
 
 
 def test_registered_api_routes_unaffected_by_fallback(env):

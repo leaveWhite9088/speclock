@@ -16,6 +16,7 @@ from speclock_core import permissions as perms
 from speclock_core import get_db
 from speclock_core import ApiKey, Block, BlockVersion, ChangeRequest
 from speclock_server.deps import require_permission
+from speclock_server.responses import SearchOut
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -132,7 +133,7 @@ def _cr_hits(db: Session, key: ApiKey, q: str, project_id: int | None) -> list[d
     return hits
 
 
-@router.get("/search")
+@router.get("/search", response_model=SearchOut)
 def search(
     q: str = Query(..., description="关键词（不区分大小写的子串匹配）"),
     project_id: int | None = None,

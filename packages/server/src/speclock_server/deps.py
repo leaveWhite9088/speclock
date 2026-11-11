@@ -5,10 +5,22 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException
+from urllib.parse import urlparse
+
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from speclock_core import PERMISSIONS, ApiKey, get_db, hash_key, role_permissions
+from speclock_core import PERMISSIONS, ApiError, ApiKey, get_db, hash_key, role_permissions
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def require_local_host(request: Request) -> str:
+    """只对本机地址开放：请求的 Host 必须是回环地址（也挡 DNS 重绑定）。返回原始 Host 头。"""
+    host = request.headers.get("host", "")
+    if urlparse(f"//{host}").hostname not in LOCAL_HOSTS:
+        raise ApiError("local_only", "只对本机地址开放")
+    return host
 
 
 def lookup_key(x_api_key: str | None, db: Session) -> ApiKey:

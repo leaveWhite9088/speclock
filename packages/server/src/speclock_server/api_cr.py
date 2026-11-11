@@ -23,10 +23,11 @@ from sqlalchemy.orm import Session
 from speclock_core import diffing
 from speclock_core import audit
 from speclock_core import apply_commit
-from speclock_core import get_db
+from speclock_core import ApiError, get_db
 from speclock_core import ApiKey, ChangeRequest, Commit, Project, utcnow
 from speclock_core import permissions as perms
 from speclock_server.deps import require_permission
+from speclock_server.responses import CommitAppliedOut, CommitDryRunOut, CROut, CRSummaryOut
 from speclock_core import CRApprove, CRCreate, CRReject, CRUpdate, CommitCreate
 
 router = APIRouter(prefix="/api/v1", tags=["change-requests"])
@@ -148,9 +149,9 @@ def _check_supersedes(db: Session, project_id: int, supersedes_id: int | None, s
     if old is None or old.project_id != project_id or old.id == self_id:
         raise HTTPException(status_code=422, detail=f"supersedes_id {supersedes_id} 不是本项目的其他审核单")
     if old.status != "approved":
-        raise HTTPException(
-            status_code=409,
-            detail=f"只能取代已批准但未完成的审核单，#{old.id} 当前是 {old.status}",
+        raise ApiError(
+            "cr_supersede_invalid",
+            f"只能取代已批准但未完成的审核单，#{old.id} 当前是 {old.status}",
         )
 
 
@@ -169,24 +170,24 @@ def _require_owner(cr: ChangeRequest, key: ApiKey) -> None:
         return
     if "key.manage" in perms.role_permissions(key.role):
         return
-    raise HTTPException(
-        status_code=403,
-        detail=f"这张审核单是 {cr.created_by} 开的，只有它（或管理员）能修改、提交或撤回",
+    raise ApiError(
+        "cr_not_owner",
+        f"这张审核单是 {cr.created_by} 开的，只有它（或管理员）能修改、提交或撤回",
     )
 
 
 def _require_status(cr: ChangeRequest, *allowed: str) -> None:
     if cr.status not in allowed:
-        raise HTTPException(
-            status_code=409,
-            detail=f"审核单是 {cr.status}，该操作只允许在 {' / '.join(allowed)} 状态下进行",
+        raise ApiError(
+            "cr_state_conflict",
+            f"审核单是 {cr.status}，该操作只允许在 {' / '.join(allowed)} 状态下进行",
         )
 
 
 # ---------- 创建 / 读取 / 编辑草稿 ----------
 
 
-@router.post("/change-requests", status_code=201)
+@router.post("/change-requests", status_code=201, response_model=CROut)
 def create_cr(
     body: CRCreate,
     db: Session = Depends(get_db),
@@ -224,7 +225,7 @@ def create_cr(
     return cr_out(cr)
 
 
-@router.get("/change-requests")
+@router.get("/change-requests", response_model=list[CRSummaryOut])
 def list_crs(
     status: str | None = None,
     project_id: int | None = None,
@@ -243,7 +244,7 @@ def list_crs(
     return [cr_out(cr, detail=False) for cr in q.order_by(ChangeRequest.id.desc()).all()]
 
 
-@router.get("/change-requests/{cr_id}")
+@router.get("/change-requests/{cr_id}", response_model=CROut)
 def get_cr(
     cr_id: int,
     db: Session = Depends(get_db),
@@ -252,7 +253,7 @@ def get_cr(
     return cr_out(_get_cr(db, key, cr_id))
 
 
-@router.put("/change-requests/{cr_id}")
+@router.put("/change-requests/{cr_id}", response_model=CROut)
 def update_cr(
     cr_id: int,
     body: CRUpdate,
@@ -296,7 +297,7 @@ def update_cr(
 # ---------- 提交 / 撤回 ----------
 
 
-@router.post("/change-requests/{cr_id}/submit")
+@router.post("/change-requests/{cr_id}/submit", response_model=CROut)
 def submit_cr(
     cr_id: int,
     db: Session = Depends(get_db),
@@ -348,7 +349,7 @@ def submit_cr(
     return cr_out(cr)
 
 
-@router.post("/change-requests/{cr_id}/withdraw")
+@router.post("/change-requests/{cr_id}/withdraw", response_model=CROut)
 def withdraw_cr(
     cr_id: int,
     db: Session = Depends(get_db),
@@ -390,7 +391,7 @@ def _check_evidence(via: str, evidence: str) -> None:
         )
 
 
-@router.post("/change-requests/{cr_id}/approve")
+@router.post("/change-requests/{cr_id}/approve", response_model=CROut)
 def approve_cr(
     cr_id: int,
     body: CRApprove,
@@ -400,17 +401,17 @@ def approve_cr(
     cr = _get_cr(db, key, cr_id)
     _require_status(cr, "pending_review")
     if body.content_hash != cr.content_hash:
-        raise HTTPException(
-            status_code=409,
-            detail="审核单内容已变化（撤回并重新提交过），请重新查看后再批准",
+        raise ApiError(
+            "cr_content_changed",
+            "审核单内容已变化（撤回并重新提交过），请重新查看后再批准",
         )
     _check_evidence(body.via, body.evidence)
     if cr.supersedes_id is not None:
         old = db.get(ChangeRequest, cr.supersedes_id)
         if old is None or old.status != "approved":
-            raise HTTPException(
-                status_code=409,
-                detail=f"要取代的审核单 #{cr.supersedes_id} 已不是 approved（{old.status if old else '不存在'}）",
+            raise ApiError(
+                "cr_supersede_invalid",
+                f"要取代的审核单 #{cr.supersedes_id} 已不是 approved（{old.status if old else '不存在'}）",
             )
         old.status = "superseded"
         old.superseded_by_id = cr.id
@@ -429,7 +430,7 @@ def approve_cr(
     return cr_out(cr)
 
 
-@router.post("/change-requests/{cr_id}/reject")
+@router.post("/change-requests/{cr_id}/reject", response_model=CROut)
 def reject_cr(
     cr_id: int,
     body: CRReject,
@@ -456,7 +457,7 @@ def reject_cr(
 # ---------- Commit / 完成 ----------
 
 
-@router.post("/change-requests/{cr_id}/commits")
+@router.post("/change-requests/{cr_id}/commits", response_model=CommitDryRunOut | CommitAppliedOut)
 def create_commit(
     cr_id: int,
     body: CommitCreate,
@@ -475,7 +476,7 @@ def create_commit(
             "covers": json.loads(commit.covers_json), **outcome}
 
 
-@router.post("/change-requests/{cr_id}/complete")
+@router.post("/change-requests/{cr_id}/complete", response_model=CROut)
 def complete_cr(
     cr_id: int,
     db: Session = Depends(get_db),
@@ -487,13 +488,13 @@ def complete_cr(
     cr = _get_cr(db, key, cr_id)
     _require_status(cr, "approved")
     if not cr.commits:
-        raise HTTPException(status_code=409, detail="还没有任何 Commit，不能标记完成")
+        raise ApiError("cr_no_commits", "还没有任何 Commit，不能标记完成")
     covered = _covered(cr)
     missing = [a["id"] for a in json.loads(cr.acceptance_json or "[]") if a["id"] not in covered]
     if missing:
-        raise HTTPException(
-            status_code=409,
-            detail={"error": "仍有验收条件没有被任何 Commit 覆盖", "missing": missing},
+        raise ApiError(
+            "cr_coverage_incomplete",
+            {"error": "仍有验收条件没有被任何 Commit 覆盖", "missing": missing},
         )
     cr.status = "applied"
     cr.applied_at = utcnow()
