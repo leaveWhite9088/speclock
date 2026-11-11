@@ -47,6 +47,7 @@ function toNode(p) {
           status: b.status,
           version: b.current_published_version,
           execution_status: b.execution_status,
+          works: b.works || [],
         }))
         return {
           kind: 'capability',

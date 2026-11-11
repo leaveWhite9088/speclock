@@ -138,6 +138,7 @@ const summary = computed(() => {
             <ExecStatusBadge :status="w.status" />
             <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row-title">{{ w.block_title }}</RouterLink>
             <span class="mono muted">v{{ w.version }}</span>
+            <span v-if="w.surface" class="surface-tag">{{ w.surface }}</span>
             <TimeAgo class="row-time muted" :value="w.updated_at" />
           </div>
           <p v-if="w.reason" class="row-reason">{{ w.reason }}</p>

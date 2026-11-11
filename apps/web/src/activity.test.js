@@ -21,6 +21,7 @@ describe('parseTarget', () => {
 
   it('任务的 target 后面是模块 id', () => {
     expect(parseTarget('work:3@1.0.0')).toEqual({ text: '模块 #3 @1.0.0 的任务', to: '/blocks/3?version=1.0.0' })
+    expect(parseTarget('work:3@1.0.0#前端')).toEqual({ text: '模块 #3 @1.0.0（前端） 的任务', to: '/blocks/3?version=1.0.0' })
   })
 
   it('密钥 / 角色 / 项目 / 索引', () => {

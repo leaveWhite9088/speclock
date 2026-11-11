@@ -298,3 +298,15 @@ pre,
     animation-duration: 0.01ms !important;
   }
 }
+
+/* 模块声明了「端」（前端 / 后端…）时，待办 / 总览里标明这条记录属于哪个端 */
+.surface-tag {
+  display: inline-block;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--contract);
+  color: var(--contract);
+  white-space: nowrap;
+}

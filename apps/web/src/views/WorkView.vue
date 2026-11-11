@@ -106,6 +106,7 @@ const total = computed(() => Object.values(counts.value).reduce((a, b) => a + b,
             {{ r.block_title }}
           </RouterLink>
           <span class="mono muted">v{{ r.version }}</span>
+          <span v-if="r.surface" class="surface-tag">{{ r.surface }}</span>
           <span class="muted item-path">{{ r.business }} / {{ r.capability_title }}</span>
           <span v-if="r.claimed_by" class="muted item-who">领取：<KeyChip :hint="r.claimed_by" /></span>
           <span class="muted mono item-time">{{ fmtTime(r.updated_at) }}</span>

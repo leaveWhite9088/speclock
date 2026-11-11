@@ -9,6 +9,7 @@ import { useKeyNames } from '../api/keyNames.js'
 import { fmtTime } from '../time.js'
 import VersionChip from '../components/VersionChip.vue'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
+import SurfaceStatus from '../components/SurfaceStatus.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
@@ -126,6 +127,7 @@ useAutoRefresh(load)
             />
             <span v-else class="muted text-sm">未发布</span>
             <ExecStatusBadge :status="b.execution_status" />
+            <SurfaceStatus :works="b.works || []" />
           </div>
         </div>
         <div v-else class="card state-card">
