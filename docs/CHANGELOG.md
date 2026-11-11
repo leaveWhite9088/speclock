@@ -17,12 +17,19 @@
   `work_superseded` / `work_state_conflict` / `work_already_claimed` / `work_not_holder` / `work_verifier_is_implementer` / `block_archived` / `local_only`）。
   MCP 工具返回的错误体里也随之多了 `code`。
 - **`GET /api/v1/activity?after_id=`**：只取 id 大于它的事件，排序仍是新的在前；可与 `before_id` 组合补齐中间缺的一段。MCP 的 `get_activity` 同样多了可选参数 `after_id`（只加可选参数，原有工具名、参数、返回都没变）。
-
 - **MCP 工具契约快照**：`docs/mcp_tools.json` 记录每个 MCP 工具的名字、参数、调用的 REST 接口和返回结构，`tests/test_mcp_contract.py` 逐字比对（`UPDATE_MCP_SNAPSHOT=1` 有意更新）。
   工具返回仍是文本 JSON `{"status", "body"}`，`body` 就是对应 REST 接口的响应，所以返回结构直接引用 OpenAPI 里的响应模型；
   和"原样包一层"不一样的三处（`whoami` 多 `key_source`、`use_api_key`、`create/update_change_request` 的 kind 校验错误）在快照里单独标注。工具的描述文字不在快照里。
 
-没有改动的：所有路径、方法、字段名、状态码、权限、MCP 工具名、参数和返回文本。没做的：`GET /embed.js`、`/docs`、`/openapi.json` 和网页托管不在契约内。
+**项目隔离收紧（会改变行为）**
+
+- **超级管理员与项目管理员**：`admin` 是超级管理员（全局）；新增预置角色 `project-admin`（项目管理员 / 项目主管）：批准本项目的审核单、管理本项目的 key，不能建项目、改角色、建超级管理员。
+- **Agent key 和项目管理员 key 创建时必须绑定项目**：`POST /api/v1/keys` 对 agent 类角色和 `project-admin` 不带 `project_id` 返回 422 `project_required`；只有 `admin` 可以是全局的。
+  升级前就存在的全局 Agent key 照常工作，但新建不出来了。`speclock key create` 对应加了 `--project` 的说明。
+- **项目管理员只管本项目**：建 key 时 `project_id` 默认并只能是自己的项目，只看得到 / 删得掉本项目的 key；角色增删改要超级管理员（403 `super_admin_required`）；「最后一把管理员」改为指最后一把超级管理员。
+- 新增错误码 `project_required`、`super_admin_required`。MCP `create_api_key` / `create_change_request` 的描述写明了 `project_id` 的规则（工具签名没变）。
+
+接口形状方面没有改动的：所有路径、方法、字段名、状态码、权限、MCP 工具名、参数和返回文本（上面「项目隔离收紧」是行为上的唯一例外：为 Agent / 项目管理员建 key 不带 `project_id` 现在会被拒绝）。没做的：`GET /embed.js`、`/docs`、`/openapi.json` 和网页托管不在契约内。
 
 **monorepo 与分层**
 

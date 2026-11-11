@@ -44,8 +44,8 @@
 
 ### 全局 key 开审核单要先知道项目 id
 
-key 没有绑定项目（身份里写「全局」）时，`create_change_request` 必须传 `project_id`：先 `list_projects` 看有哪些项目，再选。
-绑定了项目的 key 不用传，也只能在自己的项目里开单。
+需求 Agent 的 key 都绑定了项目（身份里写项目 id），`create_change_request` **不用传 `project_id`**，服务端自动用 key 的项目，也只能在自己的项目里开单。
+身份里写「全局」只会出现在升级前遗留的老 key 上：这时必须传 `project_id`，先 `list_projects` 看有哪些项目再选，并提醒人给你换一把绑定项目的 key。
 
 ### Commit 漏了 covers
 

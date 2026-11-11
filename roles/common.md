@@ -58,4 +58,4 @@ SpecLock 是业务规格的唯一信源：保存业务事实（大业务 → 小
 
 - 角色：`<requirements-agent | executor-agent | tester-agent | scanner-agent>`
 - key 文件：`<.speclock/keys/ 里你自己的那个文件名，如 tester-agent--qa.key；这里只写文件名，不要写 key 本身>`
-- 项目：`<project_id，没有绑定就写「全局」>`（全局 key 开审核单要传 `project_id`，先 `list_projects`）
+- 项目：`<project_id>`（Agent 的 key 都绑定了项目，不用在调用里传；只有升级前遗留的老 key 才会是「全局」，那时开审核单要传 `project_id`）
