@@ -35,6 +35,11 @@ describe('api client', () => {
     expect(getKey()).toBe('human-web-1111')
   })
 
+  it('服务端要求指明项目时，错误里带 code（网页据此显示项目选择页）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(422, { detail: '有多个项目', code: 'web_project_required' })))
+    await expect(api.get('/x')).rejects.toEqual({ status: 422, detail: '有多个项目', code: 'web_project_required' })
+  })
+
   it('取不到只读密钥时抛出服务端的说明', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, { detail: '没有网页用的 key' })))
     await expect(api.get('/x')).rejects.toEqual({ status: 404, detail: '没有网页用的 key' })

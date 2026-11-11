@@ -11,6 +11,8 @@
  *   const projects = await api.get('/projects')
  */
 
+import { requestedProject, setSessionProject } from '../project.js'
+
 const BASE_URL = '/api/v1'
 
 let currentKey = ''
@@ -49,7 +51,8 @@ function errorOf(res, data) {
     (data && typeof data === 'object' && data.detail) ||
     (typeof data === 'string' ? data : null) ||
     `请求失败（HTTP ${res.status}）`
-  return { status: res.status, detail }
+  const code = data && typeof data === 'object' && typeof data.code === 'string' ? data.code : undefined
+  return code ? { status: res.status, detail, code } : { status: res.status, detail }
 }
 
 /** 没有 key 就向本机服务要一把只读 key；已经有了什么都不做。 */
@@ -57,13 +60,16 @@ export async function ensureSession() {
   if (currentKey) return
   let res
   try {
-    res = await fetch(`${BASE_URL}/web/session`)
+    // 只要这一个项目的 key（绑定了项目）：网页看不到别的项目
+    const query = requestedProject != null ? `?project_id=${requestedProject}` : ''
+    res = await fetch(`${BASE_URL}/web/session${query}`)
   } catch {
     throw { status: 0, detail: '连不上 SpecLock 服务，请确认 speclock serve 在运行' }
   }
   const data = await readBody(res)
   if (!res.ok) throw errorOf(res, data)
   setKey(data.key)
+  setSessionProject(data.project_id)
 }
 
 async function send(path, { method, body, headers }) {

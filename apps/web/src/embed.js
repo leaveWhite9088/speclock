@@ -11,10 +11,11 @@
 
 export const embedded = new URLSearchParams(window.location.search).has('embed')
 
-/** 去掉 embed 参数后的路径（报告给外层页面用）。 */
+/** 去掉 embed、project 参数后的路径（报告给外层页面用；这两个参数是外层页面自己配的，不用报告回去）。 */
 export function withoutEmbed(fullPath) {
   const url = new URL(fullPath, 'http://x')
   url.searchParams.delete('embed')
+  url.searchParams.delete('project')
   const query = url.searchParams.toString()
   return url.pathname + (query ? `?${query}` : '') + url.hash
 }

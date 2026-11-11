@@ -15,6 +15,7 @@ import ArchiveView from './views/ArchiveView.vue'
 import McpView from './views/McpView.vue'
 import EmbedView from './views/EmbedView.vue'
 import { embedded } from './embed.js'
+import { requestedProject } from './project.js'
 
 const routes = [
   { path: '/', name: 'home', component: OverviewView, meta: { title: '总览' } },
@@ -70,10 +71,13 @@ export const router = createRouter({
   linkExactActiveClass: 'is-exact',
 })
 
-// 嵌入模式（地址带 ?embed=1）：站内跳转一直带着 embed 参数
+// 站内跳转一直带着 embed（嵌入模式）和 project（看哪个项目）参数
 router.beforeEach((to) => {
-  if (embedded && !('embed' in to.query)) {
-    return { path: to.path, query: { ...to.query, embed: '1' }, hash: to.hash, replace: true }
+  const keep = {}
+  if (embedded && !('embed' in to.query)) keep.embed = '1'
+  if (requestedProject != null && !('project' in to.query)) keep.project = String(requestedProject)
+  if (Object.keys(keep).length) {
+    return { path: to.path, query: { ...to.query, ...keep }, hash: to.hash, replace: true }
   }
   return true
 })

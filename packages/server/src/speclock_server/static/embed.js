@@ -2,13 +2,14 @@
  * SpecLock 嵌入脚本：把 SpecLock 的网页嵌进你自己的页面里。
  *
  *   <script src="http://127.0.0.1:端口/embed.js"></script>
- *   <div data-speclock="overview"></div>
+ *   <div data-speclock="overview" data-project="1"></div>
  *
  * 或者用代码挂载：
- *   var box = SpecLock.mount('#spec', { view: 'tree', height: 'auto' });
+ *   var box = SpecLock.mount('#spec', { project: 1, view: 'tree', height: 'auto' });
  *   box.navigate('/blocks/3');          // 让里面的页面跳转
  *
- * 选项：view（页面名，见 SpecLock.views）、path（直接给路径，如 /blocks/3，优先于 view）、
+ * 选项：project（要看的项目 id；库里有多个项目时必填。一个嵌入的网页只看得到这一个项目）、
+ *      view（页面名，见 SpecLock.views）、path（直接给路径，如 /blocks/3，优先于 view）、
  *      height（'auto' 跟随内容自适应，默认；或 '600px' / 600）、className、title、
  *      onReady(path)、onNavigate(path)。
  * 嵌入的页面只读，不能修改任何东西。文档：docs/EMBED.md
@@ -41,8 +42,9 @@
     return path;
   }
 
-  function withEmbed(path) {
-    return ORIGIN + path + (path.indexOf('?') === -1 ? '?' : '&') + 'embed=1';
+  function withEmbed(path, project) {
+    var query = 'embed=1' + (project ? '&project=' + encodeURIComponent(project) : '');
+    return ORIGIN + path + (path.indexOf('?') === -1 ? '?' : '&') + query;
   }
 
   function cssHeight(h) {
@@ -57,7 +59,7 @@
     var auto = opts.height === undefined || opts.height === 'auto';
     var path = resolvePath(opts);
     var iframe = document.createElement('iframe');
-    iframe.src = withEmbed(path);
+    iframe.src = withEmbed(path, opts.project);
     iframe.title = opts.title || 'SpecLock';
     iframe.className = opts.className || '';
     iframe.setAttribute('loading', 'lazy');
@@ -109,6 +111,7 @@
       mount(n, {
         view: n.getAttribute('data-speclock') || 'overview',
         path: n.getAttribute('data-path') || undefined,
+        project: n.getAttribute('data-project') || undefined,
         height: n.getAttribute('data-height') || undefined,
       });
     }

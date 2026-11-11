@@ -2,7 +2,11 @@
 // 嵌入：把这个网页放进你自己的页面里。页面本身只是说明和可复制的代码，真正的嵌入脚本是 /embed.js。
 import { computed, ref } from 'vue'
 
+import { getSessionProject } from '../project.js'
+
 const origin = window.location.origin
+// 这个网页看的项目：嵌进别的页面时要写明（一个嵌入的网页只看得到这一个项目）
+const projectId = ref(getSessionProject() ?? 1)
 
 const VIEWS = [
   ['overview', '/', '总览：现在有什么需要关注的'],
@@ -17,11 +21,11 @@ const VIEWS = [
 
 const scriptSnippet = computed(
   () => `<script src="${origin}/embed.js"><\/script>
-<div data-speclock="overview"></div>`,
+<div data-speclock="overview" data-project="${projectId.value}"></div>`,
 )
 
 const iframeSnippet = computed(
-  () => `<iframe src="${origin}/?embed=1" style="border:0;width:100%;height:600px"></iframe>`,
+  () => `<iframe src="${origin}/?embed=1&project=${projectId.value}" style="border:0;width:100%;height:600px"></iframe>`,
 )
 
 const apiSnippet = computed(
@@ -30,6 +34,7 @@ const apiSnippet = computed(
 <script>
   // height 默认 'auto'：高度跟着内容自适应
   var box = SpecLock.mount('#spec', {
+    project: ${projectId.value},
     view: 'tree',
     onNavigate: function (path) { console.log('里面跳到了', path) },
   })
