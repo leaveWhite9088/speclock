@@ -40,13 +40,9 @@ const detailText = computed(() => {
 
 <style scoped>
 .act {
-  padding: var(--sp-2) 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-1);
+  border-top: 1px solid var(--hairline);
   font-size: var(--text-sm);
-}
-
-.act:last-child {
-  border-bottom: none;
 }
 
 .act-line {
@@ -57,7 +53,7 @@ const detailText = computed(() => {
 }
 
 .act-action {
-  font-weight: 500;
+  color: var(--ink);
 }
 
 .act-target.plain {
@@ -71,9 +67,10 @@ const detailText = computed(() => {
 
 .act-note {
   margin-top: 2px;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
+
 .act-detail {
   margin-top: 2px;
   font-size: var(--text-xs);
@@ -86,7 +83,7 @@ const detailText = computed(() => {
 .act-detail pre {
   margin: var(--sp-1) 0 0;
   padding: var(--sp-2) var(--sp-3);
-  background: var(--paper);
+  background: var(--side);
   border-radius: var(--radius-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;

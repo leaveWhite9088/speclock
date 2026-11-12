@@ -19,6 +19,10 @@ const TOOLS = [
   ['get_activity', '审计日志：谁在什么时候对什么做了什么，可筛选、可翻页（需要 audit.read）'],
   ['create_project', '创建项目（仅 admin，先问人）'],
   ['rename_project', '项目改名（仅 admin，先问人）'],
+  ['delete_block', '删除模块（不可恢复）：须有人批准、点名它的审核单（cr_id）；已发布的要先归档'],
+  ['delete_capability', '删除小业务（连同其下模块，不可恢复）：同样须审核单授权'],
+  ['delete_business', '删除大业务（连同其下全部内容，不可恢复）：同样须审核单授权'],
+  ['delete_project', '删除整个项目（含审核单和绑定的 key，不可恢复）：仅超级管理员，须审核单授权'],
   ['list_work', '待办列表：按状态筛选（待领取 / 进行中 / 被阻塞 / 失败 / 待验收 / 已验收）'],
   ['get_work', '一条执行记录：事件历史、已提交的结果、锁定到该版本的完整规格'],
   ['claim_work', '领取任务（执行 Agent）：返回锁定版本的完整规格；失败 / 被阻塞的可重新领取'],
@@ -147,20 +151,12 @@ onMounted(load)
 
 <template>
   <div class="page mcp-page">
-    <p class="page-eyebrow">AI Access</p>
     <h1 class="page-title">AI 接入</h1>
 
-    <p class="page-desc">
-      本页面向开发 agent。点「复制接入说明」得到一份完整的 Markdown 接入指南，直接发给 agent，它会自行完成配置。
-    </p>
-
-    <div class="card intro-card">
+    <div class="intro-card">
       <button type="button" class="btn btn-primary" @click="copyText(brief, 'brief')">
-        {{ copied && copyState === 'brief' ? '已复制到剪贴板 ✓' : '复制接入说明' }}
+        {{ copied && copyState === 'brief' ? '已复制 ✓' : '复制接入说明' }}
       </button>
-      <span class="muted intro-hint">
-        说明包含：接入方式、MCP 配置、{{ TOOLS.length }} 个工具清单、使用规则。
-      </span>
     </div>
 
     <!-- 第 1 步：MCP 配置 -->
@@ -168,15 +164,9 @@ onMounted(load)
       <h2 class="section-title">第 1 步：写入 MCP 配置</h2>
       <div class="card section-card">
         <p class="step-text">
-          把下面 JSON 合并到项目根目录的 <code>.mcp.json</code>（若已有
-          <code>mcpServers</code> 字段，只合并其中 <code>speclock</code> 一项），然后重启客户端。
-          MCP server 以 stdio 启动：<code>speclock mcp</code>。
-        </p>
-        <p class="step-text">
-          每个 Agent 用<strong>它自己的</strong> key：在终端运行
-          <code>speclock key create --role requirements-agent --label 需求</code>，会直接打印这段配置（填好了 key 文件名和
-          <code>SPECLOCK_HOME</code>），照着贴就行。配置里只有 key 的文件名，没有 key 本身。
-          <strong>admin key 不要写进项目里的 <code>.mcp.json</code></strong>，同目录的 Agent 都读得到。
+          合并进项目根目录的 <code>.mcp.json</code>，重启客户端。每个 Agent 用自己的 key：
+          <code>speclock key create --role requirements-agent --label 需求 --project 1</code> 会直接打印这段配置。
+          <strong>admin key 不要写进 <code>.mcp.json</code></strong>。
         </p>
         <pre class="config-pre mono">{{ configJson }}</pre>
         <button type="button" class="btn" @click="copyText(configJson, 'config')">
@@ -225,9 +215,7 @@ onMounted(load)
       </div>
 
       <div v-else-if="!activities.length" class="card section-card">
-        <p class="muted">
-          暂无 AI 活动记录。AI 通过 MCP 或 REST 读取/提案后，这里会显示它读了什么。
-        </p>
+        <p class="muted">暂无</p>
       </div>
 
       <div v-else class="card section-card table-wrap">

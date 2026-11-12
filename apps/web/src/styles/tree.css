@@ -1,9 +1,5 @@
-/* 树状导航样式（文档树）。
-   原 TreeNode.vue scoped 样式原样搬出，数值不变（搬家不是重设计）：
-   行式节点 .trow、caret 展开收起、缩进引导线 .tkids、悬停行内操作 .tops、
-   层级字号梯度 .k-project/.k-business/.k-capability。
-   注意：.btn-mini / .rename-input 限定在树上下文（.trow / .confirm-strip）内，
-   避免影响其他页面同名 class 的既有局部样式。 */
+/* 文档树：大业务 → 小业务 → 模块。
+   靠缩进和一根细引导线分层，不用盒子；大业务是标题，模块是一行一行的列表。 */
 
 .tnode {
   list-style: none;
@@ -11,20 +7,20 @@
 
 .trow {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--sp-2);
-  padding: 4px var(--sp-2);
+  padding: 5px var(--sp-2);
   border-radius: var(--radius);
   transition: background var(--dur) var(--ease);
 }
 
 .trow:hover {
-  background: var(--card);
+  background: var(--side);
 }
 
 .caret,
 .caret-sp {
-  width: 18px;
+  width: 16px;
   flex: none;
   text-align: center;
 }
@@ -45,12 +41,9 @@
 }
 
 .tname {
-  font-size: var(--text-sm);
-  color: var(--ink);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .tname-btn {
@@ -59,6 +52,7 @@
   background: none;
   padding: 0;
   font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -66,35 +60,30 @@ a.tname:hover {
   color: var(--contract);
 }
 
-/* 层级字号梯度：项目最大，模块最小 */
-.k-project > .trow .tname {
+/* 层级：大业务是衬线标题，小业务加粗，模块是普通正文 */
+.k-project > .trow .tname,
+.k-business > .trow .tname {
+  font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: 600;
 }
 
-.k-business > .trow .tname {
-  font-size: var(--text-md);
-  font-weight: 600;
+.k-business {
+  margin-top: var(--sp-3);
 }
 
 .k-capability > .trow .tname {
-  font-size: var(--text-md);
+  font-weight: 600;
 }
 
 .tmeta {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--sp-2);
+  margin-left: auto;
   flex: none;
-}
-
-.done-badge {
-  font-size: var(--text-xs);
-  color: var(--success);
-  border: 1px solid var(--success);
-  border-radius: var(--radius-sm);
-  padding: 1px 7px;
-  white-space: nowrap;
 }
 
 .bid {
@@ -103,64 +92,11 @@ a.tname:hover {
   white-space: nowrap;
 }
 
-.tops {
-  margin-left: auto;
-  display: inline-flex;
-  gap: var(--sp-1);
-  flex: none;
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
-}
-
-.trow:hover .tops,
-.trow:focus-within .tops {
-  opacity: 1;
-}
-
-/* 树内小按钮 / 行内输入框：只在树与确认条上下文生效 */
-.trow .btn-mini,
-.confirm-strip .btn-mini {
-  padding: 2px var(--sp-2);
-  font-size: var(--text-xs);
-}
-
-.trow .rename-input {
-  max-width: 260px;
-  padding: 4px var(--sp-2);
-}
-
-.add-row {
-  padding-left: var(--sp-2);
-}
-
 /* 缩进引导线 */
 .tkids {
-  margin: 0 0 0 17px;
+  margin: 0 0 0 11px;
   padding: 0 0 0 var(--sp-3);
   border-left: 1px solid var(--hairline);
-}
-
-.confirm-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-  margin: 2px 0 4px 26px;
-  padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  background: var(--card);
-}
-
-.confirm-text {
-  font-size: var(--text-sm);
-  flex: 1;
-  min-width: 240px;
-}
-
-.terror {
-  margin: 2px 0 4px 26px;
-  font-size: var(--text-xs);
 }
 
 /* 小业务节点上的验收进度 */
@@ -172,4 +108,17 @@ a.tname:hover {
 
 .progress.done {
   color: var(--success);
+}
+
+/* 窄屏：元信息掉到名称下面一行 */
+@media (max-width: 560px) {
+  .trow {
+    flex-wrap: wrap;
+  }
+
+  .tmeta {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    margin-left: calc(16px + var(--sp-2));
+  }
 }

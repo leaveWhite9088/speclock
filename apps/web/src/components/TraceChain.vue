@@ -111,7 +111,7 @@ function toggleOps(id) {
   height: 10px;
   border-radius: 50%;
   background: var(--contract);
-  border: 2px solid var(--card);
+  border: 2px solid var(--paper);
 }
 
 .commit-head {
@@ -167,7 +167,7 @@ function toggleOps(id) {
 .ops-pre {
   margin: var(--sp-2) 0 0;
   padding: var(--sp-3);
-  background: var(--paper);
+  background: var(--side);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
   white-space: pre-wrap;

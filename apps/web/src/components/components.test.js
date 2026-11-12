@@ -83,14 +83,14 @@ describe('状态徽标', () => {
 })
 
 describe('PageHeader', () => {
-  it('显示小标题、标题、说明，并带操作插槽', () => {
+  it('只有标题和操作插槽，不再有英文小标题和说明文字', () => {
     const w = mount(PageHeader, {
-      props: { eyebrow: 'Execution', title: '待办', desc: '说明文字' },
+      props: { title: '待办' },
       slots: { actions: '<button class="act">筛选</button>' },
     })
-    expect(w.find('.page-eyebrow').text()).toBe('Execution')
     expect(w.find('h1').text()).toBe('待办')
-    expect(w.find('.page-desc').text()).toBe('说明文字')
+    expect(w.find('.page-eyebrow').exists()).toBe(false)
+    expect(w.find('.page-desc').exists()).toBe(false)
     expect(w.find('.act').exists()).toBe(true)
   })
 })

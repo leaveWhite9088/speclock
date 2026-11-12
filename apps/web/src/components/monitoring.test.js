@@ -15,22 +15,24 @@ const stubs = { RouterLink: { props: ['to'], template: '<a class="rl" :data-to="
 const mountWith = (comp, opts = {}) => mount(comp, { global: { stubs }, ...opts })
 
 describe('AttentionSection', () => {
-  it('没有内容时显示说明，不显示「查看全部」', () => {
-    const w = mountWith(AttentionSection, { props: { title: '等我确认', count: 0, emptyText: '没有等你确认的审核单。', to: '/change-requests' } })
-    expect(w.text()).toContain('没有等你确认的审核单。')
-    expect(w.find('.att-all').exists()).toBe(false)
-    expect(w.find('.att-count').classes()).toContain('zero')
+  it('没有内容时只剩一行「标题 0」，不能展开，也没有「全部」链接', () => {
+    const w = mountWith(AttentionSection, { props: { title: '等我确认', count: 0, to: '/change-requests' } })
+    expect(w.text()).toContain('等我确认')
+    expect(w.find('.att-none .count').text()).toBe('0')
+    expect(w.find('details').exists()).toBe(false)
+    expect(w.find('.more').exists()).toBe(false)
   })
 
-  it('有内容时显示列表和「查看全部」，需要行动的一块带醒目样式', () => {
-    const w = mountWith(AttentionSection, {
-      props: { title: '等我确认', count: 2, tone: 'alert', to: '/change-requests' },
-      slots: { default: '<li class="row">甲</li><li class="row">乙</li>' },
-    })
+  it('有内容时是可展开的一组：标题、数量、列表和「全部」；open 时默认展开', () => {
+    const props = { title: '等我确认', count: 2, tone: 'alert', to: '/change-requests' }
+    const slots = { default: '<li class="row">甲</li><li class="row">乙</li>' }
+    const w = mountWith(AttentionSection, { props: { ...props, open: true }, slots })
     expect(w.findAll('.row')).toHaveLength(2)
-    expect(w.find('.att-all').attributes('data-to')).toBe('/change-requests')
+    expect(w.find('summary .count').text()).toBe('2')
+    expect(w.find('.more').attributes('data-to')).toBe('/change-requests')
     expect(w.classes()).toContain('tone-alert')
-    expect(w.classes()).toContain('has-items')
+    expect(w.find('details').attributes('open')).toBeDefined()
+    expect(mountWith(AttentionSection, { props, slots }).find('details').attributes('open')).toBeUndefined()
   })
 
   it('加载中和出错时分别显示，互不影响其他块', () => {
@@ -41,10 +43,11 @@ describe('AttentionSection', () => {
 })
 
 describe('StatCard', () => {
-  it('显示数字、说明和进度条；进度被限制在 0–100', () => {
+  it('显示数字、名称和进度条（说明放在悬停提示里）；进度被限制在 0–100', () => {
     const w = mountWith(StatCard, { props: { label: '已验收', value: '33%', sub: '1 / 3', percent: 33 } })
     expect(w.text()).toContain('33%')
-    expect(w.text()).toContain('1 / 3')
+    expect(w.text()).toContain('已验收')
+    expect(w.attributes('title')).toBe('1 / 3')
     expect(w.find('.stat-fill').attributes('style')).toContain('width: 33%')
     expect(mountWith(StatCard, { props: { label: 'x', value: 1, percent: 250 } }).find('.stat-fill').attributes('style')).toContain('width: 100%')
     expect(mountWith(StatCard, { props: { label: 'x', value: 1, percent: -5 } }).find('.stat-fill').attributes('style')).toContain('width: 0%')

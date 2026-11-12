@@ -116,58 +116,51 @@ function clearFilters() {
 
 <template>
   <div class="page activity-page">
-    <PageHeader
-      eyebrow="Activity"
-      title="活动"
-      desc="谁在什么时候做了什么：审核单流转、提交、任务进展、密钥变更。默认不含「读取」。"
-    />
+    <PageHeader title="活动" />
 
-    <div class="filters card">
+    <div class="filters">
       <label class="f">
-        <span class="f-label muted">类别</span>
+        <span class="f-label">类别</span>
         <select v-model="category" class="input">
           <option v-for="c in CATEGORIES" :key="c.key" :value="c.key">{{ c.label }}</option>
         </select>
       </label>
       <label class="f">
-        <span class="f-label muted">谁</span>
+        <span class="f-label">谁</span>
         <select v-model="actor" class="input">
           <option value="">所有人</option>
           <option v-for="o in actorOptions" :key="o.hint" :value="o.hint">{{ o.name }}</option>
         </select>
       </label>
       <label class="f">
-        <span class="f-label muted">时间</span>
+        <span class="f-label">时间</span>
         <select v-model="range" class="input">
           <option v-for="r in RANGES" :key="r.key" :value="r.key">{{ r.label }}</option>
         </select>
       </label>
-      <span v-if="target" class="chip">
-        对象：{{ targetText }}
-        <button type="button" class="chip-x" aria-label="取消对象筛选" @click="target = ''">×</button>
+      <span v-if="target" class="tag">
+        {{ targetText }}
+        <button type="button" class="tag-x" aria-label="取消对象筛选" @click="target = ''">×</button>
       </span>
-      <button v-if="hasFilter" type="button" class="btn btn-mini" @click="clearFilters">清除筛选</button>
+      <button v-if="hasFilter" type="button" class="link-btn" @click="clearFilters">清除</button>
     </div>
 
     <p v-if="hasNew" class="new-banner">
-      有新活动。<button type="button" class="link-btn" @click="refreshNow">刷新列表</button>
+      有新活动 <button type="button" class="link-btn" @click="refreshNow">刷新</button>
     </p>
 
     <AsyncState
       :loading="loading"
       :error="error"
       :empty="!items.length"
-      :empty-title="hasFilter ? '没有符合条件的活动' : '还没有活动记录'"
-      :empty-text="hasFilter ? '换个筛选条件试试，或清除筛选。' : 'Agent 通过 MCP 或接口做的事情都会记在这里。'"
+      :empty-title="hasFilter ? '没有符合条件的活动' : '还没有活动'"
       @retry="reload"
     >
       <section v-for="g in groups" :key="g.key" class="day">
-        <h2 class="day-title">{{ g.label }}<span class="muted day-count">{{ g.items.length }} 条</span></h2>
-        <div class="card day-card">
-          <ul>
-            <ActivityItem v-for="a in g.items" :key="a.id" :item="a" expandable />
-          </ul>
-        </div>
+        <h2 class="day-title">{{ g.label }}<span class="count">{{ g.items.length }}</span></h2>
+        <ul class="list">
+          <ActivityItem v-for="a in g.items" :key="a.id" :item="a" expandable />
+        </ul>
       </section>
 
       <p v-if="moreError" class="error-text more-error" role="alert">{{ moreError }}</p>
@@ -176,7 +169,6 @@ function clearFilters() {
           {{ loadingMore ? '加载中…' : '加载更多' }}
         </button>
       </div>
-      <p v-else-if="items.length" class="end muted">已经到底了，共 {{ items.length }} 条。</p>
     </AsyncState>
   </div>
 </template>
@@ -184,7 +176,6 @@ function clearFilters() {
 <style scoped>
 .filters {
   margin-top: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
   display: flex;
   align-items: flex-end;
   gap: var(--sp-3);
@@ -195,26 +186,27 @@ function clearFilters() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 150px;
+  flex: 1 1 130px;
+  max-width: 200px;
 }
 
 .f-label {
   font-size: var(--text-xs);
+  color: var(--ink-2);
 }
 
-.chip {
+.tag {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
   padding: 3px var(--sp-3);
-  border: 1px solid var(--contract);
   border-radius: 999px;
   background: var(--contract-wash);
   color: var(--contract);
   font-size: var(--text-sm);
 }
 
-.chip-x {
+.tag-x {
   appearance: none;
   border: none;
   background: none;
@@ -226,11 +218,8 @@ function clearFilters() {
 
 .new-banner {
   margin-top: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
-  border: 1px solid var(--contract);
-  border-radius: var(--radius);
-  background: var(--contract-wash);
   font-size: var(--text-sm);
+  color: var(--contract);
 }
 
 .link-btn {
@@ -240,6 +229,7 @@ function clearFilters() {
   padding: 0;
   color: var(--contract);
   font: inherit;
+  font-size: var(--text-sm);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -249,26 +239,29 @@ function clearFilters() {
 }
 
 .day-title {
-  font-size: var(--text-md);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-1);
 }
 
-.day-count {
-  margin-left: var(--sp-2);
-  font-size: var(--text-xs);
+.day-title .count {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
   font-weight: 400;
+  color: var(--ink-2);
 }
 
-.day-card {
-  padding: var(--sp-1) var(--sp-5);
+.day .list > :last-child {
+  border-bottom: 1px solid var(--hairline);
 }
 
-.more,
-.end {
+.more {
   margin-top: var(--sp-5);
   text-align: center;
-  font-size: var(--text-sm);
 }
 
 .more-error {

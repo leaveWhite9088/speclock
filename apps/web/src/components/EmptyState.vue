@@ -7,7 +7,7 @@ defineProps({
 </script>
 
 <template>
-  <div class="card empty-state">
+  <div class="empty-state">
     <p v-if="title" class="empty-title">{{ title }}</p>
     <p v-if="text" class="muted">{{ text }}</p>
     <slot />
@@ -16,16 +16,18 @@ defineProps({
 
 <style scoped>
 .empty-state {
-  margin-top: var(--sp-4);
-  padding: var(--sp-5);
+  margin-top: var(--sp-5);
+  padding: var(--sp-6) 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--sp-2);
-  border-style: dashed;
+  border-top: 1px solid var(--hairline);
 }
 
 .empty-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 </style>

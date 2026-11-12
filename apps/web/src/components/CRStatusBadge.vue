@@ -12,38 +12,33 @@ defineProps({ status: { type: String, required: true } })
 <style scoped>
 .cr-badge {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 0 var(--sp-2);
   border-radius: 999px;
-  font-size: var(--text-xs, 12px);
-  font-weight: 500;
+  font-size: var(--text-xs);
+  line-height: 1.6;
   white-space: nowrap;
-  background: var(--paper);
+  background: var(--side);
   color: var(--ink-2);
-  border: 1px solid var(--hairline);
 }
 
 .is-pending_review {
-  background: #fff6e0;
-  color: #8a5a00;
-  border-color: #f0d9a0;
+  background: var(--warning-wash);
+  color: var(--warning);
 }
 
 .is-approved {
   background: var(--contract-wash);
   color: var(--contract);
-  border-color: transparent;
 }
 
 .is-applied {
-  background: #e6f5ea;
-  color: #1d6b34;
-  border-color: transparent;
+  background: var(--success-wash);
+  color: var(--success);
 }
 
 .is-rejected {
-  background: #fdeaea;
-  color: #a02828;
-  border-color: transparent;
+  background: var(--danger-wash);
+  color: var(--danger);
 }
 
 .is-superseded {

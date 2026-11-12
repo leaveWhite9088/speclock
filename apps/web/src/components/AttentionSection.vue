@@ -1,96 +1,69 @@
 <script setup>
 /**
- * 总览首页的一块：标题 + 数量 + 列表（插槽）+ 「查看全部」。
- * tone：alert（需要你行动，最醒目）/ watch（事后过目）/ normal。
- * 没有内容时显示「一切正常」类的说明，而不是消失，这样人知道这块是检查过的。
+ * 总览里的一组：标题 + 数量，可以展开 / 收起；没有内容时只剩一行灰色的「标题 0」，不占地方。
+ * tone="alert"（需要你行动）的数量用陶土色圆点标出来；有内容的 alert 组默认展开。
  */
 import LoadingState from './LoadingState.vue'
 
 defineProps({
   title: { type: String, required: true },
-  hint: { type: String, default: '' },
   count: { type: Number, default: 0 },
   tone: { type: String, default: 'normal' },
+  open: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
-  emptyText: { type: String, default: '一切正常' },
   to: { type: String, default: '' },
-  toLabel: { type: String, default: '查看全部' },
 })
 </script>
 
 <template>
-  <section class="card att" :class="[`tone-${tone}`, { 'has-items': count > 0 }]">
-    <header class="att-head">
-      <h2 class="att-title">{{ title }}</h2>
-      <span class="att-count" :class="{ zero: !count }">{{ count }}</span>
-      <RouterLink v-if="to && count" :to="to" class="att-all">{{ toLabel }} →</RouterLink>
-    </header>
-    <p v-if="hint" class="att-hint muted">{{ hint }}</p>
-
+  <section class="att" :class="[`tone-${tone}`]">
     <LoadingState v-if="loading" />
     <p v-else-if="error" class="error-text att-error">{{ error }}</p>
-    <p v-else-if="!count" class="att-empty muted">{{ emptyText }}</p>
-    <ul v-else class="att-list"><slot /></ul>
+    <div v-else-if="!count" class="att-none">
+      <span class="att-name">{{ title }}</span>
+      <span class="count">0</span>
+    </div>
+    <details v-else class="fold att-fold" :open="open || undefined">
+      <summary>
+        <span class="att-name">{{ title }}</span>
+        <span class="count">{{ count }}</span>
+        <RouterLink v-if="to" :to="to" class="more" @click.stop>全部</RouterLink>
+      </summary>
+      <ul class="list att-list"><slot /></ul>
+    </details>
   </section>
 </template>
 
 <style scoped>
 .att {
-  padding: var(--sp-4) var(--sp-5);
+  margin-top: var(--sp-4);
 }
 
-.att-head {
+.att-none {
   display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-
-.att-title {
-  font-size: var(--text-md);
-  font-weight: 600;
-}
-
-.att-count {
-  min-width: 22px;
-  padding: 0 var(--sp-2);
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 20px;
-  border-radius: 999px;
-  background: var(--contract-wash);
-  color: var(--contract);
-}
-
-.att-count.zero {
-  background: var(--paper);
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 var(--sp-2) calc(6px + var(--sp-2));
+  font-size: var(--text-lg);
   color: var(--ink-2);
 }
 
-.att-all {
-  margin-left: auto;
+.att-none .count {
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.att-hint {
-  margin-top: var(--sp-1);
-  font-size: var(--text-xs);
-}
-
-.att-empty,
-.att-error {
-  margin-top: var(--sp-3);
-  font-size: var(--text-sm);
+.tone-alert .att-fold .count {
+  color: var(--contract);
+  font-weight: 600;
 }
 
 .att-list {
-  margin-top: var(--sp-2);
+  margin-top: var(--sp-1);
 }
 
-/* 卡片保持白底，只用数量标签的颜色区分：需要你行动 = 黄色，事后过目 = 蓝色 */
-.tone-alert.has-items .att-count {
-  background: var(--warning);
-  color: #fff;
+.att-error {
+  margin-top: var(--sp-2);
 }
 </style>

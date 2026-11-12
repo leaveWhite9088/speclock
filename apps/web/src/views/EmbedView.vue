@@ -61,19 +61,11 @@ async function copy(text, which) {
 
 <template>
   <div class="page embed-page">
-    <p class="page-eyebrow">Embed</p>
-    <h1 class="page-title">嵌入到其他页面</h1>
-    <p class="page-desc">
-      这个网页既可以单独打开，也可以一键嵌进别的前端里。嵌进去的页面只读，没有侧栏和顶栏，只显示内容。
-      完整说明见仓库里的 <code>docs/EMBED.md</code>。
-    </p>
+    <h1 class="page-title">嵌入</h1>
 
     <section class="section">
       <h2 class="section-title">最简单：一段 script</h2>
       <div class="card section-card">
-        <p class="step-text">
-          放进你页面的 HTML 里。<code>data-speclock</code> 写要显示的页面名，高度会自动跟着内容变。
-        </p>
         <pre class="config-pre mono">{{ scriptSnippet }}</pre>
         <button type="button" class="btn" @click="copy(scriptSnippet, 'script')">
           {{ copied === 'script' ? '已复制 ✓' : '复制' }}

@@ -175,7 +175,7 @@ async function toggleDetail(v) {
       <AppBreadcrumb :block-id="bid" />
 
       <!-- 尚未发布：引导空状态 -->
-      <div v-if="!versions.length" class="card empty">
+      <div v-if="!versions.length" class="empty">
         <h1 class="page-title">{{ meta.title }}</h1>
         <p class="muted">该模块还没有可查看的已发布版本（可能版本都已被作废）。</p>
       </div>
@@ -188,7 +188,6 @@ async function toggleDetail(v) {
             <BlockStatusBadge :status="snap.status" />
           </div>
           <div class="seal-row">
-            <span class="seal-label mono">version</span>
             <VersionChip :version="snap.version" status="published" />
             <select
               class="input ver-select"
@@ -202,12 +201,9 @@ async function toggleDetail(v) {
             </select>
           </div>
           <p class="muted seal-meta">
-            {{ snap.change_note || '（无变更说明）' }} · 由 {{ keyName(snap.published_by) }} 发布于
-            {{ fmtTime(snap.published_at) }}
-            <template v-if="snap.level"> · 版本级别 {{ snap.level }}（机械标签，仅供参考）</template>
+            {{ snap.change_note || '无变更说明' }} · {{ keyName(snap.published_by) }} · {{ fmtTime(snap.published_at) }}
             <template v-if="snap.cr_id">
-              · 来自 <RouterLink :to="`/change-requests/${snap.cr_id}`">审核单 #{{ snap.cr_id }}</RouterLink>
-              的 Commit #{{ snap.commit_id }}
+              · <RouterLink :to="`/change-requests/${snap.cr_id}`">审核单 #{{ snap.cr_id }}</RouterLink>
             </template>
           </p>
 
@@ -218,7 +214,7 @@ async function toggleDetail(v) {
               class="btn"
               :to="`/blocks/${bid}/diff?from=${latestDiff.from}&to=${latestDiff.to}`"
             >
-              ⚡ 最近一次变更（v{{ latestDiff.from }} → v{{ latestDiff.to }}）
+              最近一次变更 v{{ latestDiff.from }} → v{{ latestDiff.to }}
             </RouterLink>
             <button
               v-else
@@ -227,7 +223,7 @@ async function toggleDetail(v) {
               disabled
               title="暂无历史版本"
             >
-              ⚡ 最近一次变更
+              最近一次变更
             </button>
 
             <span class="complete-box">
@@ -238,35 +234,35 @@ async function toggleDetail(v) {
           <p v-if="opError" class="error-text" role="alert">{{ opError }}</p>
         </div>
 
-        <section class="card sec">
-          <h2 class="sec-title">业务背景与流程</h2>
+        <section class="sec">
+          <h2 class="sec-title">背景</h2>
           <BlockMd :source="snap.content_md" />
         </section>
 
-        <section class="card sec">
-          <h2 class="sec-title">业务规则清单（{{ rules.length }} 条）</h2>
+        <section class="sec">
+          <h2 class="sec-title">业务规则 <span class="count">{{ rules.length }}</span></h2>
           <table v-if="rules.length" class="rules-table">
             <thead>
               <tr>
-                <th class="col-idx">编号</th>
-                <th class="col-name">规则名</th>
-                <th>规则详述</th>
+                <th class="col-idx"></th>
+                <th class="col-name">规则</th>
+                <th>说明</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in rules" :id="r.id ? `item-${r.id}` : undefined" :key="i">
-                <td class="muted mono">{{ r.id || i + 1 }}</td>
-                <td>{{ r.name }}</td>
-                <td>{{ r.detail }}</td>
+                <td class="muted mono idx">{{ r.id || i + 1 }}</td>
+                <td class="name">{{ r.name }}</td>
+                <td class="detail">{{ r.detail }}</td>
               </tr>
             </tbody>
           </table>
-          <p v-else class="muted">无规则（历史版本可能早于结构化拆分）。</p>
+          <p v-else class="muted">无</p>
         </section>
 
-        <section class="card sec">
-          <h2 class="sec-title">API 列表（{{ apis.length }} 个）</h2>
-          <p v-if="!apis.length" class="muted">该版本没有 API。</p>
+        <section class="sec">
+          <h2 class="sec-title">API <span class="count">{{ apis.length }}</span></h2>
+          <p v-if="!apis.length" class="muted">无</p>
           <details v-for="(a, i) in apis" :key="i" class="api-item">
             <summary class="api-summary">
               <span class="idx mono muted">#{{ i + 1 }}</span>
@@ -279,30 +275,30 @@ async function toggleDetail(v) {
           </details>
         </section>
 
-        <section class="card sec">
-          <h2 class="sec-title">验收条件（{{ acceptance.length }} 条）</h2>
+        <section class="sec">
+          <h2 class="sec-title">验收条件 <span class="count">{{ acceptance.length }}</span></h2>
           <table v-if="acceptance.length" class="rules-table">
             <thead>
               <tr>
-                <th class="col-idx">编号</th>
-                <th class="col-name">验收条件名</th>
-                <th>验收条件详述</th>
+                <th class="col-idx"></th>
+                <th class="col-name">条件</th>
+                <th>说明</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in acceptance" :id="r.id ? `item-${r.id}` : undefined" :key="i">
-                <td class="muted mono">{{ r.id || i + 1 }}</td>
-                <td>{{ r.name }}</td>
-                <td>{{ r.detail }}</td>
+                <td class="muted mono idx">{{ r.id || i + 1 }}</td>
+                <td class="name">{{ r.name }}</td>
+                <td class="detail">{{ r.detail }}</td>
               </tr>
             </tbody>
           </table>
-          <p v-else class="muted">无验收条件。</p>
+          <p v-else class="muted">无</p>
         </section>
 
-        <section class="card sec">
-          <h2 class="sec-title">版本历史</h2>
-          <table class="ver-table">
+        <details class="fold sec">
+          <summary>版本历史 <span class="count">{{ versions.length }}</span></summary>
+          <div class="table-scroll"><table class="ver-table">
             <thead>
               <tr>
                 <th>版本</th>
@@ -310,7 +306,7 @@ async function toggleDetail(v) {
                 <th>发布时间</th>
                 <th>审核单</th>
                 <th>执行</th>
-                <th>操作</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -377,60 +373,49 @@ async function toggleDetail(v) {
                 </tr>
               </template>
             </tbody>
-          </table>
-        </section>
+          </table></div>
+        </details>
       </template>
     </template>
   </div>
 </template>
 
 <style scoped>
-.load-fail {
-  margin-top: var(--sp-5);
-  padding: var(--sp-5);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--sp-3);
-}
-
 .empty {
   margin-top: var(--sp-4);
-  padding: var(--sp-6);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--sp-3);
-  border-style: dashed;
+  gap: var(--sp-2);
 }
 
 .view-head {
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-4);
 }
 
 .title-row {
   display: flex;
-  align-items: center;
-  gap: var(--sp-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.bid {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
 }
 
 .seal-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   margin-top: var(--sp-3);
 }
 
-.seal-label {
-  font-size: var(--text-xs);
-  letter-spacing: 0.08em;
-  color: var(--ink-2);
-  text-transform: uppercase;
-}
-
 .ver-select {
   width: auto;
-  min-width: 220px;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px var(--sp-2);
   font-size: var(--text-sm);
 }
@@ -445,7 +430,7 @@ async function toggleDetail(v) {
   align-items: center;
   gap: var(--sp-2);
   flex-wrap: wrap;
-  margin-top: var(--sp-4);
+  margin-top: var(--sp-3);
 }
 
 .complete-box {
@@ -453,35 +438,29 @@ async function toggleDetail(v) {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-}
-
-.done-badge {
-  font-size: var(--text-xs);
-  color: var(--success);
-  border: 1px solid var(--success);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-
-.undone-badge {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--ink-2);
-  border: 1px dashed var(--ink-2);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  white-space: nowrap;
 }
 
+/* 各部分用标题 + 细线隔开，不套卡片 */
 .sec {
-  padding: var(--sp-4) var(--sp-5);
-  margin-bottom: var(--sp-4);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--hairline);
 }
 
 .sec-title {
+  font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: 600;
-  margin-bottom: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.sec-title .count {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--ink-2);
 }
 
 .rules-table,
@@ -496,39 +475,81 @@ async function toggleDetail(v) {
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--ink-2);
-  padding: 0 var(--sp-2) var(--sp-1) 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: 0 var(--sp-3) var(--sp-1) 0;
 }
 
 .rules-table td,
 .ver-table td {
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) 0;
-  font-size: var(--text-sm);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  font-size: var(--text-md);
   vertical-align: top;
-  border-bottom: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline);
 }
 
 .col-idx {
-  width: 32px;
+  width: 1%;
 }
 
 .col-name {
-  width: 220px;
+  width: 30%;
+  min-width: 8em;
+}
+
+.idx {
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.name {
+  font-weight: 500;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* 窄屏：规则 / 验收条件每条一块：编号 + 名称一行，说明在下面 */
+@media (max-width: 560px) {
+  .rules-table,
+  .rules-table tbody {
+    display: block;
+  }
+
+  .rules-table thead {
+    display: none;
+  }
+
+  .rules-table tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: var(--sp-2);
+    padding: var(--sp-2) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .rules-table td {
+    padding: 0;
+    border: none;
+  }
+
+  .rules-table .detail {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+  }
 }
 
 .api-item {
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  margin-bottom: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-1);
 }
 
 .api-summary {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--sp-2);
   cursor: pointer;
-  font-size: var(--text-sm);
   list-style: none;
   flex-wrap: wrap;
 }
@@ -556,15 +577,13 @@ async function toggleDetail(v) {
 }
 
 .api-desc {
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 40%;
+  font-size: var(--text-sm);
+  min-width: 0;
 }
 
 .ver-time {
   font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .current-tag {
@@ -587,47 +606,33 @@ async function toggleDetail(v) {
   white-space: nowrap;
 }
 
-.confirm-text {
-  font-size: var(--text-sm);
-  margin-right: var(--sp-3);
-}
-
-.confirm-text.is-danger {
-  color: var(--danger);
-}
-
-.confirm-btns {
-  display: inline-flex;
-  gap: var(--sp-2);
-}
 .why {
   margin-bottom: var(--sp-3);
 }
 
 .why-title {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
   margin-bottom: 2px;
 }
 
 .why-body {
   font-size: var(--text-sm);
-  overflow-wrap: anywhere;
 }
 
 .kind-tag {
   margin-left: var(--sp-2);
   padding: 0 var(--sp-2);
   font-size: var(--text-xs);
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
+  background: var(--warning-wash);
   color: var(--warning);
 }
 
 .events {
   margin: 0;
   padding-left: var(--sp-4);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .events li {

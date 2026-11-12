@@ -1,35 +1,48 @@
 /* SpecLock 设计 token —— 全站唯一事实来源。
-   色板、字体、间距都在这里定义，页面与组件只引用变量，不写死数值。 */
+   陶土色的暖纸风：米白的纸、暖灰的墨、一点陶土红。色板、字体、间距都在这里定义，
+   页面与组件只引用变量，不写死数值。变量名沿用旧的（paper / card / ink / contract…），
+   换色只改这里。 */
 
 :root {
-  /* 色板 */
-  --paper: #f7f8fa;
-  --card: #ffffff;
-  --ink: #1c2333;
-  --ink-2: #667085;
-  --hairline: #e4e7ec;
-  --contract: #2545d3;
-  --contract-deep: #1c36a8;
-  --contract-wash: #eef1fd;
-  --success: #157a4e;
-  --danger: #c4351c;
-  --warning: #b25e09;
+  /* 色板 —— 纸与墨 */
+  --paper: #faf9f5; /* 页面底 */
+  --card: #ffffff; /* 浮起的表面（输入框、弹层、少量需要托起的块） */
+  --side: #f0eee6; /* 侧栏、分组底、代码块底 */
+  --hover: #ebe8de; /* 悬停 */
+  --ink: #1f1e1d;
+  --ink-2: #6b685f; /* 次要文字 */
+  --hairline: #e6e3d8; /* 分隔线 */
+  --hairline-2: #d6d3c6; /* 稍重的边（输入框、按钮） */
 
-  /* 字体 */
-  --font-display: 'Space Grotesk', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* 陶土 —— 强调色。--contract 用于文字和主按钮（对比度够），--clay 用于圆点、进度条、装饰 */
+  --clay: #c15f3c;
+  --contract: #a84a28;
+  --contract-deep: #8f3d1f;
+  --contract-wash: #f6e8df;
+
+  /* 状态色（淡底 + 同色系的深字） */
+  --success: #2f7a49;
+  --success-wash: #e7efe2;
+  --danger: #b3382c;
+  --danger-wash: #f5e4de;
+  --warning: #9a6416;
+  --warning-wash: #f6ecd6;
+
+  /* 字体：标题用衬线（典雅），正文用无衬线 */
+  --font-display: 'Source Han Serif SC', 'Noto Serif CJK SC', 'Songti SC', 'STSong', 'Georgia', serif;
   --font-body:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+    'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   --font-mono:
-    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
     'Liberation Mono', monospace;
 
-  /* 字阶 */
+  /* 字阶：正文 14，次要 13，辅助 12；标题 22 / 18 / 15 */
   --text-xs: 12px;
   --text-sm: 13px;
   --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 20px;
+  --text-lg: 15px;
+  --text-xl: 22px;
   --text-2xl: 28px;
 
   /* 间距（4px 基网） */
@@ -42,10 +55,12 @@
   --sp-8: 48px;
 
   /* 结构 */
-  --sidebar-w: 260px;
-  --topbar-h: 52px;
-  --radius: 4px;
-  --radius-sm: 2px;
+  --sidebar-w: 216px;
+  --topbar-h: 48px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --page-pad: clamp(16px, 4vw, 40px); /* 页面左右留白：窄屏收紧，宽屏舒展 */
 
   /* 动效 */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);

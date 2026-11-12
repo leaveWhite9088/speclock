@@ -13,44 +13,38 @@ defineProps({ status: { type: String, default: '' } })
 .exec-badge {
   display: inline-block;
   font-size: var(--text-xs);
-  line-height: 1.5;
+  line-height: 1.6;
   padding: 0 var(--sp-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--hairline);
+  border-radius: 999px;
   color: var(--ink-2);
-  background: var(--paper);
+  background: var(--side);
   white-space: nowrap;
 }
 
 .is-in_progress {
-  border-color: var(--contract);
   color: var(--contract);
   background: var(--contract-wash);
 }
 
 .is-implemented {
-  border-color: var(--warning);
   color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 7%, var(--card));
+  background: var(--warning-wash);
 }
 
 /* 被阻塞：在等人答复，黄色；失败：红色 */
 .is-blocked {
-  border-color: var(--warning);
   color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 8%, var(--card));
+  background: var(--warning-wash);
 }
 
 .is-failed {
-  border-color: var(--danger);
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 7%, var(--card));
+  background: var(--danger-wash);
 }
 
 .is-verified {
-  border-color: #1f8a4c;
-  color: #1f8a4c;
-  background: #e6f5ea;
+  color: var(--success);
+  background: var(--success-wash);
 }
 
 .is-superseded {

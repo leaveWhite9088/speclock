@@ -20,28 +20,26 @@ const text = computed(() => TEXT[props.status] || props.status)
 .stbadge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
-  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
   font-size: var(--text-xs);
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: nowrap;
   user-select: none;
 }
 
 .st-draft {
   color: var(--ink-2);
-  border: 1px dashed var(--ink-2);
+  border: 1px dashed var(--hairline-2);
 }
 
 .st-published {
   color: var(--contract);
   background: var(--contract-wash);
-  border: 1px solid var(--contract);
 }
 
 .st-archived {
   color: var(--ink-2);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
+  background: var(--side);
 }
 </style>

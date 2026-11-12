@@ -1,5 +1,5 @@
 <script setup>
-// 数字概览里的一张小卡片：一个大数字 + 说明；可选的进度条。
+// 数字概览里的一格：一个大数字 + 名称；可选的进度条。不带边框——几格并排，中间只有细线。
 defineProps({
   label: { type: String, required: true },
   value: { type: [Number, String], required: true },
@@ -10,10 +10,9 @@ defineProps({
 </script>
 
 <template>
-  <component :is="to ? 'RouterLink' : 'div'" :to="to || undefined" class="card stat">
-    <span class="stat-label muted">{{ label }}</span>
-    <span class="stat-value mono">{{ value }}</span>
-    <span v-if="sub" class="stat-sub muted">{{ sub }}</span>
+  <component :is="to ? 'RouterLink' : 'div'" :to="to || undefined" class="stat" :title="sub || undefined">
+    <span class="stat-value">{{ value }}</span>
+    <span class="stat-label">{{ label }}</span>
     <span v-if="percent !== null" class="stat-bar" role="presentation">
       <span class="stat-fill" :style="{ width: `${Math.min(100, Math.max(0, percent))}%` }"></span>
     </span>
@@ -25,30 +24,32 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
   color: var(--ink);
 }
 
-a.stat:hover {
-  border-color: var(--ink-2);
-}
-
-.stat-label,
-.stat-sub {
-  font-size: var(--text-xs);
+a.stat:hover .stat-label {
+  color: var(--contract);
 }
 
 .stat-value {
-  font-size: var(--text-xl);
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
 }
 
 .stat-bar {
   display: block;
-  height: 4px;
+  height: 3px;
   margin-top: var(--sp-1);
-  background: var(--paper);
+  background: var(--hairline);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -56,6 +57,6 @@ a.stat:hover {
 .stat-fill {
   display: block;
   height: 100%;
-  background: var(--success);
+  background: var(--clay);
 }
 </style>

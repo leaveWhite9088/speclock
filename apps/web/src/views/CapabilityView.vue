@@ -105,14 +105,10 @@ useAutoRefresh(load)
       </h1>
       <div class="summary-box">
         <p v-if="doc.summary" class="summary-text">{{ doc.summary }}</p>
-        <p v-else class="summary-text muted">暂无简述。简述会随索引下发给 agent，帮助它判断这个小业务是否相关。</p>
       </div>
-      <p class="page-desc">
-        模块独立发布；一个 Commit 会为本小业务派生一个新的小业务版本（manifest 快照）。
-      </p>
 
       <section class="section">
-        <h2 class="section-title">模块（{{ doc.blocks.length }}）</h2>
+        <h2 class="section-title">模块 <span class="count">{{ doc.blocks.length }}</span></h2>
         <div v-if="doc.blocks.length" class="card block-list">
           <div v-for="b in doc.blocks" :key="b.id" class="block-row">
             <RouterLink :to="`/blocks/${b.id}`" class="block-title">{{
@@ -131,19 +127,19 @@ useAutoRefresh(load)
           </div>
         </div>
         <div v-else class="card state-card">
-          <p class="muted">本小业务还没有模块（模块由 Agent 经审核单创建）。</p>
+          <p class="muted">没有模块</p>
         </div>
       </section>
 
       <section class="section">
-        <h2 class="section-title">版本历史（{{ versions.length }}）</h2>
+        <h2 class="section-title">版本历史 <span class="count">{{ versions.length }}</span></h2>
         <div v-if="versions.length" class="timeline">
           <article v-for="v in versions" :key="v.version" class="tl-item">
             <span class="tl-dot" aria-hidden="true"></span>
             <div class="card tl-card">
               <header class="tl-head">
                 <VersionChip :version="v.version" />
-                <span class="tl-note">{{ v.change_note || '（无变更说明）' }}</span>
+                <span class="tl-note">{{ v.change_note || '无变更说明' }}</span>
                 <button type="button" class="btn tl-toggle" @click="toggleManifest(v.version)">
                   {{ openManifest[v.version] ? '收起 manifest' : `manifest（${manifestRows(v).length}）` }}
                 </button>
@@ -173,9 +169,7 @@ useAutoRefresh(load)
           </article>
         </div>
         <div v-else class="card state-card">
-          <p class="muted">
-            还没有小业务版本。发布任一模块后，这里会自动派生第一个小业务版本。
-          </p>
+          <p class="muted">没有版本</p>
         </div>
       </section>
     </template>

@@ -15,9 +15,7 @@ useAutoRefresh(reload)
 <template>
   <div class="page archive-page">
     <PageHeader
-      eyebrow="Archive"
       title="归档管理"
-      desc="归档模块对 AI 不可见（读取 404、索引不出现），历史版本保留可查。归档与恢复都由 Agent 经审核单的 Commit 完成，并立即派生所属小业务的新版本（MINOR）。"
     />
 
     <AsyncState
@@ -25,7 +23,6 @@ useAutoRefresh(reload)
       :error="error"
       :empty="!rows?.length"
       empty-title="没有已归档的模块"
-      empty-text="模块下线由 Agent 经审核单归档——归档后历史版本仍然保留，可随时恢复。"
       @retry="reload"
     >
     <div class="row-list">

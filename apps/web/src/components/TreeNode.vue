@@ -51,9 +51,8 @@ const link = computed(() => {
             v-if="node.progress && node.progress.total"
             class="progress"
             :class="{ done: node.progress.verified === node.progress.total }"
-            :title="`${node.progress.total} 个已发布模块里，当前版本已验收的有 ${node.progress.verified} 个`"
           >
-            {{ node.progress.verified }}/{{ node.progress.total }} 已验收
+            {{ node.progress.verified }}/{{ node.progress.total }}
           </span>
         </template>
         <template v-if="isBlock">
@@ -63,7 +62,7 @@ const link = computed(() => {
             :version="node.version"
             :status="node.status === 'archived' ? 'draft' : 'published'"
           />
-          <BlockStatusBadge :status="node.status" />
+          <BlockStatusBadge v-if="node.status !== 'published'" :status="node.status" />
           <ExecStatusBadge :status="node.execution_status" />
           <SurfaceStatus :works="node.works || []" />
         </template>

@@ -28,9 +28,9 @@ const total = computed(() => data.value?.total ?? 0)
 
 <template>
   <div class="page search-page">
-    <PageHeader eyebrow="Search" title="搜索" desc="在已发布模块的当前版本（标题、摘要、背景、规则、验收条件、API）和审核单里找关键词。" />
+    <PageHeader title="搜索" />
 
-    <p v-if="!q" class="muted hint">在顶部的搜索框里输入关键词，按回车。快捷键：按 <kbd>/</kbd> 聚焦搜索框。</p>
+    <p v-if="!q" class="muted hint">输入关键词，回车搜索（<kbd>/</kbd> 聚焦搜索框）</p>
 
     <AsyncState
       v-else
@@ -38,11 +38,10 @@ const total = computed(() => data.value?.total ?? 0)
       :error="error"
       :empty="!total"
       :empty-title="`没有找到「${q}」`"
-      empty-text="换个关键词试试；只搜已发布模块的当前版本和审核单，草稿与已归档的模块不在范围内。"
       @retry="reload"
     >
       <p class="count muted">
-        「{{ q }}」共 {{ total }} 处命中<template v-if="data?.truncated">，只显示前 {{ data.hits.length }} 条，请缩小关键词</template>。
+        {{ total }} 处命中<template v-if="data?.truncated">，只显示前 {{ data.hits.length }} 条</template>
       </p>
 
       <section v-for="g in groups" :key="g.type" class="group">
@@ -90,7 +89,8 @@ kbd {
 }
 
 .group-title {
-  font-size: var(--text-md);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: 600;
   margin-bottom: var(--sp-2);
 }
@@ -102,12 +102,8 @@ kbd {
 }
 
 .hit {
-  padding: var(--sp-3) var(--sp-5);
-  border-bottom: 1px solid var(--hairline);
-}
-
-.hit:last-child {
-  border-bottom: none;
+  padding: var(--sp-3) var(--sp-1);
+  border-top: 1px solid var(--hairline);
 }
 
 .hit-head {

@@ -36,43 +36,31 @@ const statusText = {
 </template>
 
 <style scoped>
+/* 版本号：安静的等宽小字，已发布是陶土色，草稿 / 归档是灰色虚线 */
 .vchip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 7px;
-  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: nowrap;
   user-select: none;
 }
 
 .vchip-mark {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
+  display: none;
 }
 
 .is-published {
   color: var(--contract);
-  border: 1px solid var(--contract);
   background: var(--contract-wash);
 }
 
 .is-draft {
   color: var(--ink-2);
-  border: 1px dashed var(--ink-2);
+  border: 1px dashed var(--hairline-2);
   background: transparent;
 }
-
-.is-draft .vchip-mark {
-  background: transparent;
-  border: 1px solid currentColor;
-}
-
 </style>

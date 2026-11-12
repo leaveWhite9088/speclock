@@ -64,156 +64,106 @@ const total = computed(() => Object.values(counts.value).reduce((a, b) => a + b,
 
 <template>
   <div class="page work-page">
-    <PageHeader
-      eyebrow="Execution"
-      title="待办"
-      desc="每个已发布的模块版本都会自动产生一条执行记录：执行 Agent 领取并实现，测试 Agent 独立验收。新版本发布后，旧版本上没做完的记录会被取代。这里只做展示。"
-    />
+    <PageHeader title="待办" />
 
-    <p v-if="total" class="stats-line muted">
-      共 {{ total }} 条 ·
-      <span v-for="(n, s) in counts" :key="s" class="stat"><ExecStatusBadge :status="s" /> {{ n }}</span>
-    </p>
-
-    <div class="filter-row">
+    <div class="chips" role="tablist" aria-label="按状态筛选">
       <button
         v-for="[v, label] in FILTERS"
         :key="v"
         type="button"
-        class="btn btn-mini"
-        :class="{ 'is-on': status === v }"
+        class="chip"
+        :class="{ on: status === v }"
+        role="tab"
+        :aria-selected="status === v"
         @click="pick(v)"
       >
-        {{ label }}
+        {{ label }}<span v-if="v ? counts[v] : total" class="n">{{ v ? counts[v] : total }}</span>
       </button>
     </div>
 
     <p v-if="openError" class="error-text" role="alert">{{ openError }}</p>
 
-    <AsyncState
-      :loading="loading"
-      :error="pageError"
-      :empty="!rows.length"
-      empty-title="这里还没有记录"
-      empty-text="模块经审核单 Commit 发布后，会自动出现一条「待领取」。"
-      @retry="load"
-    >
-    <div class="card list">
-      <div v-for="r in rows" :key="r.id" class="item">
-        <div class="item-head">
-          <ExecStatusBadge :status="r.status" />
-          <RouterLink class="item-block" :to="`/blocks/${r.block_id}?version=${r.version}`">
-            {{ r.block_title }}
-          </RouterLink>
-          <span class="mono muted">v{{ r.version }}</span>
-          <span v-if="r.surface" class="surface-tag">{{ r.surface }}</span>
-          <span class="muted item-path">{{ r.business }} / {{ r.capability_title }}</span>
-          <span v-if="r.claimed_by" class="muted item-who">领取：<KeyChip :hint="r.claimed_by" /></span>
-          <span class="muted mono item-time">{{ fmtTime(r.updated_at) }}</span>
-          <a href="#" class="item-toggle" @click.prevent="toggle(r)">
-            {{ opened[r.id] ? '收起' : '历史' }}
-          </a>
-        </div>
-        <p v-if="r.reason && ['blocked', 'failed'].includes(r.status)" class="item-reason">
-          {{ r.reason }}
-        </p>
-        <ol v-if="opened[r.id]" class="events">
-          <li v-for="(e, i) in opened[r.id].events" :key="i">
-            <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
-            <span class="ev-name">{{ label(EXEC_EVENT, e.event) }}</span>
-            <span class="muted">{{ label(EXEC_STATUS, e.from) }} → {{ label(EXEC_STATUS, e.to) }}</span>
-            <span class="muted"><KeyChip :hint="e.actor" /></span>
-            <span v-if="e.note" class="ev-note">{{ e.note }}</span>
-          </li>
-        </ol>
-      </div>
-    </div>
+    <AsyncState :loading="loading" :error="pageError" :empty="!rows.length" empty-title="没有记录" @retry="load">
+      <ul class="list items">
+        <li v-for="r in rows" :key="r.id" class="item">
+          <div class="item-line">
+            <RouterLink class="item-block" :to="`/blocks/${r.block_id}?version=${r.version}`">
+              {{ r.block_title }} <span class="mono muted ver">v{{ r.version }}</span> <span v-if="r.surface" class="surface-tag">{{ r.surface }}</span>
+            </RouterLink>
+            <ExecStatusBadge :status="r.status" />
+          </div>
+          <p class="item-sub">
+            <span>{{ r.business }} / {{ r.capability_title }}</span>
+            <span v-if="r.claimed_by"><KeyChip :hint="r.claimed_by" /></span>
+            <span>{{ fmtTime(r.updated_at) }}</span>
+            <a href="#" class="item-toggle" @click.prevent="toggle(r)">{{ opened[r.id] ? '收起' : '历史' }}</a>
+          </p>
+          <p v-if="r.reason && ['blocked', 'failed'].includes(r.status)" class="item-reason">{{ r.reason }}</p>
+          <ol v-if="opened[r.id]" class="events">
+            <li v-for="(e, i) in opened[r.id].events" :key="i">
+              <span class="mono muted">{{ fmtTime(e.created_at) }}</span>
+              <span class="ev-name">{{ label(EXEC_EVENT, e.event) }}</span>
+              <span class="muted">{{ label(EXEC_STATUS, e.from) }} → {{ label(EXEC_STATUS, e.to) }}</span>
+              <span class="muted"><KeyChip :hint="e.actor" /></span>
+              <span v-if="e.note" class="ev-note">{{ e.note }}</span>
+            </li>
+          </ol>
+        </li>
+      </ul>
     </AsyncState>
   </div>
 </template>
 
 <style scoped>
-.work-page {
-  max-width: 960px;
-}
-
-.stats-line {
+.items {
   margin-top: var(--sp-3);
-  font-size: var(--text-xs);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-  align-items: center;
-}
-
-.stat {
-  display: inline-flex;
-  gap: var(--sp-1);
-  align-items: center;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin: var(--sp-4) 0;
-}
-
-.btn.is-on {
-  border-color: var(--contract);
-  color: var(--contract);
-  background: var(--contract-wash);
-}
-
-.state-card {
-  padding: var(--sp-5);
-}
-
-.list {
-  padding: var(--sp-2) var(--sp-5);
 }
 
 .item {
-  padding: var(--sp-3) 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-3) var(--sp-1);
 }
 
-.item:last-child {
-  border-bottom: none;
-}
-
-.item-head {
+.item-line {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--sp-3);
-  flex-wrap: wrap;
-  font-size: var(--text-sm);
 }
 
 .item-block {
+  min-width: 0;
+  color: var(--ink);
   font-weight: 500;
 }
 
-.item-path,
-.item-who,
-.item-time {
+.item-block:hover {
+  color: var(--contract);
+}
+
+.ver {
   font-size: var(--text-xs);
+  font-weight: 400;
 }
 
-.item-time {
-  margin-left: auto;
-}
-
-.item-reason {
-  margin: var(--sp-2) 0 0;
+.item-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+  margin-top: 2px;
   font-size: var(--text-sm);
   color: var(--ink-2);
 }
 
+.item-reason {
+  margin-top: var(--sp-1);
+  font-size: var(--text-md);
+}
+
 .events {
   margin: var(--sp-2) 0 0;
-  padding-left: var(--sp-5);
-  font-size: var(--text-xs);
+  padding-left: var(--sp-4);
+  border-left: 2px solid var(--hairline);
+  font-size: var(--text-sm);
 }
 
 .events li {
