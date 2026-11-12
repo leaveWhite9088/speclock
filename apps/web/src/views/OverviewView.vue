@@ -1,7 +1,7 @@
 <script setup>
 /**
  * OverviewView（/）—— 总览：回答「现在有什么需要我关注的」。
- * 需要你行动的（待确认的审核单、卡住的任务）最醒目；事后过目的（Agent 自行判定的内部整理）
+ * 需要你处理的（待确认的审核单、卡住的任务，合成一组）最醒目；数字区只放进度（已完成、已验收）；事后过目的（Agent 自行判定的内部整理）
  * 单独一块；其余是进展和数字。只做展示，没有任何操作。
  */
 import { computed } from 'vue'
@@ -42,9 +42,6 @@ const recent = computed(() => (activityQ.data.value || []).filter((x) => !isRead
 const loadedOnce = computed(() => crsQ.data.value && workQ.data.value && treeQ.data.value)
 const showEmptyGuide = computed(() => loadedOnce.value && o.value.isEmpty)
 
-const crTotal = computed(() => Object.values(o.value.counts.crs).reduce((a, b) => a + b, 0))
-const workTotal = computed(() => Object.values(o.value.counts.work).reduce((a, b) => a + b, 0))
-
 // 待验收和进行中合成一组「任务进展」
 const progress = computed(() => [...o.value.waiting, ...o.value.inProgress])
 
@@ -73,7 +70,13 @@ const summary = computed(() => {
 
     <template v-else>
       <div class="stats">
-        <StatCard label="已发布模块" :value="o.counts.modules" to="/tree" />
+        <StatCard
+          label="已完成"
+          :value="`${o.counts.workDonePercent}%`"
+          :sub="`${o.counts.workDone} / ${o.counts.workTotal} 个任务`"
+          :percent="o.counts.workDonePercent"
+          to="/work"
+        />
         <StatCard
           label="已验收"
           :value="`${o.counts.verifiedPercent}%`"
@@ -81,18 +84,15 @@ const summary = computed(() => {
           :percent="o.counts.verifiedPercent"
           to="/work"
         />
-        <StatCard label="审核单" :value="crTotal" to="/change-requests" />
-        <StatCard label="任务" :value="workTotal" to="/work" />
       </div>
 
       <AttentionSection
-        title="等我确认"
+        title="等我处理"
         tone="alert"
         open
-        :count="o.pending.length"
-        :loading="crsQ.loading.value"
-        :error="crsQ.error.value"
-        to="/change-requests"
+        :count="o.pending.length + o.stuck.length"
+        :loading="crsQ.loading.value || workQ.loading.value"
+        :error="crsQ.error.value || workQ.error.value"
       >
         <li v-for="c in o.pending" :key="c.id">
           <RouterLink :to="`/change-requests/${c.id}`" class="row">
@@ -106,17 +106,6 @@ const summary = computed(() => {
             <TimeAgo class="row-meta" :value="c.submitted_at || c.created_at" />
           </RouterLink>
         </li>
-      </AttentionSection>
-
-      <AttentionSection
-        title="卡住的任务"
-        tone="alert"
-        open
-        :count="o.stuck.length"
-        :loading="workQ.loading.value"
-        :error="workQ.error.value"
-        to="/work"
-      >
         <li v-for="w in o.stuck" :key="w.id">
           <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row">
             <span class="dot" :class="w.status === 'failed' ? 'is-bad' : 'is-warn'"></span>
@@ -130,7 +119,7 @@ const summary = computed(() => {
         </li>
       </AttentionSection>
 
-      <AttentionSection title="任务进展" :count="progress.length" :loading="workQ.loading.value" :error="workQ.error.value" to="/work">
+      <AttentionSection title="任务进展" open :count="progress.length" :loading="workQ.loading.value" :error="workQ.error.value" to="/work">
         <li v-for="w in progress" :key="w.id">
           <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row">
             <span class="dot is-accent"></span>
@@ -202,8 +191,5 @@ const summary = computed(() => {
     flex-basis: 45%;
   }
 
-  .stats > *:nth-child(3) {
-    border-left: none;
-  }
 }
 </style>

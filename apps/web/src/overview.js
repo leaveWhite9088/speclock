@@ -69,6 +69,12 @@ export function buildOverview({ crs = [], work = [], tree = [], now = Date.now()
       modules: mods.published,
       verifiedModules: mods.verified,
       verifiedPercent: mods.published ? Math.round((mods.verified / mods.published) * 100) : 0,
+      // 任务完成度：已实现（含已验收）占全部任务
+      workTotal: work.length,
+      workDone: work.filter((w) => w.status === 'implemented' || w.status === 'verified').length,
+      workDonePercent: work.length
+        ? Math.round((work.filter((w) => w.status === 'implemented' || w.status === 'verified').length / work.length) * 100)
+        : 0,
     },
     // 所有「需要人关注」的东西的总数：待确认 + 卡住 + 内部整理（事后过目）
     attention: pending.length + stuck.length + internal.length,

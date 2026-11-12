@@ -61,6 +61,8 @@ describe('buildOverview', () => {
     expect(o.waiting.map((w) => w.id)).toEqual([3])
     expect(o.inProgress.map((w) => w.id)).toEqual([4])
     expect(o.counts.work).toEqual({ blocked: 1, failed: 1, implemented: 1, in_progress: 1, pending: 1, verified: 1 })
+    // 6 个任务里 implemented + verified = 2 个已完成
+    expect(o.counts).toMatchObject({ workTotal: 6, workDone: 2, workDonePercent: 33 })
   })
 
   it('需要关注的总数 = 待确认 + 卡住 + 内部整理', () => {
