@@ -63,7 +63,7 @@ pre,
 
 /* 键盘焦点可见 */
 :focus-visible {
-  outline: 2px solid var(--clay);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -251,8 +251,8 @@ a.row:hover {
   align-self: center;
 }
 
-.dot.is-clay {
-  background: var(--clay);
+.dot.is-accent {
+  background: var(--accent);
 }
 
 .dot.is-ok {
@@ -267,19 +267,13 @@ a.row:hover {
   background: var(--warning);
 }
 
-/* ---------- 筛选标签：一排可横向滑动的小标签 ---------- */
+/* ---------- 筛选标签：一排小标签，放不下就换行 ---------- */
 
 .chips {
   display: flex;
-  gap: var(--sp-2);
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
   margin-top: var(--sp-4);
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.chips::-webkit-scrollbar {
-  display: none;
 }
 
 .chip {
@@ -408,7 +402,7 @@ a.row:hover {
 
 .input:focus {
   outline: none;
-  border-color: var(--clay);
+  border-color: var(--accent);
 }
 
 .input::placeholder {
@@ -487,7 +481,7 @@ a.row:hover {
 /* 从搜索结果跳到某一行时，让那一行闪一下 */
 @keyframes flash-row {
   from {
-    background: color-mix(in srgb, var(--clay) 22%, transparent);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
   to {
     background: transparent;

@@ -206,7 +206,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   height: 9px;
   margin-right: var(--sp-2);
   border-radius: 50%;
-  background: var(--clay);
+  background: var(--accent);
 }
 
 .search-input {
@@ -215,7 +215,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .search-input:focus {
-  border-color: var(--clay);
+  border-color: var(--accent);
 }
 
 .side-nav {
@@ -244,7 +244,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--ink);
   background: var(--paper);
   font-weight: 600;
-  box-shadow: inset 2px 0 0 var(--clay);
 }
 
 .side-bottom {

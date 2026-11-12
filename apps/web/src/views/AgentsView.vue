@@ -40,7 +40,7 @@ const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
     <AsyncState :loading="loading" :error="error" :empty="!rows.length" empty-title="还没有任何密钥" @retry="reload">
       <ul class="list keys">
         <li v-for="r in rows" :key="r.id" class="key" :class="{ strong: r.strongPower }">
-          <span class="dot" :class="r.neverUsed ? 'is-warn' : r.lastActiveAt ? 'is-clay' : ''"></span>
+          <span class="dot" :class="r.neverUsed ? 'is-warn' : r.lastActiveAt ? 'is-accent' : ''"></span>
           <div class="key-main">
             <div class="key-head">
               <span class="key-name">{{ r.label || '（未命名）' }}</span>

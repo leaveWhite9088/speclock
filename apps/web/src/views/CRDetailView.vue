@@ -187,20 +187,31 @@ const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded']
   font-size: var(--text-sm);
 }
 
-/* 需要你注意的一句话：左边一根陶土色竖线，不套盒子 */
+/* 需要你注意的一句话：前面一个小圆点，不套盒子 */
 .notice {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sp-1) var(--sp-3);
   margin: var(--sp-3) 0;
-  padding: var(--sp-1) 0 var(--sp-1) var(--sp-3);
-  border-left: 3px solid var(--clay);
+  padding: var(--sp-1) 0;
+}
+
+.notice::before {
+  content: '';
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .notice.is-watch {
   display: block;
-  border-left-color: var(--warning);
+}
+
+.notice.is-watch::before {
+  display: none;
 }
 
 .warn-line {

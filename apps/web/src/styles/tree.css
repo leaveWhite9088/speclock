@@ -7,15 +7,19 @@
 
 .trow {
   display: flex;
+  flex-wrap: wrap; /* 名称放得下就和状态同一行，放不下才把状态折到下一行 */
   align-items: baseline;
-  gap: var(--sp-2);
+  gap: 2px var(--sp-2);
   padding: 5px var(--sp-2);
   border-radius: var(--radius);
   transition: background var(--dur) var(--ease);
 }
 
-.trow:hover {
-  background: var(--side);
+/* 悬停高亮只给有鼠标的设备：触屏点一下会一直“悬停”，整行变灰很难看 */
+@media (hover: hover) {
+  .trow:hover {
+    background: var(--side);
+  }
 }
 
 .caret,
@@ -41,6 +45,7 @@
 }
 
 .tname {
+  flex: 1 1 6em;
   min-width: 0;
   color: var(--ink);
   overflow-wrap: anywhere;
@@ -110,15 +115,3 @@ a.tname:hover {
   color: var(--success);
 }
 
-/* 窄屏：元信息掉到名称下面一行 */
-@media (max-width: 560px) {
-  .trow {
-    flex-wrap: wrap;
-  }
-
-  .tmeta {
-    flex-basis: 100%;
-    justify-content: flex-start;
-    margin-left: calc(16px + var(--sp-2));
-  }
-}

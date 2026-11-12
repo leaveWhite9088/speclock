@@ -1,7 +1,7 @@
 <script setup>
 /**
  * 总览里的一组：标题 + 数量，可以展开 / 收起；没有内容时只剩一行灰色的「标题 0」，不占地方。
- * tone="alert"（需要你行动）的数量用陶土色圆点标出来；有内容的 alert 组默认展开。
+ * tone="alert"（需要你行动）的数量用强调色标出来；有内容的 alert 组默认展开。
  */
 import LoadingState from './LoadingState.vue'
 

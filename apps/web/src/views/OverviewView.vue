@@ -96,7 +96,7 @@ const summary = computed(() => {
       >
         <li v-for="c in o.pending" :key="c.id">
           <RouterLink :to="`/change-requests/${c.id}`" class="row">
-            <span class="dot is-clay"></span>
+            <span class="dot is-accent"></span>
             <span class="row-main">
               <span class="row-title">#{{ c.id }} {{ c.title }}</span>
               <span class="row-sub">
@@ -133,7 +133,7 @@ const summary = computed(() => {
       <AttentionSection title="任务进展" :count="progress.length" :loading="workQ.loading.value" :error="workQ.error.value" to="/work">
         <li v-for="w in progress" :key="w.id">
           <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row">
-            <span class="dot is-clay"></span>
+            <span class="dot is-accent"></span>
             <span class="row-main">
               <span class="row-title">{{ w.block_title }} <span class="mono muted">v{{ w.version }}</span></span>
               <span class="row-sub"><KeyChip :hint="w.claimed_by" /> · <TimeAgo :value="w.updated_at" /></span>

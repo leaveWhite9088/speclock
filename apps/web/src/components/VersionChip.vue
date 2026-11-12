@@ -36,7 +36,7 @@ const statusText = {
 </template>
 
 <style scoped>
-/* 版本号：安静的等宽小字，已发布是陶土色，草稿 / 归档是灰色虚线 */
+/* 版本号：安静的等宽小字，已发布是强调色，草稿 / 归档是灰色虚线 */
 .vchip {
   display: inline-flex;
   align-items: center;

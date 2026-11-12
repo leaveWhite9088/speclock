@@ -1,21 +1,22 @@
 /* SpecLock 设计 token —— 全站唯一事实来源。
-   陶土色的暖纸风：米白的纸、暖灰的墨、一点陶土红。色板、字体、间距都在这里定义，
+   白底暖灰风：白色的底、暖灰的墨和线，只用一点陶土色点缀。色板、字体、间距都在这里定义，
    页面与组件只引用变量，不写死数值。变量名沿用旧的（paper / card / ink / contract…），
    换色只改这里。 */
 
 :root {
   /* 色板 —— 纸与墨 */
-  --paper: #faf9f5; /* 页面底 */
-  --card: #ffffff; /* 浮起的表面（输入框、弹层、少量需要托起的块） */
-  --side: #f0eee6; /* 侧栏、分组底、代码块底 */
-  --hover: #ebe8de; /* 悬停 */
+  --paper: #ffffff; /* 页面底（和脚手架里的白色面板一致） */
+  --card: #ffffff; /* 浮起的表面（输入框、弹层） */
+  --side: #f6f5f1; /* 侧栏、分组底、代码块底 */
+  --hover: #eeece6; /* 悬停 */
   --ink: #1f1e1d;
   --ink-2: #6b685f; /* 次要文字 */
-  --hairline: #e6e3d8; /* 分隔线 */
-  --hairline-2: #d6d3c6; /* 稍重的边（输入框、按钮） */
+  --hairline: #e8e6df; /* 分隔线 */
+  --hairline-2: #d9d6cb; /* 稍重的边（输入框、按钮） */
 
-  /* 陶土 —— 强调色。--contract 用于文字和主按钮（对比度够），--clay 用于圆点、进度条、装饰 */
-  --clay: #c15f3c;
+  /* 陶土色 —— 只作点缀（主色是白底和暖灰，不是陶土色）。
+     --contract 用于文字和主按钮（对比度够），--accent 用于圆点、进度条、装饰 */
+  --accent: #c15f3c;
   --contract: #a84a28;
   --contract-deep: #8f3d1f;
   --contract-wash: #f6e8df;
@@ -57,9 +58,9 @@
   /* 结构 */
   --sidebar-w: 216px;
   --topbar-h: 48px;
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-lg: 12px;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --radius-lg: 14px;
   --page-pad: clamp(16px, 4vw, 40px); /* 页面左右留白：窄屏收紧，宽屏舒展 */
 
   /* 动效 */

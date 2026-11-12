@@ -57,6 +57,6 @@ a.stat:hover .stat-label {
 .stat-fill {
   display: block;
   height: 100%;
-  background: var(--clay);
+  background: var(--accent);
 }
 </style>
