@@ -252,7 +252,7 @@ git add -f apps/web/dist   # 发布提交里带上；日常开发提交不带
 `packages/cli/src/speclock_cli/`：`cli.py`（统一命令 `speclock`：`init` / `serve` / `mcp`，以及 `cr`、`key`）、`exporter.py`
 （完整备份 / 恢复（SQLite 在线备份）与文本导出（稳定、无时间戳、可进 git），`backup` / `restore` / `export` 直接调它，不走 HTTP）。
 
-前端 `apps/web/`：Vue 3 **只读展示**网页（白底暖灰 + 陶土色点缀；颜色 / 字号 / 间距只在 `styles/tokens.css` 里定义，页面只引用变量；少用卡片，用标题 + 细线 + 列表分组；窄屏 ≤ 760px 侧栏变抽屉，新页面要在窄屏下也能读），是人监控整个工具的**唯一通道**，不用登录（key 只存在内存里）。**不提供任何修改操作**，新增页面也不要加；
+前端 `apps/web/`：Vue 3 **只读展示**网页（白底暖灰 + 陶土色点缀；颜色 / 字号 / 间距只在 `styles/tokens.css` 里定义，页面只引用变量；少用卡片，用标题 + 细线 + 列表分组；窄屏 ≤ 760px 侧栏变抽屉；表格 / 列表折成窄屏样式用 `@container`（页面 `.page` 是容器，看内容区宽度），不要用窗口宽度的 `@media`；新页面要在窄屏下也能读），是人监控整个工具的**唯一通道**，不用登录（key 只存在内存里）。**不提供任何修改操作**，新增页面也不要加；
 只调用公开 REST 接口，不依赖 Core 内部实现。页面：总览、文档树、模块 / 版本 / diff / 追溯、审核单、待办、活动、Agent 与密钥、搜索、归档、AI 接入。
 嵌入模式（`?embed=1`，`src/embed.js`）：只显示内容、站内跳转保持参数、用 `postMessage` 报告路径与高度并接受外层的跳转指令，用法见 [EMBED.md](EMBED.md)。
 结构：`api/`（客户端 + `resources.js`）、`composables/`（取数、轮询、自动刷新）、`components/`（纯展示）、`views/`（薄页面）、`labels.js` / `errors.js`；
