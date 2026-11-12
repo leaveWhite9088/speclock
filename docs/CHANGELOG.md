@@ -29,20 +29,6 @@
   工具返回仍是文本 JSON `{"status", "body"}`，`body` 就是对应 REST 接口的响应，所以返回结构直接引用 OpenAPI 里的响应模型；
   和"原样包一层"不一样的三处（`whoami` 多 `key_source`、`use_api_key`、`create/update_change_request` 的 kind 校验错误）在快照里单独标注。工具的描述文字不在快照里。
 
-**一个模块版本按「端」分别领取、实现、验收（接口只增不改；没声明端的模块和已有数据行为不变）**
-
-- **模块声明端**：`create_block` / `update_block` 多了可选的 `surfaces`（如 `["前端", "后端"]`，名字自由，整体替换）。发布后**每个端一条执行记录**，各自领取、实现、阻塞 / 失败、验收，互不影响；同一个端不能重复领取，不同端可以同时进行。
-- **验收条件指明由哪些端负责**：验收条件可带 `surfaces`，一个端提交实现 / 验收只需覆盖归它的条件；不写 = 所有端都要覆盖。发布时校验：指明的端必须声明过、每个声明的端至少负责一条条件（422）。
-- **key 限定端**：`POST /api/v1/keys` 多了 `surface`（MCP `create_api_key` 同）；限定了端的 key 只能领取 / 报告 / 提交 / 验收那个端的记录（403 `work_surface_mismatch`），不限定的行为不变。`whoami` / `GET /me` 和 key 列表里多了 `surface`。
-- **「验证者不能是实现者」按每条记录各自判断**；模块要**所有端都 verified 才算已验收**（`execution_status` 是各端汇总：有端 blocked / failed 先报它们，否则取进度最慢的端；只有一个端时就是它自己的状态）。
-- **新版本发布时旧版本所有端没做完的记录一起作废**（`work_superseded` 的 `latest_work_id` 指向同一个端的最新记录）。
-- **接口变化（都是增量）**：
-  - `GET /work`：多了查询参数 `surface`；限定了端的 key 缺省只看自己的端。记录（`WorkSummaryOut`）多了 `surface`；`GET /work/{id}` / `claim` 多了 `required_acceptance`（这个端要交结果的验收条件）和 `siblings`（各端记录）。
-  - 模块 / 版本 / 索引 / 文档树 / 小业务清单节点（`GET /blocks/{ref}`、`/index`、`/tree`、`/capabilities/{ref}`、`/blocks/{id}/versions[/{v}]`）多了 `works`（每个端各自的 `{work_id, surface, status}`）；版本和模块多了 `surfaces`；`execution_status` 变为各端汇总，`work_id` 是第一个端的记录——只有一个端时都和以前一样。版本历史的事件多了 `surface`。
-  - 活动日志：多端模块的执行事件，目标是 `work:3@1.0.0#前端`，详情里有 `surface`；没声明端的和以前一样。
-  - MCP：`list_work` 多了可选参数 `surface`，`create_api_key` 多了可选参数 `surface`；`submit_commit` 的 ops 多了 `surfaces`；其余工具名、参数不变。新增错误码 `work_surface_mismatch`。
-- **升级**：老库的执行记录表唯一约束改成 `(block_id, version, surface)`，启动时自动重建，已有记录都是默认端，id 和事件原样保留，不需要人手动处理。网页的待办、总览、文档树、模块页能看到各端状态。
-
 **项目管理员看得到本项目的动态；除超级管理员外所有 key 都绑项目（会改变行为）**
 
 - **项目管理员（`project-admin`）有 `audit.read`**：能看本项目的全部动态——卡点（blocked）、失败（failed）、待审批（pending_review）、活动日志（待办和审核单本来就能读）。活动日志已按项目隔离，所以只限本项目。

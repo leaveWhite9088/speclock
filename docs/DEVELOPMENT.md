@@ -117,13 +117,7 @@ Project（项目）            隔离单元，key 可绑定到一个项目
 
 规格状态与执行状态**分开**。Core 只做机械的事——登记、转换、校验、留痕。
 
-- **每个已发布的模块版本，每个端一条执行记录**（发布 / 恢复时由 `events` 通知 `executions.sync_block`，发布引擎不认识执行记录）。
-  端来自模块版本的 `surfaces_json`（`create_block` / `update_block` 的 `surfaces`，名字自由）；没声明端的模块只有一条，`surface = ""`（默认端），和以前一样。
-  唯一约束是 `(block_id, version, surface)`。验收条件可带 `surfaces`（只在指明了才有这个键，所以没用到时存的数据和以前一模一样）：
-  `executions.required_acceptance` 按端过滤出这条记录要逐条交结果的条件，没指明 = 所有端。`ApiKey.surface` 限定 key 的端，`require_surface` 在每个转换里检查（403 `work_surface_mismatch`）。
-  模块的汇总状态由 `aggregate_status` 算（所有端都 verified 才是 verified）。老库升级：`migrations._rebuild_execution_records` 重建执行记录表（SQLite 改不了约束），已有记录都是默认端、id 和事件原样保留。
-  发布时 `engine.surface_problems` 校验：验收条件指明的端必须声明过，声明的每个端至少负责一条验收条件。
-  记录的状态流转（下面）每个端各走各的：`pending → in_progress → implemented → verified`；
+- **每个已发布的模块版本自动一条执行记录**（发布 / 恢复时由 `events` 通知 `executions.sync_block`，发布引擎不认识执行记录）：`pending → in_progress → implemented → verified`；
   `in_progress` 可去 `blocked`（业务上卡住，写原因）/ `failed`（写原因），这两个状态可重新领取（不限次数，旧结果清空，历史留在事件里）；
   验收不通过也回到 `failed`。模块发布新版本时旧版本上未结束的记录变 `superseded`（写一律 409 并指向最新版本）。`verified` / `superseded` 是终态。
 - **领取时拿到锁定版本的完整规格**；不做领取超时，卡住了用 `release_work` 放弃（领取者本人或管理员）。

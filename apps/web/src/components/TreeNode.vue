@@ -6,7 +6,6 @@
 import { ref, computed } from 'vue'
 import VersionChip from './VersionChip.vue'
 import ExecStatusBadge from './ExecStatusBadge.vue'
-import SurfaceStatus from './SurfaceStatus.vue'
 import BlockStatusBadge from './BlockStatusBadge.vue'
 
 const props = defineProps({
@@ -64,7 +63,6 @@ const link = computed(() => {
           />
           <BlockStatusBadge v-if="node.status !== 'published'" :status="node.status" />
           <ExecStatusBadge :status="node.execution_status" />
-          <SurfaceStatus :works="node.works || []" />
         </template>
       </span>
     </div>

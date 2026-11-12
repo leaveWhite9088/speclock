@@ -18,7 +18,6 @@ import BlockApiDetail from '../components/BlockApiDetail.vue'
 import BlockMd from '../components/BlockMd.vue'
 import AppBreadcrumb from '../components/AppBreadcrumb.vue'
 import ExecStatusBadge from '../components/ExecStatusBadge.vue'
-import SurfaceStatus from '../components/SurfaceStatus.vue'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import { useAutoRefresh } from '../composables/useAutoRefresh.js'
@@ -228,7 +227,6 @@ async function toggleDetail(v) {
 
             <span class="complete-box">
               执行状态 <ExecStatusBadge :status="snap.execution_status" />
-              <SurfaceStatus :works="snap.works || []" />
             </span>
           </div>
           <p v-if="opError" class="error-text" role="alert">{{ opError }}</p>
@@ -324,7 +322,6 @@ async function toggleDetail(v) {
                   </td>
                   <td class="ver-acks">
                     <ExecStatusBadge :status="v.execution_status" />
-                    <SurfaceStatus :works="v.works || []" />
                     <a
                       v-if="v.cr_id || (v.events && v.events.length)"
                       href="#"

@@ -121,7 +121,7 @@ const summary = computed(() => {
           <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row">
             <span class="dot" :class="w.status === 'failed' ? 'is-bad' : 'is-warn'"></span>
             <span class="row-main">
-              <span class="row-title">{{ w.block_title }} <span class="mono muted">v{{ w.version }}</span> <span v-if="w.surface" class="surface-tag">{{ w.surface }}</span></span>
+              <span class="row-title">{{ w.block_title }} <span class="mono muted">v{{ w.version }}</span></span>
               <span v-if="w.reason" class="row-sub reason">{{ w.reason }}</span>
               <span class="row-sub">{{ w.business }} / {{ w.capability_title }}</span>
             </span>
@@ -135,7 +135,7 @@ const summary = computed(() => {
           <RouterLink :to="`/blocks/${w.block_id}?version=${w.version}`" class="row">
             <span class="dot is-clay"></span>
             <span class="row-main">
-              <span class="row-title">{{ w.block_title }} <span class="mono muted">v{{ w.version }}</span> <span v-if="w.surface" class="surface-tag">{{ w.surface }}</span></span>
+              <span class="row-title">{{ w.block_title }} <span class="mono muted">v{{ w.version }}</span></span>
               <span class="row-sub"><KeyChip :hint="w.claimed_by" /> · <TimeAgo :value="w.updated_at" /></span>
             </span>
             <span class="row-meta"><ExecStatusBadge :status="w.status" /></span>

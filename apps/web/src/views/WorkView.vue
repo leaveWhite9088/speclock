@@ -88,7 +88,7 @@ const total = computed(() => Object.values(counts.value).reduce((a, b) => a + b,
         <li v-for="r in rows" :key="r.id" class="item">
           <div class="item-line">
             <RouterLink class="item-block" :to="`/blocks/${r.block_id}?version=${r.version}`">
-              {{ r.block_title }} <span class="mono muted ver">v{{ r.version }}</span> <span v-if="r.surface" class="surface-tag">{{ r.surface }}</span>
+              {{ r.block_title }} <span class="mono muted ver">v{{ r.version }}</span>
             </RouterLink>
             <ExecStatusBadge :status="r.status" />
           </div>

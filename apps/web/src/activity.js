@@ -2,7 +2,7 @@
  * 审计日志条目的展示辅助：把 target 字符串变成「文字 + 链接」，把 detail 里最有用的一句话挑出来。
  * 后端 target 的形式（见 speclock/*.py 里的 audit 调用）：
  *   cr:5  cr:5/commit:12  block:3@1.0.0  block:3/diff  block:3/history
- *   capability:2@1.1.0  capability:2/history  work:3@1.0.0 / work:3@1.0.0#前端（#后面是端；注意：work 后面是模块 id）
+ *   capability:2@1.1.0  capability:2/history  work:3@1.0.0（注意：work 后面是模块 id）
  *   apikey:agent-…1a2b  role:tester-agent  project:1  index  capabilities
  */
 
@@ -28,9 +28,8 @@ export function parseTarget(target) {
   if ((m = t.match(/^capability:(\d+)(?:@([\d.]+))?(?:\/history)?$/))) {
     return { text: `小业务 #${m[1]}${m[2] ? ` @${m[2]}` : ''}`, to: `/capabilities/${m[1]}` }
   }
-  if ((m = t.match(/^work:(\d+)@([\d.]+)(?:#(.+))?$/))) {
-    const surface = m[3] ? `（${m[3]}）` : '' // 声明了端的模块：work:3@1.0.0#前端
-    return { text: `模块 #${m[1]} @${m[2]}${surface} 的任务`, to: `/blocks/${m[1]}?version=${m[2]}` }
+  if ((m = t.match(/^work:(\d+)@([\d.]+)$/))) {
+    return { text: `模块 #${m[1]} @${m[2]} 的任务`, to: `/blocks/${m[1]}?version=${m[2]}` }
   }
   if ((m = t.match(/^apikey:(.+)$/))) return { text: `密钥 ${m[1]}`, to: '/agents' }
   if ((m = t.match(/^role:(.+)$/))) return { text: `角色 ${m[1]}`, to: '/agents' }

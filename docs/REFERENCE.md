@@ -50,8 +50,7 @@ AI 辅助开发中有两个已被一线实践反复验证的问题：
 - **分层索引树** — agent 一次调用 `get_index` 拿到 大业务→小业务→模块 三层概要树（小业务节点带可选的一句话简述）（模块节点带一句话摘要与当前版本的执行状态），选中后再按需精读，上下文占用最小
 - **内部整理（由 Agent 声明，Core 不判断）** — 审核单有 `kind`：业务变更（默认，须人批准）或内部整理（由需求 Agent 声明并写明理由，提交即生效，需要 `cr.internal` 权限）。内部整理只有改名和搬模块两类（不产生新的模块版本），改了模块内容的任何一个字都是业务变更；「是不是业务变更」只能由 Agent 判断，规矩写在 [`roles/requirements-agent.md`](roles/requirements-agent.md) 的提示词里；Core 不比较内容，只留痕（声明者、理由、版本 diff、审计），网页上标注「由 Agent 自行判定」。新操作 `move_block`
 - **溯源与覆盖检查** — 每个模块版本 / 小业务版本记录产生它的 `cr_id` + `commit_id`，从版本能追到「为什么改」，从审核单能追到全部 Commit 与受影响版本；Commit 声明满足审核单的哪些验收条件（`covers`），审核单要进入 `applied`，全部验收条件必须被覆盖（Core 只做这个机械检查，不判断语义）
-- **执行记录（规格状态与执行状态分开）** — 每个已发布的模块版本自动产生执行记录（模块声明了「端」就每个端一条，见下一条；没声明端的模块只有一条，和以前完全一样）：`pending → in_progress → implemented → verified`，另有 `blocked` / `failed`（可重新领取）和 `superseded`（模块发布新版本后，旧版本上没做完的记录被取代）。执行 Agent 领取任务时拿到**锁定到该版本**的完整规格；提交实现结果必须逐条验收条件给 pass + 证据；**测试 Agent 独立验收**，验证者不能是实现者（同一把 key 403）。每次转换写只追加的事件历史。待办看板 `/work` 与模块页版本历史展示状态与事件
-- **按「端」分别领取、实现、验收** — 一个模块的规格常被几方共用（前端、后端、数据各管一部分）。模块可以声明 `surfaces`（端的名字自由，由需求写规格时定），发布后**每个端一条执行记录**，各自领取、实现、阻塞 / 失败、验收，状态互不影响，同一个端不能重复领取、不同端可以同时进行。验收条件可以指明由哪些端负责（`surfaces`，不写 = 所有端都要覆盖），一个端只需对归它的条件交结果。执行者的 key 可以限定端（只能动那个端的记录）；「验证者不能是实现者」按每条记录各自判断。**模块要等所有端都 verified 才算已验收**；总览、文档树、模块页、待办都能看到每个端各自的状态，待办和活动日志里写明是哪个端。新版本发布时旧版本所有端没做完的记录一起被取代。没声明端的模块和已有数据行为不变
+- **执行记录（规格状态与执行状态分开）** — 每个已发布的模块版本自动产生一条执行记录：`pending → in_progress → implemented → verified`，另有 `blocked` / `failed`（可重新领取）和 `superseded`（模块发布新版本后，旧版本上没做完的记录被取代）。执行 Agent 领取任务时拿到**锁定到该版本**的完整规格；提交实现结果必须逐条验收条件给 pass + 证据；**测试 Agent 独立验收**，验证者不能是实现者（同一把 key 403）。每次转换写只追加的事件历史。待办看板 `/work` 与模块页版本历史展示状态与事件
 - **全链路审计** — 审核单流转 / Commit / 发布 / 拉取 / 执行记录转换 / 密钥与角色变更全部落 `AuditLog`
 
 ## 工作原理
@@ -257,7 +256,7 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 | `delete_project` | `project.manage` | **危险操作，不可恢复**：删除整个项目（含全部内容、审核单和绑定它的 key）。里面还有已发布模块时拒绝；只有超级管理员 admin 能做；同样必须有该项目里人批准过、点名这个项目的审核单（`cr_id`） |
 | `get_activity` | `audit.read` | 审计日志（新的在前），可按谁 / 动作 / 对象 / 时间筛选，`before_id` 往回翻页、`after_id` 取更新的事件 |
 | `get_block_history` / `get_capability_history` | `spec.read` | 版本历史（从旧到新）：级别标签、变更说明、delta、产生它的审核单 / Commit、状态（current / deprecated）；小业务历史带 manifest |
-| `list_work` / `get_work` | `exec.read` | 待办队列（按状态、**端**筛选；限定了端的 key 缺省只看自己那个端）/ 一条执行记录：所属的端、事件历史、已提交结果、**这个端要交结果的验收条件**（`required_acceptance`）、别的端的记录（`siblings`）、锁定到该版本的完整规格 |
+| `list_work` / `get_work` | `exec.read` | 待办队列（按状态筛选）/ 一条执行记录：事件历史、已提交结果、锁定到该版本的完整规格 |
 | `claim_work` / `release_work` / `report_blocked` / `report_failed` / `submit_implementation` | `exec.write` | 执行 Agent：领取、放弃、报告业务阻塞 / 失败（必须写原因）、提交实现结果（逐条验收条件 pass + 证据，缺一条或有不通过都被拒） |
 | `verify_work` | `exec.verify` | 测试 Agent 独立验收：逐条给结果，全通过 → verified，有不通过 → failed；验证者不能是实现者 |
 | `create_api_key` | `key.manage` | **危险操作**，只有 admin 能做：必须先问人并等到明确同意，附人同意的原话 `evidence`；Agent 类 key 由服务端存成 `.speclock/keys/` 里的文件，只返回文件名；人类 key 明文只返回一次 |
@@ -291,7 +290,6 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 | `cr_supersede_invalid` | 409 | 要取代的审核单不是 `approved` |
 | `cr_no_commits` / `cr_coverage_incomplete` | 409 | 完成审核单时：还没有 Commit / 仍有验收条件没被覆盖（`detail.missing`） |
 | `cr_not_owner` | 403 | 草稿只有开单的 key（或管理员）能改、提交、撤回 |
-| `work_surface_mismatch` | 403 | 这把 key 限定在某个端，这条执行记录属于别的端 |
 | `work_superseded` | 409 | 执行记录针对的版本已被取代（`detail.latest_work_id` 指向最新的） |
 | `work_state_conflict` / `work_already_claimed` | 409 | 记录当前状态不允许该操作 / 已被别人领取 |
 | `work_not_holder` / `work_verifier_is_implementer` | 403 | 只有领取者能操作 / 验证者不能是实现者 |
@@ -305,15 +303,14 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 
 - **轮询新事件**：`GET /api/v1/activity?after_id=<已处理到的最大 id>`，只返回更新的事件，排序仍是新的在前（`limit` 默认 50）。
   新事件多于 `limit` 时返回的是最新的那些，用 `before_id=<本页最小 id>` 往回补，直到补到 `after_id`。MCP 的 `get_activity` 也有同名的可选参数 `after_id`，用法一致。
-- **待办轮询**：`GET /api/v1/work?status=pending|implemented|blocked|failed`；按端用 `&surface=前端`（没声明端的模块的记录 `surface` 是空串）。
-- **按端的执行记录**：模块的 `surfaces` 写在 `create_block` / `update_block` 里（整体替换），验收条件的 `surfaces` 指明由哪些端负责。每条执行记录有 `surface`；模块 / 版本 / 索引 / 文档树节点上的 `execution_status` 是**各端的汇总**（所有端都 verified 才是 verified；有端 blocked / failed 先报它们，否则取进度最慢的端），`works` 是每个端各自的 `{work_id, surface, status}`，`work_id` 是第一个端的记录（只有一个端时和以前一样）。创建 key 时 `surface` 限定它属于哪个端。
+- **待办轮询**：`GET /api/v1/work?status=pending|implemented|blocked|failed`。
 
 ## 规则摘要
 
 - **删除语义**：已发布内容不可消失。模块下线 = 通过 Commit 归档（`archive_block`：agent 读 404、索引排除、历史版本保留，并立即派生小业务新版本），可通过 `restore_block` 恢复；没有硬删除接口，只有删除整个项目会级联硬删（且要求其下没有已发布模块）
 - **没有作废功能**：发布错了就再提一个审核单往前改（留痕完整，追溯链不断），不提供撤回已发布版本的入口；版本号永不复用
 - **版本级别标签**：`diffing.bump_level` 对整份 delta 机械算出——API 或规则 / 验收条件有任何删除或修改 → MAJOR；只有新增 → MINOR；其余（只改背景、条目仅改名）→ PATCH。规则与验收条件是自然语言，机器分不清改措辞与改语义，按保守一侧归类。标签写入 `BlockVersion.level` 并随 `get_block` / `get_diff` 下发，只是参考；agent 读旧版本时响应带派生状态 `status`（`current` / `deprecated`）与 `superseded_by`。
-- **执行状态机**：见 `executions.py`。验证者 ≠ 实现者按 key 判定（按每条记录各自判断）；模块发布新版本时旧版本的未结束记录变 `superseded`，对它们的写操作一律 409 并指向最新版本；归档的模块不出现在待办里，恢复后回来；`verified` 与 `superseded` 是终态，`failed` / `blocked` 可重新领取（不限次数，旧结果清空、历史留在事件里）；不做领取超时。
+- **执行状态机**：见 `executions.py`。验证者 ≠ 实现者按 key 判定；模块发布新版本时旧版本的未结束记录变 `superseded`，对它们的写操作一律 409 并指向最新版本；归档的模块不出现在待办里，恢复后回来；`verified` 与 `superseded` 是终态，`failed` / `blocked` 可重新领取（不限次数，旧结果清空、历史留在事件里）；不做领取超时。
 - **版本**：当前 0.2.0，各版本的变化见 [CHANGELOG](CHANGELOG.md)。从 0.1.0 升上来：配置与数据挪进 `.speclock/`（见上），把原来的 `speclock.db` 复制进去即可继续用；命令合并为 `speclock`。
 - **审计**：审核单流转（含批准渠道与原话）/ Commit / 发布（模块 + 小业务）/ 拉取 / 执行记录转换 / 密钥与角色变更全部写 `AuditLog`
 
