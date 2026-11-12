@@ -91,8 +91,6 @@ class Block(Base):
     draft_rules_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化业务规则清单
     draft_apis_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化 API 列表
     draft_acceptance_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化验收条件清单
-    # 这个模块涉及哪些「端」（如 前端 / 后端 / 数据；名字自由，由需求写规格时定）：[str]。空 = 没有声明端
-    draft_surfaces_json: Mapped[str] = mapped_column(Text, default="[]")
 
     capability: Mapped[Capability] = relationship(back_populates="blocks")
     versions: Mapped[list["BlockVersion"]] = relationship(
@@ -113,7 +111,6 @@ class BlockVersion(Base):
     apis_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化 API 列表（真相源）
     openapi_yaml: Mapped[str] = mapped_column(Text, default="")  # 发布时生成的 OpenAPI 3.x
     acceptance_json: Mapped[str] = mapped_column(Text, default="[]")  # 结构化验收条件清单
-    surfaces_json: Mapped[str] = mapped_column(Text, default="[]")  # 这个版本涉及的端（见 Block.draft_surfaces_json）
     # 版本级别标签 initial|major|minor|patch：发布时由 diffing.bump_level 机械算出，
     # 仅供外部 Agent 参考，Core 不据此强制任何行为
     level: Mapped[str] = mapped_column(default="")
@@ -211,8 +208,8 @@ class Commit(Base):
 
 
 class ExecutionRecord(Base):
-    """执行记录：「把模块 X 的 v 版本实现出来」这件事的状态。每个已发布版本的每个端一条（自动产生；
-    没声明端的模块只有一条），规格状态与执行状态分开存放。各端的记录独立走完整流程。
+    """执行记录：「把模块 X 的 v 版本实现出来」这件事的状态。每个已发布版本一条（自动产生），
+    规格状态与执行状态分开存放。
 
     状态：pending → in_progress → implemented → verified；in_progress 可到 blocked /
     failed（failed、blocked 可重新领取）；验收不通过回到 failed；模块发布新版本时
@@ -220,13 +217,11 @@ class ExecutionRecord(Base):
     """
 
     __tablename__ = "execution_records"
-    __table_args__ = (UniqueConstraint("block_id", "version", "surface", name="uq_exec_block_version_surface"),)
+    __table_args__ = (UniqueConstraint("block_id", "version", name="uq_exec_block_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     block_id: Mapped[int] = mapped_column(ForeignKey("blocks.id"))
     version: Mapped[str]
-    # 这条记录属于哪个「端」：模块声明了端时，每个端一条，各走各的流程；没声明端的模块只有一条，surface = ""（默认端）
-    surface: Mapped[str] = mapped_column(default="")
     status: Mapped[str] = mapped_column(default="pending")
     claimed_by: Mapped[str] = mapped_column(default="")  # key hint；空 = 无人持有
     claimed_by_key_id: Mapped[int | None] = mapped_column(nullable=True)
@@ -287,8 +282,6 @@ class ApiKey(Base):
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     label: Mapped[str] = mapped_column(default="")
     key_file: Mapped[str] = mapped_column(default="")  # Agent 类 key 的文件名（.speclock/keys/ 里），人类 key 为空
-    # 限定这把 key 属于哪个端：只能领取 / 提交 / 验收这个端的执行记录。空 = 不限定（和以前一样）
-    surface: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     role: Mapped[Role | None] = relationship()

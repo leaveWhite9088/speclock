@@ -18,7 +18,7 @@ def test_index_is_tree_grouped_by_business_and_capability(env):
     assert doc["title"] == "经营日报" and doc["version"] == "1.0.0"
     entry = doc["blocks"][0]
     assert set(entry) == {"block_id", "title", "version", "summary",
-                          "work_id", "execution_status", "works"}
+                          "work_id", "execution_status"}
     assert entry["execution_status"] == "pending"
     assert len(entry["summary"]) <= 50
     assert entry["version"] == "1.0.0"

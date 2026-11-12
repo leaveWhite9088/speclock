@@ -11,12 +11,9 @@ ops（``op`` 字段）：
 - ``update_business``     {id, name}
 - ``create_capability``   {business, title, summary?, ref?}
 - ``update_capability``   {id, title?, summary?}
-- ``create_block``        {capability, title, summary?, content_md, rules, apis, acceptance, surfaces?, ref?}
+- ``create_block``        {capability, title, summary?, content_md, rules, apis, acceptance, ref?}
 - ``update_block``        {id, title?, summary?, content_md?,
-                           rules? | rule_ops?, apis? | api_ops?, acceptance? | acceptance_ops?, surfaces?}
-                          ``surfaces``：模块涉及哪些端（["前端", "后端"]，名字自由，整体替换）；每个端发布后各有一条
-                          执行记录。验收条件可带 ``surfaces``（由哪些端负责），不写 = 所有端都要覆盖；
-                          不声明端的模块行为和以前一样。
+                           rules? | rule_ops?, apis? | api_ops?, acceptance? | acceptance_ops?}
 - ``archive_block``       {id}
 - ``restore_block``       {id}
 - ``move_block``          {id, capability}   把已发布模块搬到同项目的另一个小业务（模块的身份、
@@ -50,13 +47,12 @@ from speclock_core.engine import (
     derive_capability_version,
     publish_block,
     validate_acceptance_or_422,
-    validate_surfaces_or_422,
     validate_apis_or_422,
     validate_rules_or_422,
     with_ids,
 )
 from speclock_core.models import Block, Business, Capability, ChangeRequest, Commit, utcnow
-from speclock_core.schemas import AcceptanceEntry, ApiEntry, ApiOp, ItemEntry, ItemOp
+from speclock_core.schemas import ApiEntry, ApiOp, ItemEntry, ItemOp
 
 MAX_OPS = 200
 REF_HINT = "引用写法：创建它的 op 里给 \"ref\": \"biz\"，后面引用处写字符串 \"$biz\"（带 $ 前缀）"
@@ -69,9 +65,9 @@ OP_KEYS = {
     "create_capability": {"op", "business", "title", "summary", "ref"},
     "update_capability": {"op", "id", "title", "summary"},
     "create_block": {"op", "capability", "title", "summary", "content_md",
-                     "rules", "apis", "acceptance", "surfaces", "ref"},
+                     "rules", "apis", "acceptance", "ref"},
     "update_block": {"op", "id", "title", "summary", "content_md", "rules", "apis",
-                     "acceptance", "rule_ops", "api_ops", "acceptance_ops", "surfaces"},
+                     "acceptance", "rule_ops", "api_ops", "acceptance_ops"},
     "archive_block": {"op", "id"},
     "restore_block": {"op", "id"},
     "move_block": {"op", "id", "capability"},
@@ -332,8 +328,7 @@ def _coerce_items(raw: object, kind: str) -> list[dict]:
     _, label = diffing.ITEM_KINDS[kind]
     if not isinstance(raw, list):
         raise _422(f"{kind} 必须是数组")
-    model = AcceptanceEntry if kind == "acceptance" else ItemEntry
-    items = [_model(model, e, f"{label} 第 {i} 项").model_dump() for i, e in enumerate(raw, 1)]
+    items = [_model(ItemEntry, e, f"{label} 第 {i} 项").model_dump() for i, e in enumerate(raw, 1)]
     if kind == "rules":
         return validate_rules_or_422(items)
     return validate_acceptance_or_422(items)
@@ -350,8 +345,6 @@ def _op_create_block(ctx: _Ctx, op: dict) -> None:
     block.draft_apis_json = json.dumps(_coerce_apis(op.get("apis", [])), ensure_ascii=False)
     rules = _coerce_items(op.get("rules", []), "rules")
     acceptance = _coerce_items(op.get("acceptance", []), "acceptance")
-    block.draft_surfaces_json = json.dumps(
-        validate_surfaces_or_422(op.get("surfaces", [])), ensure_ascii=False)
     ctx.db.add(block)
     ctx.db.flush()
     block.draft_rules_json = json.dumps(with_ids(block, "rules", rules), ensure_ascii=False)
@@ -416,11 +409,6 @@ def _op_update_block(ctx: _Ctx, op: dict) -> None:
         items, changed = _update_list(block, op, field, ops_field, kind)
         if changed:
             setattr(block, attr, json.dumps(items, ensure_ascii=False))
-            content_changed = True
-    if "surfaces" in op:
-        surfaces = validate_surfaces_or_422(op["surfaces"])
-        if surfaces != json.loads(block.draft_surfaces_json or "[]"):
-            block.draft_surfaces_json = json.dumps(surfaces, ensure_ascii=False)
             content_changed = True
     if content_changed:
         entry = ctx.touched.setdefault(block.id, {"block": block, "created": False})

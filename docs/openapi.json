@@ -429,14 +429,6 @@
             ],
             "title": "Superseded By"
           },
-          "surfaces": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Surfaces",
-            "type": "array"
-          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -455,14 +447,6 @@
               }
             ],
             "title": "Work Id"
-          },
-          "works": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Works",
-            "type": "array"
           }
         },
         "required": [
@@ -573,13 +557,6 @@
             ],
             "title": "Superseded By"
           },
-          "surfaces": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Surfaces",
-            "type": "array"
-          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -594,13 +571,6 @@
               }
             ],
             "title": "Work Id"
-          },
-          "works": {
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Works",
-            "type": "array"
           }
         },
         "required": [
@@ -616,8 +586,6 @@
           "published_at",
           "work_id",
           "execution_status",
-          "works",
-          "surfaces",
           "events"
         ],
         "title": "BlockVersionEntry",
@@ -729,13 +697,6 @@
             "title": "Status",
             "type": "string"
           },
-          "surfaces": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Surfaces",
-            "type": "array"
-          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -754,13 +715,6 @@
               }
             ],
             "title": "Work Id"
-          },
-          "works": {
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Works",
-            "type": "array"
           }
         },
         "required": [
@@ -781,9 +735,7 @@
           "published_by",
           "published_at",
           "work_id",
-          "execution_status",
-          "works",
-          "surfaces"
+          "execution_status"
         ],
         "title": "BlockVersionFull",
         "type": "object"
@@ -2284,14 +2236,6 @@
               }
             ],
             "title": "Work Id"
-          },
-          "works": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Works",
-            "type": "array"
           }
         },
         "required": [
@@ -2450,11 +2394,6 @@
             "title": "Role",
             "type": "string"
           },
-          "surface": {
-            "default": "",
-            "title": "Surface",
-            "type": "string"
-          },
           "via": {
             "default": "api",
             "pattern": "^(cli|natural_language|api)$",
@@ -2545,10 +2484,6 @@
               }
             ],
             "title": "Role"
-          },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
           }
         },
         "required": [
@@ -2559,7 +2494,6 @@
           "label",
           "key_file",
           "project_id",
-          "surface",
           "created_at",
           "notice"
         ],
@@ -2635,10 +2569,6 @@
               }
             ],
             "title": "Role"
-          },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
           }
         },
         "required": [
@@ -2649,7 +2579,6 @@
           "label",
           "key_file",
           "project_id",
-          "surface",
           "created_at",
           "last_active_at",
           "actions_7d",
@@ -2705,10 +2634,6 @@
               }
             ],
             "title": "Role"
-          },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
           }
         },
         "required": [
@@ -2718,7 +2643,6 @@
           "label",
           "project_id",
           "role",
-          "surface",
           "permissions"
         ],
         "title": "MeOut",
@@ -3014,13 +2938,6 @@
           "title": {
             "title": "Title",
             "type": "string"
-          },
-          "works": {
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Works",
-            "type": "array"
           }
         },
         "required": [
@@ -3029,8 +2946,7 @@
           "status",
           "current_published_version",
           "current_published_at",
-          "execution_status",
-          "works"
+          "execution_status"
         ],
         "title": "TreeBlock",
         "type": "object"
@@ -3164,10 +3080,6 @@
             "title": "Note",
             "type": "string"
           },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
-          },
           "to": {
             "title": "To",
             "type": "string"
@@ -3179,8 +3091,7 @@
           "to",
           "actor",
           "note",
-          "created_at",
-          "surface"
+          "created_at"
         ],
         "title": "VersionEventOut",
         "type": "object"
@@ -3279,21 +3190,6 @@
             "title": "Reason",
             "type": "string"
           },
-          "required_acceptance": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Required Acceptance",
-            "type": "array"
-          },
-          "siblings": {
-            "items": {
-              "$ref": "#/components/schemas/WorkRef"
-            },
-            "title": "Siblings",
-            "type": "array"
-          },
           "spec": {
             "$ref": "#/components/schemas/BlockOut"
           },
@@ -3308,10 +3204,6 @@
               "superseded"
             ],
             "title": "Status",
-            "type": "string"
-          },
-          "surface": {
-            "title": "Surface",
             "type": "string"
           },
           "updated_at": {
@@ -3340,7 +3232,6 @@
           "capability_title",
           "business",
           "version",
-          "surface",
           "status",
           "claimed_by",
           "reason",
@@ -3348,8 +3239,6 @@
           "updated_at",
           "implementation",
           "verification",
-          "required_acceptance",
-          "siblings",
           "events",
           "spec"
         ],
@@ -3421,30 +3310,6 @@
           "reason"
         ],
         "title": "WorkReason",
-        "type": "object"
-      },
-      "WorkRef": {
-        "description": "一个模块版本的某个端的执行记录（没声明端的模块只有一条，surface 为空串）。",
-        "properties": {
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
-          },
-          "work_id": {
-            "title": "Work Id",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "work_id",
-          "surface",
-          "status"
-        ],
-        "title": "WorkRef",
         "type": "object"
       },
       "WorkResults": {
@@ -3522,10 +3387,6 @@
             "title": "Status",
             "type": "string"
           },
-          "surface": {
-            "title": "Surface",
-            "type": "string"
-          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -3544,7 +3405,6 @@
           "capability_title",
           "business",
           "version",
-          "surface",
           "status",
           "claimed_by",
           "reason",
@@ -8587,24 +8447,6 @@
               "default": false,
               "title": "Mine",
               "type": "boolean"
-            }
-          },
-          {
-            "description": "只看这个端的记录（没声明端的模块用空串）；限定了端的 key 缺省只看自己那个端",
-            "in": "query",
-            "name": "surface",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "只看这个端的记录（没声明端的模块用空串）；限定了端的 key 缺省只看自己那个端",
-              "title": "Surface"
             }
           },
           {

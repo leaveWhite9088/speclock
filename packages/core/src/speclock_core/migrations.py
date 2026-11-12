@@ -20,7 +20,6 @@ def _ensure_columns() -> None:
 
     wanted = {
         "blocks": {
-            "draft_surfaces_json": "TEXT NOT NULL DEFAULT '[]'",
             "draft_rules_json": "TEXT NOT NULL DEFAULT '[]'",
             "draft_acceptance_json": "TEXT NOT NULL DEFAULT '[]'",
         },
@@ -30,7 +29,6 @@ def _ensure_columns() -> None:
         "block_versions": {
             "rules_json": "TEXT NOT NULL DEFAULT '[]'",
             "acceptance_json": "TEXT NOT NULL DEFAULT '[]'",
-            "surfaces_json": "TEXT NOT NULL DEFAULT '[]'",
             "level": "TEXT NOT NULL DEFAULT ''",
             "cr_id": "INTEGER REFERENCES change_requests(id)",
             "commit_id": "INTEGER REFERENCES commits(id)",
@@ -42,7 +40,6 @@ def _ensure_columns() -> None:
         "api_keys": {
             "role_id": "INTEGER REFERENCES roles(id)",
             "key_file": "TEXT NOT NULL DEFAULT ''",
-            "surface": "TEXT NOT NULL DEFAULT ''",
         },
         "audit_logs": {
             "project_id": "INTEGER",
@@ -108,51 +105,9 @@ def _rename_legacy_tables() -> None:
                 conn.execute(text(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}"))
 
 
-def _rebuild_execution_records() -> None:
-    """老库的执行记录表唯一约束是 (block_id, version)，按端分开以后要改成 (block_id, version, surface)。
-    SQLite 改不了约束，只能重建表（建新表 → 拷数据 → 删旧表 → 改名）。已有的记录都是默认端（surface = ''），
-    其余数据原样保留（含 id，事件表里的 record_id 照旧指得上）。幂等：已经有 surface 列就什么都不做。"""
-    from sqlalchemy import text
-
-    with get_engine().begin() as conn:
-        have = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
-        if "execution_records" not in have:
-            return
-        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(execution_records)"))}
-        if "surface" in cols:
-            return
-        conn.execute(text("DROP TABLE IF EXISTS execution_records_new"))
-        conn.execute(text(
-            "CREATE TABLE execution_records_new ("
-            "id INTEGER NOT NULL PRIMARY KEY, "
-            "block_id INTEGER NOT NULL REFERENCES blocks (id), "
-            "version VARCHAR NOT NULL, "
-            "surface VARCHAR NOT NULL DEFAULT '', "
-            "status VARCHAR NOT NULL DEFAULT 'pending', "
-            "claimed_by VARCHAR NOT NULL DEFAULT '', "
-            "claimed_by_key_id INTEGER, "
-            "implemented_by_key_id INTEGER, "
-            "reason TEXT NOT NULL DEFAULT '', "
-            "results_json TEXT NOT NULL DEFAULT '[]', "
-            "verification_json TEXT NOT NULL DEFAULT '[]', "
-            "created_at DATETIME NOT NULL, "
-            "updated_at DATETIME NOT NULL, "
-            "CONSTRAINT uq_exec_block_version_surface UNIQUE (block_id, version, surface))"
-        ))
-        conn.execute(text(
-            "INSERT INTO execution_records_new (id, block_id, version, surface, status, claimed_by, "
-            "claimed_by_key_id, implemented_by_key_id, reason, results_json, verification_json, created_at, updated_at) "
-            "SELECT id, block_id, version, '', status, claimed_by, claimed_by_key_id, implemented_by_key_id, "
-            "reason, results_json, verification_json, created_at, updated_at FROM execution_records"
-        ))
-        conn.execute(text("DROP TABLE execution_records"))
-        conn.execute(text("ALTER TABLE execution_records_new RENAME TO execution_records"))
-
-
 def create_schema() -> None:
     """建表 + 增量迁移（幂等）。只动表结构，不写任何数据；种子数据（预置角色、执行记录补齐）
     在上层的 ``bootstrap.init_db`` 里做，这样本模块不必反过来依赖它们。"""
     _rename_legacy_tables()
     Base.metadata.create_all(get_engine())
-    _rebuild_execution_records()
     _ensure_columns()

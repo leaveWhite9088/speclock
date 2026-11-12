@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from speclock_core import BlockOut, Delta, WorkRef
+from speclock_core import BlockOut, Delta
 
 
 class Out(BaseModel):
@@ -79,7 +79,6 @@ class MeOut(Out):
     label: str
     project_id: int | None
     role: str | None
-    surface: str  # 这把 key 限定的端；"" = 不限定
     permissions: list[str]
 
 
@@ -213,7 +212,6 @@ class WorkSummaryOut(Out):
     capability_title: str
     business: str
     version: str
-    surface: str  # 这条记录属于哪个端；没声明端的模块是 ""
     status: WorkStatus
     claimed_by: str
     reason: str
@@ -236,8 +234,6 @@ class WorkDetailOut(WorkSummaryOut):
 
     implementation: list[dict[str, Any]]
     verification: list[dict[str, Any]]
-    required_acceptance: list[dict[str, Any]]  # 这个端要逐条给出结果的验收条件（别的端负责的不在里面）
-    siblings: list[WorkRef]  # 同一模块版本各个端的记录（含自己）
     events: list[WorkEventOut]
     spec: BlockOut
 
@@ -252,7 +248,6 @@ class VersionEventOut(Out):
     actor: str
     note: str
     created_at: datetime
-    surface: str  # 事件属于哪个端的记录；没声明端的模块是 ""
 
 
 class BlockHistoryEntry(Out):
@@ -274,9 +269,7 @@ class BlockVersionEntry(BlockHistoryEntry):
     """``/blocks/{id}/versions``：人看的版本列表，多了执行记录与事件。"""
 
     work_id: int | None
-    execution_status: str | None  # 各端的汇总：所有端都 verified 才是 verified
-    works: list[WorkRef]  # 每个端各自的记录和状态
-    surfaces: list[str]
+    execution_status: str | None
     events: list[VersionEventOut]
 
 
@@ -301,8 +294,6 @@ class BlockVersionFull(Out):
     published_at: datetime | None
     work_id: int | None
     execution_status: str | None
-    works: list[WorkRef]
-    surfaces: list[str]
 
 
 class CapabilityVersionEntry(Out):
@@ -347,8 +338,7 @@ class TreeBlock(Out):
     status: str
     current_published_version: str | None
     current_published_at: datetime | None
-    execution_status: str | None  # 各端的汇总
-    works: list[WorkRef]
+    execution_status: str | None
 
 
 class TreeCapability(Out):
@@ -441,7 +431,6 @@ class KeyBase(Out):
     label: str
     key_file: str
     project_id: int | None
-    surface: str  # 限定的端；"" = 不限定
     created_at: datetime
 
 

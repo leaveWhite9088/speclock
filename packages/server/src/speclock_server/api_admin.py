@@ -22,7 +22,6 @@ from speclock_core import audit, hash_key, key_hint, new_key
 from speclock_core import get_db
 from speclock_core import published_version
 from speclock_config import find_home, mcp_config
-from speclock_core import executions
 from speclock_core import ApiKey, AuditLog, Block, BlockVersion, Business, Capability, CapabilityVersion, ChangeRequest, Commit, ExecutionEvent, ExecutionRecord, Project, Role, utcnow
 from speclock_server.deps import require_key, require_permission
 from speclock_server.responses import (
@@ -57,17 +56,11 @@ def whoami(key: ApiKey = Depends(require_key)):
         "label": key.label,
         "project_id": key.project_id,
         "role": key.role.name if key.role else None,
-        "surface": key.surface or "",
         "permissions": sorted(perms.role_permissions(key.role)),
     }
 
 
 # ---------- SPA read endpoints（读操作不写审计） ----------
-
-
-def _tree_exec(recs: list[ExecutionRecord]) -> dict:
-    ex = executions.exec_fields(recs)
-    return {"execution_status": ex["execution_status"], "works": ex["works"]}
 
 
 @router.get("/tree", response_model=list[TreeProject])
@@ -80,9 +73,9 @@ def get_tree(
         (bv.block_id, bv.version): bv.published_at
         for bv in db.query(BlockVersion).all()
     }
-    exec_recs: dict[tuple[int, str], list[ExecutionRecord]] = {}
-    for r in db.query(ExecutionRecord).order_by(ExecutionRecord.id).all():
-        exec_recs.setdefault((r.block_id, r.version), []).append(r)
+    exec_status = {
+        (r.block_id, r.version): r.status for r in db.query(ExecutionRecord).all()
+    }
     return [
         {
             "id": p.id,
@@ -106,7 +99,9 @@ def get_tree(
                                     "current_published_at": published_at_map.get(
                                         (b.id, b.current_published_version)
                                     ),
-                                    **_tree_exec(exec_recs.get((b.id, b.current_published_version), [])),
+                                    "execution_status": exec_status.get(
+                                        (b.id, b.current_published_version)
+                                    ),
                                 }
                                 for b in doc.blocks
                             ],
@@ -484,14 +479,14 @@ def list_versions(
     """版本历史列表。每个版本附带该版本的执行记录（状态 + 事件历史）。"""
     block = _get_block(db, block_id)
     check_project_scope(key, block.capability.business.project_id)
-    records: dict[str, list[ExecutionRecord]] = {}
-    for r in (db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id)
-              .order_by(ExecutionRecord.id).all()):
-        records.setdefault(r.version, []).append(r)
+    records = {
+        r.version: r
+        for r in db.query(ExecutionRecord).filter(ExecutionRecord.block_id == block.id).all()
+    }
     current = block.current_published_version
     out = []
     for v in block.versions:
-        recs = records.get(v.version, [])
+        rec = records.get(v.version)
         out.append(
             {
                 "version": v.version,
@@ -503,8 +498,8 @@ def list_versions(
                 **_trace(v),
                 "published_by": v.published_by,
                 "published_at": v.published_at,
-                **executions.exec_fields(recs),
-                "surfaces": json.loads(v.surfaces_json or "[]"),
+                "work_id": rec.id if rec else None,
+                "execution_status": rec.status if rec else None,
                 "events": [
                     {
                         "event": e.event,
@@ -513,10 +508,8 @@ def list_versions(
                         "actor": e.actor,
                         "note": e.note,
                         "created_at": e.created_at,
-                        "surface": rec.surface,
                     }
-                    for rec in recs
-                    for e in rec.events
+                    for e in (rec.events if rec else [])
                 ],
             }
         )
@@ -534,7 +527,11 @@ def get_version(
     版本同样可查）。对应 UI 的模块查看页。"""
     block = _get_block(db, block_id)
     bv = published_version(db, block, version)
-    recs = executions.records_for(db, block.id, bv.version)
+    rec = (
+        db.query(ExecutionRecord)
+        .filter(ExecutionRecord.block_id == block.id, ExecutionRecord.version == bv.version)
+        .first()
+    )
     return {
         "block_id": bv.block_id,
         "title": block.title,
@@ -551,8 +548,8 @@ def get_version(
         **_trace(bv),
         "published_by": bv.published_by,
         "published_at": bv.published_at,
-        **executions.exec_fields(recs),
-        "surfaces": json.loads(bv.surfaces_json or "[]"),
+        "work_id": rec.id if rec else None,
+        "execution_status": rec.status if rec else None,
     }
 
 
@@ -595,7 +592,6 @@ def _key_out(k: ApiKey) -> dict:
         "label": k.label,
         "key_file": k.key_file or "",
         "project_id": k.project_id,
-        "surface": k.surface or "",
         "created_at": k.created_at,
     }
 
@@ -663,7 +659,7 @@ def create_key(
         )
     plaintext = new_key(role.kind)
     k = ApiKey(key=hash_key(plaintext), hint=key_hint(plaintext), prefix=role.kind,
-               role_id=role.id, project_id=project_id, label=body.label, surface=body.surface.strip())
+               role_id=role.id, project_id=project_id, label=body.label)
     db.add(k)
     db.flush()
     home = find_home()

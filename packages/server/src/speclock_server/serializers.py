@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 
-from speclock_core import BlockOut, BlockVersion, ExecutionRecord, executions
+from speclock_core import BlockOut, BlockVersion, ExecutionRecord
 
 
-def block_out(bv: BlockVersion, recs: list[ExecutionRecord] | None = None) -> BlockOut:
-    ex = executions.exec_fields(recs or [])
+def block_out(bv: BlockVersion, rec: ExecutionRecord | None = None) -> BlockOut:
     block = bv.block
     return BlockOut(
         block_id=bv.block_id,
@@ -29,10 +28,8 @@ def block_out(bv: BlockVersion, recs: list[ExecutionRecord] | None = None) -> Bl
         ),
         delta=json.loads(bv.delta_json),
         published_at=bv.published_at,
-        surfaces=json.loads(bv.surfaces_json or "[]"),
-        work_id=ex["work_id"],
-        execution_status=ex["execution_status"],
-        works=ex["works"],
+        work_id=rec.id if rec else None,
+        execution_status=rec.status if rec else None,
         cr_id=bv.cr_id,
         commit_id=bv.commit_id,
     )

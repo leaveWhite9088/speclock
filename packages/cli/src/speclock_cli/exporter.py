@@ -22,7 +22,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from speclock_config import Config
-from speclock_core import Block, BlockVersion, Business, Capability, ChangeRequest, ExecutionRecord, Project, executions
+from speclock_core import Block, BlockVersion, Business, Capability, ChangeRequest, ExecutionRecord, Project
 
 MARKER = ".speclock-export"
 
@@ -122,15 +122,13 @@ def _block_md(db: Session, block: Block, bv: BlockVersion) -> tuple[str, dict]:
     rules = _jl(bv.rules_json, [])
     acceptance = _jl(bv.acceptance_json, [])
     apis = _jl(bv.apis_json, [])
-    recs = (
+    rec = (
         db.query(ExecutionRecord)
         .filter(ExecutionRecord.block_id == block.id, ExecutionRecord.version == bv.version)
-        .order_by(ExecutionRecord.id)
-        .all()
+        .order_by(ExecutionRecord.id.desc())
+        .first()
     )
-    status = executions.aggregate_status([r.status for r in recs]) or "—"  # 多个端：各端汇总
-    if len(recs) > 1:
-        status += "（" + "、".join(f"{r.surface or '默认'}：{r.status}" for r in recs) + "）"
+    status = rec.status if rec else "—"
     md = (
         f"# {block.title}\n\n"
         f"- 模块 id：{block.id}　版本：**{bv.version}**（{bv.level or '—'}）　执行状态：{status}\n"

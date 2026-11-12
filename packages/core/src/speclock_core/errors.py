@@ -37,7 +37,6 @@ CODES: dict[str, tuple[int, str]] = {
     "work_state_conflict": (409, "执行记录当前状态不允许这个操作"),
     "work_already_claimed": (409, "已被别人领取，进行中"),
     "work_not_holder": (403, "只有领取者能操作这条任务"),
-    "work_surface_mismatch": (403, "这把 key 限定在某个端，这条执行记录属于别的端"),
     "work_verifier_is_implementer": (403, "验证者不能是实现者本人（同一把 key）"),
     # ---- 规格 / Commit ----
     "block_archived": (409, "模块已归档，不能在其上操作"),
