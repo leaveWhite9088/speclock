@@ -274,7 +274,7 @@ MCP server 暴露 **37 个工具**，key 的角色决定哪些能用（没权限
 - **接口契约**：[`docs/openapi.json`](openapi.json) 是整份 OpenAPI 的快照（服务运行时 `/openapi.json` 是同一份，多一个版本号），每个接口的返回结构都有声明；
   它有测试盯着，接口形状变化会在 [CHANGELOG](CHANGELOG.md) 里写明。
 - **MCP 工具契约**：[`docs/mcp_tools.json`](mcp_tools.json) 列出每个工具的参数、调用的 REST 接口和返回结构。工具返回文本 `{"status": <HTTP 状态码>, "body": <REST 响应>}`（连不上服务时是 `{"error": …}`），`body` 的形状见 `returns` 引用的响应模型。
-- **健康检查**：`GET /api/v1/health` → `{"status":"ok","version":"0.2.7"}`。不需要 key，只对本机地址开放（Host 不是回环地址返回 403）；数据库读不动时返回 503 + `{"status":"error",…}`。
+- **健康检查**：`GET /api/v1/health` → `{"status":"ok","version":"0.3.0"}`。不需要 key，只对本机地址开放（Host 不是回环地址返回 403）；数据库读不动时返回 503 + `{"status":"error",…}`。
 - **错误**：所有错误都是 `{"detail": …, "code": …}`。`detail` 是给人看的中文（有的是带结构的对象，如 `{"error", "missing"}`；请求体字段校验失败时是 FastAPI 的错误列表），措辞可能调整，**程序请按 `code` 判断**：
 
 | code | 状态码 | 含义 |
