@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speclock-server"
-version = "0.2.7"
+version = "0.3.0"
 description = "SpecLock HTTP 服务（FastAPI 路由 + 网页托管）"
 license = { text = "MIT" }
 requires-python = ">=3.11"
