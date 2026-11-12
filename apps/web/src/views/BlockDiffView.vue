@@ -324,9 +324,9 @@ const groups = computed(() => {
 }
 .level-tag {
   font-size: var(--text-xs);
-  padding: 0 6px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: var(--side);
   color: var(--ink-2);
 }
 </style>

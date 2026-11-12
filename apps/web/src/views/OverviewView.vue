@@ -197,7 +197,7 @@ const summary = computed(() => {
   color: var(--ink);
 }
 
-@media (max-width: 560px) {
+@container (max-width: 520px) {
   .stats > * {
     flex-basis: 45%;
   }

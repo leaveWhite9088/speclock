@@ -161,7 +161,7 @@ function when(r) {
 }
 
 /* 窄屏：不要表格了。每行 = 标题一行 + 元信息一行（状态 · 验收 · 时间 · 提交者） */
-@media (max-width: 640px) {
+@container (max-width: 640px) {
   .cr-table,
   .cr-table tbody {
     display: block;

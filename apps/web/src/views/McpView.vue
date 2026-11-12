@@ -344,6 +344,50 @@ onMounted(load)
   font-weight: 500;
 }
 
+/* 窄屏：工具清单每个工具一块（名称在上、说明在下）；活动表每条一块 */
+@container (max-width: 520px) {
+  .tool-table,
+  .tool-table tbody,
+  .act-table,
+  .act-table tbody {
+    display: block;
+  }
+
+  .tool-table thead,
+  .act-table thead {
+    display: none;
+  }
+
+  .tool-table tr {
+    display: block;
+    padding: var(--sp-2) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .act-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px var(--sp-3);
+    padding: var(--sp-2) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .tool-table td,
+  .act-table td,
+  .tool-table tbody tr:last-child td,
+  .act-table tbody tr:last-child td {
+    display: block;
+    padding: 0;
+    border: none;
+  }
+
+  .tool-table td + td {
+    margin-top: 2px;
+    color: var(--ink-2);
+  }
+}
+
 .rule-list {
   display: flex;
   flex-direction: column;

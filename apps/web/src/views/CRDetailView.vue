@@ -312,7 +312,7 @@ const decided = computed(() => ['approved', 'applied', 'rejected', 'superseded']
   white-space: nowrap;
 }
 
-@media (max-width: 560px) {
+@container (max-width: 520px) {
   .ac-table,
   .ac-table tbody {
     display: block;

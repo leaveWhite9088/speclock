@@ -73,6 +73,8 @@ pre,
 .page {
   padding: var(--sp-6) var(--page-pad) var(--sp-8);
   max-width: 920px;
+  /* 页面是一个容器：表格 / 列表是否折成窄屏样式，看内容区宽度（@container），不看窗口宽度 */
+  container-type: inline-size;
 }
 
 /* 英文小标题不要：页面标题自己说清楚 */
@@ -228,8 +230,8 @@ a.row:hover {
   background: var(--side);
 }
 
-/* 窄屏：元信息掉到标题下面，不再挤在右边 */
-@media (max-width: 560px) {
+/* 窄：元信息掉到标题下面，不再挤在右边 */
+@container (max-width: 520px) {
   .row {
     flex-wrap: wrap;
     row-gap: var(--sp-1);

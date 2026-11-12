@@ -206,7 +206,7 @@ const summary = computed(() => (data.value ? keySummary(rows.value) : ''))
 }
 
 /* 窄屏：右侧信息放到名称下面一整行 */
-@media (max-width: 560px) {
+@container (max-width: 520px) {
   .key {
     flex-wrap: wrap;
   }

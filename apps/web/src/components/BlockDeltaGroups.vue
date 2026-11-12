@@ -152,23 +152,25 @@ const itemSections = computed(() => {
 
 .chg-tag {
   display: inline-block;
-  padding: 0 6px;
-  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
   font-size: var(--text-xs);
-  border: 1px solid currentColor;
   white-space: nowrap;
 }
 
 .chg-tag-added {
   color: var(--success);
+  background: var(--success-wash);
 }
 
 .chg-tag-modified {
   color: var(--warning);
+  background: var(--warning-wash);
 }
 
 .chg-tag-removed {
   color: var(--danger);
+  background: var(--danger-wash);
 }
 
 .chg-added .path,

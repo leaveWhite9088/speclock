@@ -260,22 +260,16 @@ useAutoRefresh(load)
 
 .status-badge {
   font-size: var(--text-xs);
-  padding: 1px var(--sp-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--hairline);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: var(--side);
   color: var(--ink-2);
   white-space: nowrap;
 }
 
 .status-badge.is-published {
   color: var(--contract);
-  border-color: var(--contract);
   background: var(--contract-wash);
-}
-
-.status-badge.is-archived {
-  color: var(--ink-2);
-  background: var(--paper);
 }
 
 .done-mark {

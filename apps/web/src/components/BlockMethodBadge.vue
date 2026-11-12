@@ -24,13 +24,13 @@ const method = computed(
   display: inline-block;
   min-width: 46px;
   text-align: center;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
-  border: 1px solid currentColor;
   user-select: none;
+  background: var(--side);
 }
 
 .m-get {
@@ -40,14 +40,17 @@ const method = computed(
 
 .m-post {
   color: var(--success);
+  background: var(--success-wash);
 }
 
 .m-put,
 .m-patch {
   color: var(--warning);
+  background: var(--warning-wash);
 }
 
 .m-delete {
   color: var(--danger);
+  background: var(--danger-wash);
 }
 </style>

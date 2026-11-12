@@ -310,17 +310,17 @@ async function toggleDetail(v) {
             <tbody>
               <template v-for="v in versionsDesc" :key="v.version">
                 <tr>
-                  <td>
+                  <td class="v-ver">
                     <VersionChip :version="v.version" />
                     <span v-if="v.version === selected" class="current-tag">当前查看</span>
                   </td>
-                  <td>{{ v.change_note || '—' }}</td>
-                  <td class="muted mono ver-time">{{ fmtTime(v.published_at) }}</td>
-                  <td class="muted mono">
+                  <td class="v-note">{{ v.change_note || '—' }}</td>
+                  <td class="muted mono ver-time v-time">{{ fmtTime(v.published_at) }}</td>
+                  <td class="muted mono v-cr">
                     <RouterLink v-if="v.cr_id" :to="`/change-requests/${v.cr_id}`">#{{ v.cr_id }}</RouterLink>
                     <template v-else>—</template>
                   </td>
-                  <td class="ver-acks">
+                  <td class="ver-acks v-exec">
                     <ExecStatusBadge :status="v.execution_status" />
                     <a
                       v-if="v.cr_id || (v.events && v.events.length)"
@@ -330,7 +330,7 @@ async function toggleDetail(v) {
                       >{{ openDetail[v.version] ? '收起' : '详情' }}</a
                     >
                   </td>
-                  <td class="ver-ops">
+                  <td class="ver-ops v-ops">
                     <a href="#" @click.prevent="pickVersion(v.version)">查看</a>
                     <template v-if="prevVersion(v.version)">
                       ·
@@ -468,6 +468,7 @@ async function toggleDetail(v) {
 
 .rules-table th,
 .ver-table th {
+  white-space: nowrap;
   text-align: left;
   font-size: var(--text-xs);
   font-weight: 500;
@@ -506,7 +507,7 @@ async function toggleDetail(v) {
 }
 
 /* 窄屏：规则 / 验收条件每条一块：编号 + 名称一行，说明在下面 */
-@media (max-width: 560px) {
+@container (max-width: 520px) {
   .rules-table,
   .rules-table tbody {
     display: block;
@@ -581,6 +582,75 @@ async function toggleDetail(v) {
 .ver-time {
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+/* 版本历史：变更说明吃剩余宽度，其余列贴着内容；窄屏不用表格，每个版本一块 */
+.ver-table .v-note {
+  width: 100%;
+  min-width: 10em;
+}
+
+.ver-table .v-ver,
+.ver-table .v-cr,
+.ver-table .v-exec {
+  white-space: nowrap;
+}
+
+@container (max-width: 720px) {
+  .ver-table,
+  .ver-table tbody,
+  .ver-table .events-row,
+  .ver-table .events-row td {
+    display: block;
+  }
+
+  .ver-table thead {
+    display: none;
+  }
+
+  .ver-table tr:not(.events-row) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-1) var(--sp-3);
+    padding: var(--sp-3) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .ver-table td {
+    display: block;
+    padding: 0;
+    border: none;
+  }
+
+  .ver-table .v-ver {
+    order: 1;
+  }
+
+  .ver-table .v-exec {
+    order: 2;
+  }
+
+  .ver-table .v-note {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+    width: auto;
+  }
+
+  .ver-table .v-time {
+    order: 4;
+  }
+
+  .ver-table .v-cr {
+    order: 5;
+  }
+
+  .ver-table .v-ops {
+    order: 6;
+    flex: 1 1 100%;
+    white-space: normal;
+  }
 }
 
 .current-tag {
